@@ -36,10 +36,11 @@ Installation leaves the service disabled and unprovisioned. It does not generate
 After installation:
 
 1. Open LuCI over **HTTPS**, then go to **Services → MITM Domain Fronting**.
-2. Generate a staged CA on the router, or import a matching certificate and private-key pair that you already control. Private-key import should never be performed over plain HTTP.
-3. Download only the public certificate and install it as a trusted root on the client devices that need this service.
-4. Activate the staged pair, enable the service, and run the health check.
-5. Preview the optional PassWall2 integration. Apply it only after reviewing the proposed node, rules, targets, and order.
+2. Select **Install packaged default configuration** for a fresh installation. Existing configurations are preserved; the installer refuses to overwrite them.
+3. Generate a staged CA on the router, or import a matching certificate and private-key pair that you already control. Private-key import should never be performed over plain HTTP.
+4. Download only the public certificate and install it as a trusted root on the client devices that need this service.
+5. Activate the staged pair, select **Start**, and run the health check. Select **Enable at boot** if automatic startup is wanted.
+6. Preview the optional PassWall2 integration. Apply it only after reviewing the proposed node, rules, targets, and order.
 
 The private key is stored on the router with mode `0600`, meaning only `root` can read or change it. LuCI never offers a private-key download. The public certificate may be downloaded and distributed to trusted clients; it cannot be used to impersonate sites without the private key.
 
