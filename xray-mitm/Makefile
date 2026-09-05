@@ -5,7 +5,6 @@ PKG_VERSION:=0.1.0
 PKG_RELEASE:=1
 PKG_LICENSE:=GPL-3.0-only
 PKG_MAINTAINER:=duuuude
-PKG_SOURCE_URL:=https://github.com/duuuude/xray-mitm-openwrt
 PKGARCH:=all
 
 include $(INCLUDE_DIR)/package.mk
@@ -15,7 +14,7 @@ define Package/xray-mitm
   CATEGORY:=Network
   SUBMENU:=Web Servers/Proxies
   TITLE:=Standalone Xray MITM Domain Fronting service
-  URL:=$(PKG_SOURCE_URL)
+  URL:=https://github.com/duuuude/xray-mitm-openwrt
   DEPENDS:=@USE_APK +xray-core +curl +openssl-util +uci +jsonfilter +coreutils-stat +v2ray-geoip +v2ray-geosite
 endef
 

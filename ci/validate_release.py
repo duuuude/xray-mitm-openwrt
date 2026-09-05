@@ -410,8 +410,10 @@ def check_tree(root: Path) -> list[str]:
     core_makefile = root / "xray-mitm/Makefile"
     if core_makefile.is_file():
         text = core_makefile.read_text(encoding="utf-8", errors="replace")
-        if f"PKG_SOURCE_URL:={EXPECTED_PROJECT_URL}" not in text:
+        if f"URL:={EXPECTED_PROJECT_URL}" not in text:
             errors.append("xray-mitm/Makefile must identify the public source repository")
+        if re.search(r"^PKG_SOURCE(?:_URL)?\s*:?=", text, re.MULTILINE):
+            errors.append("xray-mitm contains local files only and must not request a source download")
         if "PKG_MAINTAINER:=duuuude" not in text:
             errors.append("xray-mitm/Makefile must identify the package maintainer")
         dependencies = make_tokens(text, "DEPENDS")
