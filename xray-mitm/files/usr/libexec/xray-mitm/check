@@ -1,0 +1,37 @@
+#!/bin/sh
+
+set -u
+
+XRAY_MITM_LIBEXEC="${XRAY_MITM_LIBEXEC:-${XRAY_MITM_TEST_ROOT:-}/usr/libexec/xray-mitm}"
+[ -r "$XRAY_MITM_LIBEXEC/common.sh" ] || XRAY_MITM_LIBEXEC="/usr/libexec/xray-mitm"
+. "$XRAY_MITM_LIBEXEC/common.sh"
+
+CONFIG_HELPER="$XRAY_MITM_LIBEXEC/config"
+CERT_HELPER="$XRAY_MITM_LIBEXEC/cert"
+
+printf '%s\n' "1. Testing Xray configuration"
+"$CONFIG_HELPER" validate || xray_mitm_die "Xray configuration validation failed"
+
+printf '\n%s\n' "2. Validating the active CA and private key"
+"$CERT_HELPER" validate-current >/dev/null || xray_mitm_die "active CA validation failed"
+printf '%s\n' "Active CA: valid"
+
+printf '\n%s\n' "3. Testing Google through the local MITM SOCKS listener"
+port="$(xray_mitm_socks_port)"
+metrics="$(curl --cacert "$XRAY_MITM_CERT" \
+	--proxy "socks5h://127.0.0.1:$port" \
+	--head --silent --show-error --max-time 20 --output /dev/null \
+	--write-out '%{http_version} %{http_code}' \
+	https://www.google.com/)" || xray_mitm_die "Google request through the MITM listener failed"
+set -- $metrics
+[ "$#" -eq 2 ] || xray_mitm_die "curl returned an unexpected result"
+case "$1" in
+	2) protocol="HTTP/2" ;;
+	3) protocol="HTTP/3" ;;
+	1.0|1.1) protocol="HTTP/$1" ;;
+	*) protocol="HTTP/$1" ;;
+esac
+[ "$2" = "200" ] || xray_mitm_die "Google via MITM returned $protocol $2"
+printf '%s\n' "Google via MITM: $protocol $2"
+
+printf '\n%s\n' "PASS: configuration, active CA, and MITM SOCKS path are working."

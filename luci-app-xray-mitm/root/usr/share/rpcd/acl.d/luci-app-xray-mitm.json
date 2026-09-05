@@ -1,0 +1,34 @@
+{
+	"luci-app-xray-mitm": {
+		"description": "Manage the standalone Xray MITM service, staged CA pairs, and optional PassWall2 routing",
+		"read": {
+			"ubus": {
+				"luci.xray-mitm": [
+					"getStatus",
+					"getCertificateStatus",
+					"exportCertificate",
+					"inspectPassWall2"
+				]
+			}
+		},
+		"write": {
+			"ubus": {
+				"luci.xray-mitm": [
+					"runHealthCheck",
+					"serviceAction",
+					"installDefaultConfig",
+					"generateCandidate",
+					"importCandidate",
+					"activateCandidate",
+					"discardCandidate",
+					"rollbackCertificate",
+					"adoptLegacyCertificate",
+					"recoverPassWall2",
+					"planPassWall2",
+					"applyPassWall2",
+					"rollbackPassWall2"
+				]
+			}
+		}
+	}
+}

@@ -1,0 +1,6 @@
+config service 'main'
+	option enabled '0'
+	option boot_enabled '0'
+	option provisioned '0'
+	option schema_version '1'
+	option asset_dir '/usr/share/v2ray'

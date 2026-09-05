@@ -1,0 +1,53 @@
+# macOS and editor state
+.DS_Store
+.AppleDouble
+._*
+*~
+*.swp
+*.swo
+.idea/
+.vscode/
+__pycache__/
+*.py[cod]
+
+# Local build trees and generated release artifacts
+/artifacts/
+/bin/
+/build_dir/
+/dist/
+/dl/
+/logs/
+/outputs/
+/staging_dir/
+/tmp/
+/work/
+*.apk
+*.ipk
+*.adb
+*.sha256
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.kdbx
+*.crt
+*.cer
+
+# Router exports, inventories, and backups. These may contain credentials,
+# Dropbear host keys, the MITM CA private key, or other identifying data.
+/backup/
+/backups/
+/exports/
+**/openwrt-working-backup.tar.gz
+**/*sysupgrade*backup*
+**/installed-packages.txt
+**/installed-packages-with-versions.txt
+**/mycert.crt
+**/mycert.key

@@ -1,0 +1,265 @@
+#!/bin/sh
+
+set -u
+
+XRAY_MITM_LIBEXEC="${XRAY_MITM_LIBEXEC:-${XRAY_MITM_TEST_ROOT:-}/usr/libexec/xray-mitm}"
+[ -r "$XRAY_MITM_LIBEXEC/common.sh" ] || XRAY_MITM_LIBEXEC="/usr/libexec/xray-mitm"
+. "$XRAY_MITM_LIBEXEC/common.sh"
+
+CERT_HELPER="$XRAY_MITM_LIBEXEC/cert"
+CHECK_HELPER="$XRAY_MITM_LIBEXEC/check"
+CONFIG_HELPER="$XRAY_MITM_LIBEXEC/config"
+
+capture_file=""
+capture_output=""
+capture_status=0
+
+cleanup() {
+	[ -n "$capture_file" ] && rm -f "$capture_file"
+}
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+capture_command() {
+	capture_file="$(mktemp /tmp/xray-mitmctl.XXXXXX)" || xray_mitm_die "cannot create private output buffer"
+	chmod 0600 "$capture_file"
+	if "$@" >"$capture_file" 2>&1; then
+		capture_status=0
+	else
+		capture_status=$?
+	fi
+	capture_output="$(dd if="$capture_file" bs=1 count=16384 2>/dev/null)"
+	rm -f "$capture_file"
+	capture_file=""
+}
+
+json_error() {
+	printf '{"ok":false,"error":'
+	xray_mitm_json_string "$1"
+	printf '}\n'
+}
+
+json_success_message() {
+	printf '{"ok":true,"message":'
+	xray_mitm_json_string "$1"
+	printf '}\n'
+}
+
+run_json_passthrough() {
+	capture_command "$@"
+	if [ "$capture_status" -ne 0 ]; then
+		[ -n "$capture_output" ] || capture_output="operation failed"
+		json_error "$capture_output"
+		return "$capture_status"
+	fi
+	case "$capture_output" in
+		'{'*'}') printf '%s\n' "$capture_output" ;;
+		*) json_error "operation returned invalid JSON"; return 1 ;;
+	esac
+}
+
+run_message_command() {
+	local success
+	success="$1"
+	shift
+	capture_command "$@"
+	if [ "$capture_status" -ne 0 ]; then
+		[ -n "$capture_output" ] || capture_output="operation failed"
+		json_error "$capture_output"
+		return "$capture_status"
+	fi
+	[ -n "$capture_output" ] && success="$capture_output"
+	json_success_message "$success"
+}
+
+run_certificate_mutation() {
+	local success fingerprint
+	success="$1"
+	shift
+	capture_command "$@"
+	if [ "$capture_status" -ne 0 ]; then
+		[ -n "$capture_output" ] || capture_output="certificate operation failed"
+		json_error "$capture_output"
+		return "$capture_status"
+	fi
+	fingerprint="$(printf '%s\n' "$capture_output" | tail -n 1 | tr 'A-F' 'a-f')"
+	if ! xray_mitm_valid_fingerprint "$fingerprint"; then
+		json_error "certificate operation returned an invalid fingerprint"
+		return 1
+	fi
+	printf '{"ok":true,"message":'
+	xray_mitm_json_string "$success"
+	printf ',"fingerprint":'
+	xray_mitm_json_string "$fingerprint"
+	printf '}\n'
+}
+
+service_action() {
+	local action old_master old_boot old_boot_setting changed
+	action="$1"
+	old_master="$(xray_mitm_uci_get enabled)"
+	case "$old_master" in 0|1) ;; *) old_master=0 ;; esac
+	old_boot=0
+	xray_mitm_boot_enabled && old_boot=1
+	old_boot_setting="$(xray_mitm_uci_get boot_enabled)"
+	case "$old_boot_setting" in 0|1) ;; *) old_boot_setting=$old_boot ;; esac
+	changed=0
+	case "$action" in
+		start|restart)
+			"$CERT_HELPER" recover >/dev/null 2>&1 || {
+				json_error "an interrupted certificate transaction could not be recovered"
+				return 1
+			}
+			xray_mitm_refresh_provisioned || {
+				json_error "could not refresh provisioning state"
+				return 1
+			}
+			if [ "$(xray_mitm_uci_get provisioned)" != "1" ]; then
+				json_error "xray-mitm is not provisioned; install the configuration and activate a CA first"
+				return 1
+			fi
+			if [ "$old_master" != "1" ]; then
+				uci -q set "${XRAY_MITM_UCI_PACKAGE}.${XRAY_MITM_UCI_SECTION}.enabled=1" &&
+					uci -q commit "$XRAY_MITM_UCI_PACKAGE" || {
+					json_error "could not enable the service master switch"
+					return 1
+				}
+				changed=1
+			fi
+			capture_command "$XRAY_MITM_INIT" "$action"
+			if [ "$capture_status" -ne 0 ] || ! xray_mitm_service_running; then
+				if [ "$changed" -eq 1 ]; then
+					uci -q set "${XRAY_MITM_UCI_PACKAGE}.${XRAY_MITM_UCI_SECTION}.enabled=${old_master:-0}" >/dev/null 2>&1 || true
+					uci -q commit "$XRAY_MITM_UCI_PACKAGE" >/dev/null 2>&1 || true
+				fi
+				[ -n "$capture_output" ] || capture_output="xray-mitm did not reach the running state"
+				json_error "$capture_output"
+				return 1
+			fi
+			json_success_message "xray-mitm is running"
+			;;
+		stop)
+			run_message_command "xray-mitm stopped" "$XRAY_MITM_INIT" stop
+			;;
+		enable)
+			if ! uci -q set "${XRAY_MITM_UCI_PACKAGE}.${XRAY_MITM_UCI_SECTION}.enabled=1" ||
+				! uci -q set "${XRAY_MITM_UCI_PACKAGE}.${XRAY_MITM_UCI_SECTION}.boot_enabled=1" ||
+				! uci -q commit "$XRAY_MITM_UCI_PACKAGE"; then
+				uci -q set "${XRAY_MITM_UCI_PACKAGE}.${XRAY_MITM_UCI_SECTION}.enabled=$old_master" >/dev/null 2>&1 || true
+				uci -q set "${XRAY_MITM_UCI_PACKAGE}.${XRAY_MITM_UCI_SECTION}.boot_enabled=$old_boot_setting" >/dev/null 2>&1 || true
+				uci -q commit "$XRAY_MITM_UCI_PACKAGE" >/dev/null 2>&1 || true
+				json_error "could not enable automatic startup"
+				return 1
+			fi
+			if ! "$XRAY_MITM_INIT" enable >/dev/null 2>&1; then
+				uci -q set "${XRAY_MITM_UCI_PACKAGE}.${XRAY_MITM_UCI_SECTION}.enabled=$old_master" >/dev/null 2>&1 || true
+				uci -q set "${XRAY_MITM_UCI_PACKAGE}.${XRAY_MITM_UCI_SECTION}.boot_enabled=$old_boot_setting" >/dev/null 2>&1 || true
+				uci -q commit "$XRAY_MITM_UCI_PACKAGE" >/dev/null 2>&1 || true
+				[ "$old_boot" -eq 1 ] && "$XRAY_MITM_INIT" enable >/dev/null 2>&1 || true
+				json_error "could not enable xray-mitm at boot"
+				return 1
+			fi
+			json_success_message "xray-mitm will start automatically at boot"
+			;;
+		disable)
+			if ! "$XRAY_MITM_INIT" disable >/dev/null 2>&1; then
+				json_error "could not disable xray-mitm at boot"
+				return 1
+			fi
+			if ! uci -q set "${XRAY_MITM_UCI_PACKAGE}.${XRAY_MITM_UCI_SECTION}.enabled=0" ||
+				! uci -q set "${XRAY_MITM_UCI_PACKAGE}.${XRAY_MITM_UCI_SECTION}.boot_enabled=0" ||
+				! uci -q commit "$XRAY_MITM_UCI_PACKAGE"; then
+				uci -q set "${XRAY_MITM_UCI_PACKAGE}.${XRAY_MITM_UCI_SECTION}.enabled=$old_master" >/dev/null 2>&1 || true
+				uci -q set "${XRAY_MITM_UCI_PACKAGE}.${XRAY_MITM_UCI_SECTION}.boot_enabled=$old_boot_setting" >/dev/null 2>&1 || true
+				uci -q commit "$XRAY_MITM_UCI_PACKAGE" >/dev/null 2>&1 || true
+				[ "$old_boot" -eq 1 ] && "$XRAY_MITM_INIT" enable >/dev/null 2>&1 || true
+				json_error "boot link changed but the UCI master switch could not be synchronized"
+				return 1
+			fi
+			json_success_message "automatic start disabled; the running process was not stopped"
+			;;
+		*)
+			json_error "unsupported service action"
+			return 1
+			;;
+	esac
+}
+
+case "${1:-}" in
+	status-json)
+		running=false
+		enabled=false
+		configured=false
+		master_enabled=false
+		recovery_pending=false
+		xray_mitm_service_running && running=true
+		xray_mitm_boot_enabled && enabled=true
+		[ "$(xray_mitm_uci_get enabled)" = "1" ] && master_enabled=true
+		[ -s "$XRAY_MITM_CONFIG" ] && [ -s "$XRAY_MITM_CERT" ] && [ -s "$XRAY_MITM_KEY" ] && configured=true
+		[ -e "$XRAY_MITM_RECOVERY" ] && recovery_pending=true
+		printf '{"ok":true,"running":%s,"enabled":%s,"configured":%s,"master_enabled":%s,"recovery_pending":%s}\n' \
+			"$running" "$enabled" "$configured" "$master_enabled" "$recovery_pending"
+		;;
+	health-json)
+		capture_command "$CHECK_HELPER"
+		if [ "$capture_status" -eq 0 ]; then
+			printf '{"ok":true,"output":'
+			xray_mitm_json_string "$capture_output"
+			printf '}\n'
+		else
+			[ -n "$capture_output" ] || capture_output="health check failed"
+			printf '{"ok":false,"error":'
+			xray_mitm_json_string "MITM health check failed"
+			printf ',"output":'
+			xray_mitm_json_string "$capture_output"
+			printf '}\n'
+			exit "$capture_status"
+		fi
+		;;
+	service)
+		[ "$#" -eq 2 ] || { json_error "service requires one action"; exit 1; }
+		service_action "$2"
+		;;
+	config-install-default)
+		[ "$#" -eq 1 ] || { json_error "config-install-default takes no arguments"; exit 1; }
+		run_message_command "default configuration installed" "$CONFIG_HELPER" install-default
+		;;
+	cert-status-json)
+		[ "$#" -eq 1 ] || { json_error "cert-status-json takes no arguments"; exit 1; }
+		run_json_passthrough "$CERT_HELPER" status-json
+		;;
+	cert-export)
+		[ "$#" -eq 2 ] || exit 1
+		exec "$CERT_HELPER" export "$2"
+		;;
+	cert-generate)
+		[ "$#" -eq 3 ] || { json_error "cert-generate requires a name and validity"; exit 1; }
+		run_certificate_mutation "candidate CA generated" "$CERT_HELPER" generate "$2" "$3"
+		;;
+	cert-prepare-import)
+		[ "$#" -eq 2 ] || { json_error "cert-prepare-import requires a temporary directory"; exit 1; }
+		run_certificate_mutation "certificate pair imported as candidate" "$CERT_HELPER" prepare-import "$2"
+		;;
+	cert-activate)
+		[ "$#" -eq 2 ] || { json_error "cert-activate requires a fingerprint"; exit 1; }
+		run_certificate_mutation "candidate CA activated" "$CERT_HELPER" activate "$2"
+		;;
+	cert-discard)
+		[ "$#" -eq 2 ] || { json_error "cert-discard requires a fingerprint"; exit 1; }
+		run_certificate_mutation "candidate CA discarded" "$CERT_HELPER" discard "$2"
+		;;
+	cert-rollback)
+		[ "$#" -eq 2 ] || { json_error "cert-rollback requires a fingerprint"; exit 1; }
+		run_certificate_mutation "previous CA restored" "$CERT_HELPER" rollback "$2"
+		;;
+	cert-adopt-legacy)
+		[ "$#" -eq 1 ] || { json_error "cert-adopt-legacy takes no arguments"; exit 1; }
+		run_certificate_mutation "existing certificate pair adopted" "$CERT_HELPER" adopt-legacy
+		;;
+	*)
+		json_error "usage: xray-mitmctl {status-json|health-json|service|config-install-default|cert-*}"
+		exit 1
+		;;
+esac

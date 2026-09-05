@@ -1,0 +1,638 @@
+#!/bin/sh
+
+set -u
+
+XRAY_MITM_LIBEXEC="${XRAY_MITM_LIBEXEC:-${XRAY_MITM_TEST_ROOT:-}/usr/libexec/xray-mitm}"
+[ -r "$XRAY_MITM_LIBEXEC/common.sh" ] || XRAY_MITM_LIBEXEC="/usr/libexec/xray-mitm"
+. "$XRAY_MITM_LIBEXEC/common.sh"
+
+CURRENT_LINK="$XRAY_MITM_CA_DIR/current"
+CANDIDATE_LINK="$XRAY_MITM_CA_DIR/candidate"
+PREVIOUS_LINK="$XRAY_MITM_CA_DIR/previous"
+LOCK_DIR="${XRAY_MITM_ROOT}/var/lock/xray-mitm"
+LOCK_FILE="$LOCK_DIR/cert.lock"
+CONFIG_HELPER="$XRAY_MITM_LIBEXEC/config"
+
+cleanup_slot=""
+cleanup_import=""
+transaction_active=0
+
+cleanup() {
+	local status="$?"
+	trap - EXIT HUP INT TERM
+	if [ "$transaction_active" -eq 1 ] && [ -f "$XRAY_MITM_RECOVERY" ]; then
+		recover_transaction >/dev/null 2>&1 || true
+	fi
+	if [ -n "$cleanup_slot" ] && [ -d "$cleanup_slot" ]; then
+		rm -f "$cleanup_slot/mycert.crt" "$cleanup_slot/mycert.key" "$cleanup_slot/openssl.cnf" \
+			"$cleanup_slot/.mycert.crt" "$cleanup_slot/.mycert.key"
+		rmdir "$cleanup_slot" 2>/dev/null || true
+	fi
+	if [ -n "$cleanup_import" ]; then
+		rm -f "$cleanup_import/input.crt" "$cleanup_import/input.key"
+		rmdir "$cleanup_import" 2>/dev/null || true
+	fi
+	exit "$status"
+}
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+acquire_lock() {
+	xray_mitm_ensure_private_dir "$LOCK_DIR" || xray_mitm_die "cannot create a private certificate lock directory"
+	umask 077
+	[ ! -L "$LOCK_FILE" ] || xray_mitm_die "certificate lock path is a symbolic link"
+	[ ! -e "$LOCK_FILE" ] || [ -f "$LOCK_FILE" ] || xray_mitm_die "certificate lock path is not a regular file"
+	exec 9>"$LOCK_FILE" || xray_mitm_die "cannot open certificate lock"
+	command -v flock >/dev/null 2>&1 || xray_mitm_die "the BusyBox flock applet is required"
+	flock -n 9 || xray_mitm_die "another certificate operation is already running"
+}
+
+valid_slot_target() {
+	local target name
+	target="$1"
+	case "$target" in slots/*) name="${target#slots/}" ;; *) return 1 ;; esac
+	case "$name" in ''|*/*|*[!A-Za-z0-9._-]*) return 1 ;; esac
+	[ -d "$XRAY_MITM_SLOTS_DIR/$name" ] && [ ! -L "$XRAY_MITM_SLOTS_DIR/$name" ]
+}
+
+valid_optional_target() {
+	[ "$1" = "-" ] || valid_slot_target "$1"
+}
+
+link_target() {
+	local link target
+	link="$1"
+	[ -L "$link" ] || return 1
+	target="$(readlink "$link")" || return 1
+	valid_slot_target "$target" || return 1
+	printf '%s\n' "$target"
+}
+
+link_target_or_none() {
+	if [ ! -e "$1" ] && [ ! -L "$1" ]; then
+		printf '%s\n' '-'
+		return 0
+	fi
+	link_target "$1"
+}
+
+slot_path() {
+	valid_slot_target "$1" || return 1
+	printf '%s/%s\n' "$XRAY_MITM_CA_DIR" "$1"
+}
+
+set_slot_link() {
+	local name target link tmp
+	name="$1"
+	target="$2"
+	valid_slot_target "$target" || return 1
+	case "$name" in current|candidate|previous) ;; *) return 1 ;; esac
+	link="$XRAY_MITM_CA_DIR/$name"
+	tmp="$XRAY_MITM_CA_DIR/.${name}.new.$$"
+	rm -f "$tmp"
+	ln -s "$target" "$tmp" || return 1
+	if ! mv -fT "$tmp" "$link" 2>/dev/null; then
+		rm -f "$link" || return 1
+		mv -f "$tmp" "$link" || return 1
+	fi
+}
+
+remove_slot_link() {
+	case "$1" in current|candidate|previous) ;; *) return 1 ;; esac
+	if [ ! -e "$XRAY_MITM_CA_DIR/$1" ] && [ ! -L "$XRAY_MITM_CA_DIR/$1" ]; then return 0; fi
+	[ -L "$XRAY_MITM_CA_DIR/$1" ] || return 1
+	rm -f "$XRAY_MITM_CA_DIR/$1"
+}
+
+restore_slot_link() {
+	if [ "$2" = "-" ]; then remove_slot_link "$1"; else set_slot_link "$1" "$2"; fi
+}
+
+remove_slot_if_unreferenced() {
+	local target ref path
+	target="$1"
+	valid_slot_target "$target" || return 0
+	for ref in "$CURRENT_LINK" "$CANDIDATE_LINK" "$PREVIOUS_LINK"; do
+		[ "$(link_target "$ref" 2>/dev/null || true)" = "$target" ] && return 0
+	done
+	path="$(slot_path "$target")" || return 0
+	rm -f "$path/mycert.crt" "$path/mycert.key" "$path/openssl.cnf" "$path/.mycert.crt" "$path/.mycert.key"
+	rmdir "$path" 2>/dev/null || true
+}
+
+file_size_ok() {
+	local bytes
+	[ -f "$1" ] && [ ! -L "$1" ] || return 1
+	bytes="$(wc -c <"$1" | tr -d ' ')"
+	case "$bytes" in ''|*[!0-9]*) return 1 ;; esac
+	[ "$bytes" -ge 1 ] && [ "$bytes" -le 65536 ]
+}
+
+safe_import_dir() {
+	local stats
+	[ -d "$1" ] && [ ! -L "$1" ] || return 1
+	stats="$(stat -c '%u %a' "$1" 2>/dev/null || true)"
+	set -- $stats
+	[ "$#" -eq 2 ] && [ "$1" = 0 ] && [ "$2" = 700 ]
+}
+
+safe_import_file() {
+	local stats
+	[ -f "$1" ] && [ ! -L "$1" ] || return 1
+	stats="$(stat -c '%u %a %h' "$1" 2>/dev/null || true)"
+	set -- $stats
+	[ "$#" -eq 3 ] && [ "$1" = 0 ] && [ "$2" = 600 ] && [ "$3" = 1 ]
+}
+
+single_certificate_pem() {
+	local begins ends
+	begins="$(grep -c -- '-----BEGIN CERTIFICATE-----' "$1" 2>/dev/null || true)"
+	ends="$(grep -c -- '-----END CERTIFICATE-----' "$1" 2>/dev/null || true)"
+	[ "$begins" = "1" ] && [ "$ends" = "1" ]
+}
+
+single_private_key_pem() {
+	local begins ends encrypted
+	begins="$(grep -Ec -- '-----BEGIN (RSA |EC )?PRIVATE KEY-----' "$1" 2>/dev/null || true)"
+	ends="$(grep -Ec -- '-----END (RSA |EC )?PRIVATE KEY-----' "$1" 2>/dev/null || true)"
+	encrypted="$(grep -c -- '-----BEGIN ENCRYPTED PRIVATE KEY-----' "$1" 2>/dev/null || true)"
+	[ "$begins" = "1" ] && [ "$ends" = "1" ] && [ "$encrypted" = "0" ]
+}
+
+validate_pair() {
+	local cert key basic usage subject issuer cert_pub key_pub
+	cert="$1"
+	key="$2"
+	xray_mitm_clock_sane || xray_mitm_die "router clock is not synchronized; set the time before certificate operations"
+	file_size_ok "$cert" || xray_mitm_die "certificate must be a regular PEM file no larger than 64 KiB"
+	file_size_ok "$key" || xray_mitm_die "private key must be a regular PEM file no larger than 64 KiB"
+	single_certificate_pem "$cert" || xray_mitm_die "exactly one PEM certificate is required"
+	single_private_key_pem "$key" || xray_mitm_die "exactly one unencrypted PEM private key is required"
+	openssl x509 -in "$cert" -noout >/dev/null 2>&1 || xray_mitm_die "invalid X.509 certificate"
+	openssl pkey -in "$key" -passin pass: -check -noout >/dev/null 2>&1 || xray_mitm_die "private key is invalid or encrypted"
+	basic="$(openssl x509 -in "$cert" -noout -ext basicConstraints 2>/dev/null)" || xray_mitm_die "certificate has no usable basicConstraints extension"
+	printf '%s\n' "$basic" | grep -Eq 'CA:[[:space:]]*TRUE' || xray_mitm_die "certificate basicConstraints does not permit CA use"
+	usage="$(openssl x509 -in "$cert" -noout -ext keyUsage 2>/dev/null)" || xray_mitm_die "certificate has no usable keyUsage extension"
+	printf '%s\n' "$usage" | grep -q 'Certificate Sign' || xray_mitm_die "certificate keyUsage does not permit certificate signing"
+	printf '%s\n' "$usage" | grep -q 'CRL Sign' || xray_mitm_die "certificate keyUsage does not permit CRL signing"
+	subject="$(openssl x509 -in "$cert" -noout -subject -nameopt RFC2253 2>/dev/null)" || xray_mitm_die "cannot read certificate subject"
+	issuer="$(openssl x509 -in "$cert" -noout -issuer -nameopt RFC2253 2>/dev/null)" || xray_mitm_die "cannot read certificate issuer"
+	[ "${subject#subject=}" = "${issuer#issuer=}" ] || xray_mitm_die "certificate is not self-issued"
+	openssl verify -auth_level 2 -check_ss_sig -CAfile "$cert" "$cert" >/dev/null 2>&1 ||
+		xray_mitm_die "certificate self-signature, validity, or security level is unacceptable"
+	# Capture each OpenSSL command directly. A multi-stage pipeline can hide an
+	# upstream failure on shells without pipefail and make two empty digests look
+	# equal. OpenSSL emits a canonical PEM public key for both inputs.
+	cert_pub="$(openssl x509 -in "$cert" -pubkey -noout 2>/dev/null)" ||
+		xray_mitm_die "cannot extract the certificate public key"
+	key_pub="$(openssl pkey -in "$key" -passin pass: -pubout 2>/dev/null)" ||
+		xray_mitm_die "cannot extract the private-key public component"
+	[ -n "$cert_pub" ] && [ "$cert_pub" = "$key_pub" ] ||
+		xray_mitm_die "certificate and private key public values do not match"
+}
+
+new_slot() {
+	local prefix dir
+	prefix="$1"
+	xray_mitm_ensure_private_dirs || xray_mitm_die "cannot create private certificate store"
+	umask 077
+	dir="$(mktemp -d "$XRAY_MITM_SLOTS_DIR/${prefix}.XXXXXX")" || xray_mitm_die "cannot allocate certificate slot"
+	chmod 0700 "$dir" || xray_mitm_die "cannot secure certificate slot"
+	printf '%s\n' "$dir"
+}
+
+assert_no_candidate() {
+	[ ! -e "$CANDIDATE_LINK" ] && [ ! -L "$CANDIDATE_LINK" ] ||
+		xray_mitm_die "a candidate CA already exists; activate or discard that exact candidate first"
+}
+
+publish_candidate() {
+	local dir target fingerprint
+	dir="$1"
+	assert_no_candidate
+	target="slots/${dir##*/}"
+	fingerprint="$(xray_mitm_cert_fingerprint "$dir/mycert.crt")" ||
+		xray_mitm_die "cannot fingerprint candidate certificate"
+	xray_mitm_valid_fingerprint "$fingerprint" || xray_mitm_die "candidate fingerprint is invalid"
+	set_slot_link candidate "$target" || xray_mitm_die "cannot publish candidate certificate"
+	cleanup_slot=""
+	printf '%s\n' "$fingerprint"
+}
+
+compat_state() {
+	if [ -L "$XRAY_MITM_CERT" ] && [ -L "$XRAY_MITM_KEY" ] &&
+		[ "$(readlink "$XRAY_MITM_CERT")" = 'ca/current/mycert.crt' ] &&
+		[ "$(readlink "$XRAY_MITM_KEY")" = 'ca/current/mycert.key' ]; then
+		printf '%s\n' managed
+	elif [ ! -e "$XRAY_MITM_CERT" ] && [ ! -L "$XRAY_MITM_CERT" ] &&
+		[ ! -e "$XRAY_MITM_KEY" ] && [ ! -L "$XRAY_MITM_KEY" ]; then
+		printf '%s\n' absent
+	else
+		return 1
+	fi
+}
+
+install_compat_links() {
+	local item path expected tmp
+	for item in crt key; do
+		path="$XRAY_MITM_DIR/mycert.$item"
+		expected="ca/current/mycert.$item"
+		if [ -L "$path" ] && [ "$(readlink "$path")" = "$expected" ]; then continue; fi
+		[ ! -e "$path" ] && [ ! -L "$path" ] || return 1
+		tmp="$XRAY_MITM_DIR/.mycert.${item}.new.$$"
+		rm -f "$tmp"
+		ln -s "$expected" "$tmp" || return 1
+		if ! mv -fT "$tmp" "$path" 2>/dev/null; then
+			rm -f "$path" || return 1
+			mv -f "$tmp" "$path" || return 1
+		fi
+	done
+}
+
+remove_managed_compat_links() {
+	local item path expected
+	for item in crt key; do
+		path="$XRAY_MITM_DIR/mycert.$item"
+		expected="ca/current/mycert.$item"
+		if [ -L "$path" ] && [ "$(readlink "$path")" = "$expected" ]; then
+			rm -f "$path" || return 1
+		elif [ -e "$path" ] || [ -L "$path" ]; then
+			return 1
+		fi
+	done
+}
+
+remove_adoption_compat_links() {
+	local item path expected
+	for item in crt key; do
+		path="$XRAY_MITM_DIR/mycert.$item"
+		expected="ca/current/mycert.$item"
+		if [ -L "$path" ]; then
+			[ "$(readlink "$path")" = "$expected" ] || return 1
+			rm -f "$path" || return 1
+		elif [ -e "$path" ]; then
+			[ -f "$path" ] || return 1
+		fi
+	done
+}
+
+slot_cert_path() {
+	local target path
+	case "$1" in
+		current) target="$(link_target "$CURRENT_LINK")" ;;
+		candidate) target="$(link_target "$CANDIDATE_LINK")" ;;
+		previous) target="$(link_target "$PREVIOUS_LINK")" ;;
+		*) return 1 ;;
+	esac
+	path="$(slot_path "$target")" || return 1
+	[ -s "$path/mycert.crt" ] && [ ! -L "$path/mycert.crt" ] || return 1
+	printf '%s\n' "$path/mycert.crt"
+}
+
+slot_json() {
+	local name cert fp subject expires
+	name="$1"
+	cert="$(slot_cert_path "$name" 2>/dev/null || true)"
+	if [ -z "$cert" ]; then printf 'null'; return 0; fi
+	fp="$(xray_mitm_cert_fingerprint "$cert" 2>/dev/null || true)"
+	subject="$(openssl x509 -in "$cert" -noout -subject -nameopt RFC2253 2>/dev/null | sed 's/^subject=//' | cut -c 1-512)"
+	expires="$(openssl x509 -in "$cert" -noout -enddate 2>/dev/null | sed 's/^notAfter=//' | cut -c 1-128)"
+	printf '{"present":true,"fingerprint":'
+	xray_mitm_json_string "$fp"
+	printf ',"subject":'
+	xray_mitm_json_string "$subject"
+	printf ',"not_after":'
+	xray_mitm_json_string "$expires"
+	printf '}'
+}
+
+status_json() {
+	local managed legacy invalid recovery
+	managed=false; legacy=false; invalid=false; recovery=false
+	if [ "$(compat_state 2>/dev/null || true)" = managed ]; then
+		managed=true
+	elif [ -f "$XRAY_MITM_CERT" ] && [ ! -L "$XRAY_MITM_CERT" ] && [ -f "$XRAY_MITM_KEY" ] && [ ! -L "$XRAY_MITM_KEY" ]; then
+		legacy=true
+	elif [ -e "$XRAY_MITM_CERT" ] || [ -L "$XRAY_MITM_CERT" ] || [ -e "$XRAY_MITM_KEY" ] || [ -L "$XRAY_MITM_KEY" ]; then
+		invalid=true
+	fi
+	[ -e "$XRAY_MITM_RECOVERY" ] && recovery=true
+	printf '{"ok":true,"managed":%s,"legacy_pair":%s,"invalid_pair":%s,"recovery_pending":%s,"slots":{"current":' "$managed" "$legacy" "$invalid" "$recovery"
+	slot_json current
+	printf ',"candidate":'; slot_json candidate
+	printf ',"previous":'; slot_json previous
+	printf '}}\n'
+}
+
+normalize_pair_into_slot() {
+	local input_cert input_key slot cert_tmp key_tmp
+	input_cert="$1"; input_key="$2"; slot="$3"
+	file_size_ok "$input_cert" || xray_mitm_die "certificate must be a regular PEM file no larger than 64 KiB"
+	file_size_ok "$input_key" || xray_mitm_die "private key must be a regular PEM file no larger than 64 KiB"
+	single_certificate_pem "$input_cert" || xray_mitm_die "exactly one PEM certificate is required"
+	single_private_key_pem "$input_key" || xray_mitm_die "exactly one unencrypted PEM private key is required"
+	cert_tmp="$slot/.mycert.crt"; key_tmp="$slot/.mycert.key"
+	umask 077
+	openssl x509 -in "$input_cert" -out "$cert_tmp" >/dev/null 2>&1 || xray_mitm_die "cannot normalize imported certificate"
+	openssl pkey -in "$input_key" -passin pass: -out "$key_tmp" >/dev/null 2>&1 || xray_mitm_die "cannot normalize imported private key"
+	chmod 0644 "$cert_tmp" || xray_mitm_die "cannot set public certificate permissions"
+	chmod 0600 "$key_tmp" || xray_mitm_die "cannot secure imported private key"
+	mv "$cert_tmp" "$slot/mycert.crt" || xray_mitm_die "cannot install normalized certificate"
+	mv "$key_tmp" "$slot/mycert.key" || xray_mitm_die "cannot install normalized private key"
+	validate_pair "$slot/mycert.crt" "$slot/mycert.key"
+}
+
+generate_candidate() {
+	local cn days dir conf
+	cn="$1"; days="$2"
+	assert_no_candidate
+	xray_mitm_clock_sane || xray_mitm_die "router clock is not synchronized; set the time before generating a CA"
+	[ "${#cn}" -le 64 ] && printf '%s\n' "$cn" | LC_ALL=C grep -Eq '^[A-Za-z0-9][A-Za-z0-9 ._-]*$' ||
+		xray_mitm_die "CA name must be 1-64 ASCII letters, digits, spaces, dots, underscores, or hyphens"
+	case "$days" in ''|*[!0-9]*) xray_mitm_die "validity days must be numeric" ;; esac
+	[ "$days" -ge 365 ] && [ "$days" -le 3650 ] || xray_mitm_die "validity days must be between 365 and 3650"
+	dir="$(new_slot candidate)" || xray_mitm_die "cannot allocate candidate certificate slot"
+	cleanup_slot="$dir"; conf="$dir/openssl.cnf"
+	cat >"$conf" <<EOF
+[req]
+distinguished_name = dn
+x509_extensions = v3_ca
+prompt = no
+
+[dn]
+CN = $cn
+
+[v3_ca]
+basicConstraints = critical, CA:true
+keyUsage = critical, keyCertSign, cRLSign
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid:always
+EOF
+	openssl req -new -x509 -newkey rsa:3072 -nodes -sha256 -days "$days" -config "$conf" \
+		-keyout "$dir/mycert.key" -out "$dir/mycert.crt" >/dev/null 2>&1 || xray_mitm_die "OpenSSL could not generate the CA"
+	rm -f "$conf"
+	chmod 0600 "$dir/mycert.key" || xray_mitm_die "cannot secure generated private key"
+	chmod 0644 "$dir/mycert.crt" || xray_mitm_die "cannot set public certificate permissions"
+	validate_pair "$dir/mycert.crt" "$dir/mycert.key"
+	publish_candidate "$dir"
+}
+
+prepare_import() {
+	local dir suffix cert key slot
+	dir="$1"; assert_no_candidate
+	case "$dir" in /tmp/xray-mitm-rpc.*) suffix="${dir#/tmp/xray-mitm-rpc.}" ;; *) xray_mitm_die "import directory must be an xray-mitm RPC temporary directory" ;; esac
+	case "$suffix" in ''|*/*|*[!A-Za-z0-9._-]*) xray_mitm_die "invalid import directory" ;; esac
+	safe_import_dir "$dir" || xray_mitm_die "import directory must be root-owned with mode 0700"
+	cleanup_import="$dir"; cert="$dir/input.crt"; key="$dir/input.key"
+	safe_import_file "$cert" && safe_import_file "$key" ||
+		xray_mitm_die "imported files must be root-owned, mode 0600, and single-linked"
+	slot="$(new_slot candidate)" || xray_mitm_die "cannot allocate imported certificate slot"
+	cleanup_slot="$slot"
+	normalize_pair_into_slot "$cert" "$key" "$slot"
+	rm -f "$cert" "$key"; rmdir "$dir" 2>/dev/null || true; cleanup_import=""
+	publish_candidate "$slot"
+}
+
+validate_slot_for_switch() {
+	local target path
+	target="$1"; path="$(slot_path "$target")" || xray_mitm_die "managed certificate slot is invalid"
+	validate_pair "$path/mycert.crt" "$path/mycert.key"
+	if [ -s "$XRAY_MITM_CONFIG" ]; then
+		"$CONFIG_HELPER" validate-with-cert "$path/mycert.crt" "$path/mycert.key" >/dev/null ||
+			xray_mitm_die "Xray rejected the configuration with this certificate pair"
+	fi
+}
+
+write_recovery_marker() {
+	local kind old_current old_previous old_candidate compat running new_target backup tmp
+	kind="$1"; old_current="$2"; old_previous="$3"; old_candidate="$4"; compat="$5"; running="$6"; new_target="$7"; backup="$8"
+	case "$kind" in switch|adopt) ;; *) return 1 ;; esac
+	valid_optional_target "$old_current" && valid_optional_target "$old_previous" && valid_optional_target "$old_candidate" && valid_slot_target "$new_target" || return 1
+	case "$compat" in managed|absent|legacy) ;; *) return 1 ;; esac
+	case "$running" in 0|1) ;; *) return 1 ;; esac
+	case "$backup" in -) ;; legacy-backup.*) case "$backup" in *[!A-Za-z0-9._-]*) return 1 ;; esac ;; *) return 1 ;; esac
+	[ ! -e "$XRAY_MITM_RECOVERY" ] && [ ! -L "$XRAY_MITM_RECOVERY" ] || return 1
+	tmp="$XRAY_MITM_CA_DIR/.recovery.new.$$"; umask 077
+	{
+		printf 'version=1\nkind=%s\nold_current=%s\nold_previous=%s\nold_candidate=%s\n' "$kind" "$old_current" "$old_previous" "$old_candidate"
+		printf 'compat=%s\nwas_running=%s\nnew_target=%s\nbackup=%s\n' "$compat" "$running" "$new_target" "$backup"
+	} >"$tmp" || return 1
+	chmod 0600 "$tmp" || return 1
+	ln "$tmp" "$XRAY_MITM_RECOVERY" 2>/dev/null || { rm -f "$tmp"; return 1; }
+	rm -f "$tmp"
+}
+
+marker_field() {
+	local key count value
+	key="$1"; count="$(grep -c "^${key}=" "$XRAY_MITM_RECOVERY" 2>/dev/null || true)"
+	[ "$count" = "1" ] || return 1
+	value="$(sed -n "s/^${key}=//p" "$XRAY_MITM_RECOVERY")"; [ -n "$value" ] || return 1
+	printf '%s\n' "$value"
+}
+
+restart_if_was_running() {
+	[ "$1" = "1" ] || return 0
+	XRAY_MITM_CERT_TRANSACTION=1 "$XRAY_MITM_INIT" restart >/dev/null 2>&1 || return 1
+	xray_mitm_service_running
+}
+
+verify_running_mitm_path() {
+	local metrics port
+	port="$(xray_mitm_socks_port)"
+	metrics="$(curl --cacert "$XRAY_MITM_CERT" --proxy "socks5h://127.0.0.1:$port" \
+		--head --silent --show-error --max-time 20 --output /dev/null \
+		--write-out '%{http_code}' https://www.google.com/ 2>/dev/null)" || return 1
+	[ "$metrics" = "200" ]
+}
+
+restart_and_verify_if_was_running() {
+	[ "$1" = "1" ] || return 0
+	restart_if_was_running 1 || return 1
+	verify_running_mitm_path
+}
+
+restore_legacy_item() {
+	local backup source destination fallback mode
+	backup="$1"; source="$backup/$2"; destination="$XRAY_MITM_DIR/$2"; fallback="$3/$2"; mode="$4"
+	if [ -f "$source" ] && [ ! -L "$source" ]; then
+		if [ -e "$destination" ] || [ -L "$destination" ]; then
+			[ -f "$destination" ] && [ ! -L "$destination" ] && cmp -s "$source" "$destination" || return 1
+			rm -f "$source" || return 1
+		else
+			mv "$source" "$destination" || return 1
+		fi
+	elif [ ! -e "$destination" ] && [ ! -L "$destination" ]; then
+		cp "$fallback" "$destination" || return 1
+	fi
+	[ -f "$destination" ] && [ ! -L "$destination" ] || return 1
+	chmod "$mode" "$destination"
+}
+
+recover_transaction() {
+	local version kind old_current old_previous old_candidate compat was_running new_target backup backup_dir new_path
+	[ -e "$XRAY_MITM_RECOVERY" ] || return 0
+	[ -f "$XRAY_MITM_RECOVERY" ] && [ ! -L "$XRAY_MITM_RECOVERY" ] || return 1
+	version="$(marker_field version)" || return 1; kind="$(marker_field kind)" || return 1
+	old_current="$(marker_field old_current)" || return 1; old_previous="$(marker_field old_previous)" || return 1
+	old_candidate="$(marker_field old_candidate)" || return 1; compat="$(marker_field compat)" || return 1
+	was_running="$(marker_field was_running)" || return 1; new_target="$(marker_field new_target)" || return 1
+	backup="$(marker_field backup)" || return 1
+	[ "$version" = "1" ] || return 1
+	case "$kind" in switch|adopt) ;; *) return 1 ;; esac
+	valid_optional_target "$old_current" && valid_optional_target "$old_previous" && valid_optional_target "$old_candidate" && valid_slot_target "$new_target" || return 1
+	case "$was_running" in 0|1) ;; *) return 1 ;; esac
+	if [ "$kind" = adopt ]; then
+		[ "$compat" = legacy ] || return 1
+		case "$backup" in legacy-backup.*) case "$backup" in *[!A-Za-z0-9._-]*) return 1 ;; esac ;; *) return 1 ;; esac
+		backup_dir="$XRAY_MITM_DIR/$backup"; new_path="$(slot_path "$new_target")" || return 1
+		remove_adoption_compat_links || return 1
+		restore_slot_link current "$old_current" || return 1
+		restore_slot_link previous "$old_previous" || return 1
+		restore_slot_link candidate "$old_candidate" || return 1
+		[ -d "$backup_dir" ] && [ ! -L "$backup_dir" ] || mkdir -p "$backup_dir" || return 1
+		restore_legacy_item "$backup_dir" mycert.crt "$new_path" 0644 || return 1
+		restore_legacy_item "$backup_dir" mycert.key "$new_path" 0600 || return 1
+		rmdir "$backup_dir" 2>/dev/null || true
+		remove_slot_if_unreferenced "$new_target"
+	else
+		case "$compat" in managed|absent) ;; *) return 1 ;; esac
+		[ "$backup" = "-" ] || return 1
+		restore_slot_link current "$old_current" || return 1
+		restore_slot_link previous "$old_previous" || return 1
+		restore_slot_link candidate "$old_candidate" || return 1
+		if [ "$compat" = managed ]; then install_compat_links || return 1; else remove_managed_compat_links || return 1; fi
+	fi
+	xray_mitm_refresh_provisioned || return 1
+	restart_if_was_running "$was_running" || return 1
+	rm -f "$XRAY_MITM_RECOVERY" || return 1
+	transaction_active=0
+}
+
+activate_candidate() {
+	local expected candidate old_current old_previous compat was_running path actual
+	expected="$1"; xray_mitm_valid_fingerprint "$expected" || xray_mitm_die "invalid expected fingerprint"
+	candidate="$(link_target "$CANDIDATE_LINK")" || xray_mitm_die "no candidate CA is prepared"
+	path="$(slot_path "$candidate")" || xray_mitm_die "candidate CA slot is invalid"
+	actual="$(xray_mitm_cert_fingerprint "$path/mycert.crt")" || xray_mitm_die "cannot fingerprint candidate CA"
+	[ "$actual" = "$(printf '%s' "$expected" | tr 'A-F' 'a-f')" ] || xray_mitm_die "candidate fingerprint changed; refresh before activating"
+	validate_slot_for_switch "$candidate"
+	compat="$(compat_state)" || xray_mitm_die "legacy or invalid certificate files exist; adopt or repair them first"
+	old_current="$(link_target_or_none "$CURRENT_LINK")" || xray_mitm_die "current certificate link is invalid"
+	old_previous="$(link_target_or_none "$PREVIOUS_LINK")" || xray_mitm_die "previous certificate link is invalid"
+	was_running=0; xray_mitm_service_running && was_running=1
+	write_recovery_marker switch "$old_current" "$old_previous" "$candidate" "$compat" "$was_running" "$candidate" - || xray_mitm_die "cannot create certificate recovery marker"
+	transaction_active=1
+	if [ "$old_current" != "-" ]; then set_slot_link previous "$old_current" || xray_mitm_die "cannot stage the previous CA"; else remove_slot_link previous || xray_mitm_die "cannot clear the previous CA"; fi
+	set_slot_link current "$candidate" || xray_mitm_die "cannot activate candidate CA"
+	remove_slot_link candidate || xray_mitm_die "cannot clear activated candidate slot"
+	install_compat_links || xray_mitm_die "cannot install compatibility certificate links"
+	xray_mitm_refresh_provisioned || xray_mitm_die "cannot refresh provisioning state"
+	restart_and_verify_if_was_running "$was_running" || xray_mitm_die "new CA failed restart or MITM health verification; restoring the previous state"
+	rm -f "$XRAY_MITM_RECOVERY" || xray_mitm_die "cannot finalize certificate activation"
+	transaction_active=0
+	[ "$old_previous" != "-" ] && [ "$old_previous" != "$old_current" ] && remove_slot_if_unreferenced "$old_previous"
+	printf '%s\n' "$actual"
+}
+
+discard_candidate() {
+	local expected candidate path actual
+	expected="$1"; xray_mitm_valid_fingerprint "$expected" || xray_mitm_die "invalid expected fingerprint"
+	candidate="$(link_target "$CANDIDATE_LINK")" || xray_mitm_die "no candidate CA is prepared"
+	path="$(slot_path "$candidate")" || xray_mitm_die "candidate CA slot is invalid"
+	actual="$(xray_mitm_cert_fingerprint "$path/mycert.crt")" || xray_mitm_die "cannot fingerprint candidate CA"
+	[ "$actual" = "$(printf '%s' "$expected" | tr 'A-F' 'a-f')" ] || xray_mitm_die "candidate fingerprint changed; refresh before discarding"
+	remove_slot_link candidate || xray_mitm_die "cannot remove candidate link"
+	remove_slot_if_unreferenced "$candidate"; printf '%s\n' "$actual"
+}
+
+rollback_previous() {
+	local expected current previous old_candidate was_running current_path actual result
+	expected="$1"; xray_mitm_valid_fingerprint "$expected" || xray_mitm_die "invalid expected fingerprint"
+	current="$(link_target "$CURRENT_LINK")" || xray_mitm_die "no current managed CA exists"
+	previous="$(link_target "$PREVIOUS_LINK")" || xray_mitm_die "no previous CA exists"
+	current_path="$(slot_path "$current")" || xray_mitm_die "current CA slot is invalid"
+	actual="$(xray_mitm_cert_fingerprint "$current_path/mycert.crt")" || xray_mitm_die "cannot fingerprint current CA"
+	[ "$actual" = "$(printf '%s' "$expected" | tr 'A-F' 'a-f')" ] || xray_mitm_die "current fingerprint changed; refresh before rollback"
+	validate_slot_for_switch "$previous"
+	[ "$(compat_state 2>/dev/null || true)" = managed ] || xray_mitm_die "managed compatibility certificate links are missing"
+	old_candidate="$(link_target_or_none "$CANDIDATE_LINK")" || xray_mitm_die "candidate certificate link is invalid"
+	was_running=0; xray_mitm_service_running && was_running=1
+	write_recovery_marker switch "$current" "$previous" "$old_candidate" managed "$was_running" "$previous" - || xray_mitm_die "cannot create certificate recovery marker"
+	transaction_active=1
+	set_slot_link current "$previous" || xray_mitm_die "cannot restore previous CA"
+	set_slot_link previous "$current" || xray_mitm_die "cannot retain replaced CA"
+	install_compat_links || xray_mitm_die "cannot refresh compatibility certificate links"
+	xray_mitm_refresh_provisioned || xray_mitm_die "cannot refresh provisioning state"
+	restart_and_verify_if_was_running "$was_running" || xray_mitm_die "restored CA failed restart or MITM health verification; restoring the original state"
+	result="$(xray_mitm_cert_fingerprint "$(slot_path "$previous")/mycert.crt")" || xray_mitm_die "cannot fingerprint restored CA"
+	rm -f "$XRAY_MITM_RECOVERY" || xray_mitm_die "cannot finalize certificate rollback"
+	transaction_active=0; printf '%s\n' "$result"
+}
+
+adopt_legacy() {
+	local slot target backup backup_name old_candidate was_running result
+	[ -f "$XRAY_MITM_CERT" ] && [ ! -L "$XRAY_MITM_CERT" ] || xray_mitm_die "legacy certificate is missing"
+	[ -f "$XRAY_MITM_KEY" ] && [ ! -L "$XRAY_MITM_KEY" ] || xray_mitm_die "legacy private key is missing"
+	[ ! -e "$CURRENT_LINK" ] && [ ! -L "$CURRENT_LINK" ] || xray_mitm_die "managed current CA already exists"
+	[ ! -e "$PREVIOUS_LINK" ] && [ ! -L "$PREVIOUS_LINK" ] || xray_mitm_die "managed previous CA already exists"
+	validate_pair "$XRAY_MITM_CERT" "$XRAY_MITM_KEY"
+	slot="$(new_slot adopted)" || xray_mitm_die "cannot allocate adopted certificate slot"
+	cleanup_slot="$slot"
+	normalize_pair_into_slot "$XRAY_MITM_CERT" "$XRAY_MITM_KEY" "$slot"
+	target="slots/${slot##*/}"; validate_slot_for_switch "$target"
+	old_candidate="$(link_target_or_none "$CANDIDATE_LINK")" || xray_mitm_die "candidate certificate link is invalid"
+	backup="$(mktemp -d "$XRAY_MITM_DIR/legacy-backup.XXXXXX")" || xray_mitm_die "cannot create legacy rollback directory"
+	chmod 0700 "$backup" || xray_mitm_die "cannot secure legacy rollback directory"; backup_name="${backup##*/}"
+	was_running=0; xray_mitm_service_running && was_running=1
+	write_recovery_marker adopt - - "$old_candidate" legacy "$was_running" "$target" "$backup_name" || xray_mitm_die "cannot create legacy adoption recovery marker"
+	transaction_active=1; cleanup_slot=""
+	mv "$XRAY_MITM_CERT" "$backup/mycert.crt" || xray_mitm_die "cannot preserve legacy certificate"
+	mv "$XRAY_MITM_KEY" "$backup/mycert.key" || xray_mitm_die "cannot preserve legacy private key"
+	chmod 0644 "$backup/mycert.crt" || xray_mitm_die "cannot secure legacy certificate backup"
+	chmod 0600 "$backup/mycert.key" || xray_mitm_die "cannot secure legacy private key backup"
+	set_slot_link current "$target" || xray_mitm_die "cannot activate adopted CA"
+	install_compat_links || xray_mitm_die "cannot install compatibility certificate links"
+	xray_mitm_refresh_provisioned || xray_mitm_die "cannot refresh provisioning state"
+	restart_and_verify_if_was_running "$was_running" || xray_mitm_die "adopted CA failed restart or MITM health verification; restoring legacy files"
+	result="$(xray_mitm_cert_fingerprint "$slot/mycert.crt")" || xray_mitm_die "cannot fingerprint adopted CA"
+	rm -f "$XRAY_MITM_RECOVERY" || xray_mitm_die "cannot finalize legacy CA adoption"
+	transaction_active=0
+	rm -f "$backup/mycert.crt" "$backup/mycert.key"; rmdir "$backup" 2>/dev/null || true
+	printf '%s\n' "$result"
+}
+
+case "${1:-}" in
+	status-json)
+		acquire_lock; xray_mitm_ensure_private_dirs || xray_mitm_die "cannot access private certificate store"; status_json ;;
+	export)
+		[ "$#" -eq 2 ] || xray_mitm_die "export requires current, candidate, or previous"; acquire_lock
+		cert="$(slot_cert_path "$2")" || xray_mitm_die "requested public certificate is not available"; cat "$cert" ;;
+	validate-current)
+		[ "$#" -eq 1 ] || xray_mitm_die "validate-current takes no arguments"; acquire_lock
+		recover_transaction || xray_mitm_die "interrupted certificate transaction could not be recovered"
+		current="$(link_target "$CURRENT_LINK")" || xray_mitm_die "no active managed CA exists"; validate_slot_for_switch "$current" ;;
+	recover)
+		[ "$#" -eq 1 ] || xray_mitm_die "recover takes no arguments"; acquire_lock
+		recover_transaction || xray_mitm_die "interrupted certificate transaction could not be recovered" ;;
+	generate)
+		[ "$#" -eq 3 ] || xray_mitm_die "generate requires a CA name and validity days"; acquire_lock
+		recover_transaction || xray_mitm_die "interrupted certificate transaction could not be recovered"; generate_candidate "$2" "$3" ;;
+	prepare-import)
+		[ "$#" -eq 2 ] || xray_mitm_die "prepare-import requires one temporary directory"; acquire_lock
+		recover_transaction || xray_mitm_die "interrupted certificate transaction could not be recovered"; prepare_import "$2" ;;
+	activate)
+		[ "$#" -eq 2 ] || xray_mitm_die "activate requires the candidate fingerprint"; acquire_lock
+		recover_transaction || xray_mitm_die "interrupted certificate transaction could not be recovered"; activate_candidate "$2" ;;
+	discard)
+		[ "$#" -eq 2 ] || xray_mitm_die "discard requires the candidate fingerprint"; acquire_lock
+		recover_transaction || xray_mitm_die "interrupted certificate transaction could not be recovered"; discard_candidate "$2" ;;
+	rollback)
+		[ "$#" -eq 2 ] || xray_mitm_die "rollback requires the expected current fingerprint"; acquire_lock
+		recover_transaction || xray_mitm_die "interrupted certificate transaction could not be recovered"; rollback_previous "$2" ;;
+	adopt-legacy)
+		[ "$#" -eq 1 ] || xray_mitm_die "adopt-legacy takes no arguments"; acquire_lock
+		recover_transaction || xray_mitm_die "interrupted certificate transaction could not be recovered"; adopt_legacy ;;
+	*) xray_mitm_die "usage: cert {status-json|export|validate-current|recover|generate|prepare-import|activate|discard|rollback|adopt-legacy}" ;;
+esac

@@ -1,0 +1,13 @@
+{
+	"admin/services/xray-mitm": {
+		"title": "MITM Domain Fronting",
+		"order": 91,
+		"action": {
+			"type": "view",
+			"path": "xray-mitm/overview"
+		},
+		"depends": {
+			"acl": [ "luci-app-xray-mitm" ]
+		}
+	}
+}

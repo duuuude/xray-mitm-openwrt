@@ -1,0 +1,103 @@
+#!/bin/sh /etc/rc.common
+
+START=98
+STOP=10
+USE_PROCD=1
+
+PROG="/usr/bin/xray"
+CONFIG_HELPER="/usr/libexec/xray-mitm/config"
+CERT_HELPER="/usr/libexec/xray-mitm/cert"
+PASSWALL_HELPER="/usr/libexec/xray-mitm/passwall2"
+PASSWALL_RECOVERY="/etc/xray-mitm/passwall2-routing/recovery"
+
+# OpenWrt's generated package post-install handler calls `enable` for every
+# packaged init script. Refuse that implicit boot registration while the
+# deliberately disabled boot switch is still zero. xray-mitmctl sets that
+# switch to one before explicitly invoking this command.
+enable() {
+	local boot_enabled name start_link stop_link
+
+	config_load xray-mitm
+	config_get_bool boot_enabled main boot_enabled 0
+	name="$(basename "$initscript")"
+	disable
+	[ "$boot_enabled" -eq 1 ] || return 0
+	[ -n "${START:-}" ] || [ -n "${STOP:-}" ] || return 1
+	if [ -n "${START:-}" ]; then
+		start_link="$IPKG_INSTROOT/etc/rc.d/S${START}${name##S[0-9][0-9]}"
+		[ ! -e "$start_link" ] && [ ! -L "$start_link" ] || return 1
+		ln -s "../init.d/$name" "$start_link" || {
+			disable
+			return 1
+		}
+	fi
+	if [ -n "${STOP:-}" ]; then
+		stop_link="$IPKG_INSTROOT/etc/rc.d/K${STOP}${name##K[0-9][0-9]}"
+		[ ! -e "$stop_link" ] && [ ! -L "$stop_link" ] || {
+			disable
+			return 1
+		}
+		ln -s "../init.d/$name" "$stop_link" || {
+			disable
+			return 1
+		}
+	fi
+	return 0
+}
+
+start_service() {
+	local enabled provisioned config_file asset_dir
+
+	# This service starts before the commonly used PassWall2 S99 service. If a
+	# power loss interrupted an opt-in routing transaction, restore its exact
+	# prior file before either service is allowed to continue.
+	if [ -e "$PASSWALL_RECOVERY" ] || [ -L "$PASSWALL_RECOVERY" ]; then
+		if [ ! -x "$PASSWALL_HELPER" ] || ! "$PASSWALL_HELPER" recover >/dev/null 2>&1; then
+			logger -t xray-mitm "Refusing to start: interrupted PassWall2 transaction could not be recovered"
+			return 1
+		fi
+	fi
+
+	config_load xray-mitm
+	config_get_bool enabled main enabled 0
+	config_get_bool provisioned main provisioned 0
+	config_file="/etc/xray-mitm/config.json"
+	config_get asset_dir main asset_dir /usr/share/v2ray
+
+	[ "$enabled" -eq 1 ] || return 0
+	if [ "${XRAY_MITM_CERT_TRANSACTION:-0}" != "1" ] && ! "$CERT_HELPER" recover >/dev/null 2>&1; then
+		logger -t xray-mitm "Refusing to start: interrupted certificate transaction could not be recovered"
+		return 1
+	fi
+	if [ "$provisioned" -ne 1 ]; then
+		logger -t xray-mitm "Refusing to start: setup has not been completed"
+		return 1
+	fi
+	if [ ! -x "$PROG" ] || [ ! -s "$config_file" ]; then
+		logger -t xray-mitm "Refusing to start: Xray or its configuration is missing"
+		return 1
+	fi
+	if ! "$CONFIG_HELPER" validate >/dev/null 2>&1; then
+		logger -t xray-mitm "Refusing to start: Xray configuration validation failed"
+		return 1
+	fi
+
+	procd_open_instance
+	procd_set_param command "$PROG" run -c "$config_file"
+	procd_set_param env "XRAY_LOCATION_ASSET=$asset_dir"
+	procd_set_param respawn 3600 5 5
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_set_param file "$config_file" /etc/xray-mitm/mycert.crt /etc/xray-mitm/mycert.key
+	procd_set_param limits nofile="1048576 1048576"
+	procd_close_instance
+}
+
+reload_service() {
+	stop
+	start
+}
+
+service_triggers() {
+	procd_add_reload_trigger xray-mitm
+}

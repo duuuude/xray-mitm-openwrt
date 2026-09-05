@@ -1,0 +1,90 @@
+name: Build OpenWrt APKs
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      openwrt_release:
+        description: Official OpenWrt SDK release
+        required: true
+        default: "25.12.5"
+        type: string
+      sdk_arch:
+        description: Official SDK package architecture
+        required: true
+        default: aarch64_generic
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apk-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  OPENWRT_RELEASE: ${{ inputs.openwrt_release || '25.12.5' }}
+  SDK_ARCH: ${{ inputs.sdk_arch || 'aarch64_generic' }}
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate release tree
+        run: sh scripts/validate-release.sh
+
+  build:
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Build noarch packages with the official OpenWrt SDK
+        uses: openwrt/gh-action-sdk@7fc2640243284ecc44f4a9c3f749a61746ee02cb # v11
+        env:
+          ARCH: ${{ env.SDK_ARCH }}-${{ env.OPENWRT_RELEASE }}
+          BUILD_LOG: "1"
+          FEEDNAME: xray_mitm
+          PACKAGES: xray-mitm luci-app-xray-mitm
+          V: s
+
+      - name: Collect packages and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          find bin -type f -name 'xray-mitm-*.apk' -exec cp '{}' dist/ \;
+          find bin -type f -name 'luci-app-xray-mitm-*.apk' -exec cp '{}' dist/ \;
+          cp LICENSE README.md THIRD_PARTY_NOTICES.md dist/
+          printf '%s\n' "$GITHUB_SHA" > dist/SOURCE_COMMIT
+
+          test "$(find dist -maxdepth 1 -type f -name 'xray-mitm-*.apk' | wc -l)" -eq 1
+          test "$(find dist -maxdepth 1 -type f -name 'luci-app-xray-mitm-*.apk' | wc -l)" -eq 1
+
+          cd dist
+          find . -maxdepth 1 -type f -name '*.apk' -print \
+            | LC_ALL=C sort \
+            | sed 's#^./##' \
+            | xargs sha256sum > SHA256SUMS
+          sha256sum -c SHA256SUMS
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: xray-mitm-openwrt-${{ env.OPENWRT_RELEASE }}-${{ env.SDK_ARCH }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30

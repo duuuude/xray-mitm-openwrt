@@ -1,0 +1,1336 @@
+#!/bin/sh
+# Optional, transactional PassWall2 routing integration for xray-mitm.
+#
+# This helper intentionally never prints a UCI export, node address (other than
+# the fixed localhost MITM listener), credentials, or private configuration.
+# DNS and firewall configuration are outside its scope.
+
+set -eu
+
+umask 077
+
+PROGRAM='xray-mitm-passwall2'
+SCHEMA='passwall2-uci-v1'
+MITM_NODE='xray_mitm_socks'
+RULE_GEMINI='xray_mitm_gemini'
+RULE_ANDROID='xray_mitm_android'
+RULE_YOUTUBE='xray_mitm_youtube'
+RULE_GOOGLE='xray_mitm_google'
+RULE_IR='xray_mitm_ir'
+MANAGED_MARKER='xray_mitm_managed'
+MAX_PLAN_AGE=600
+MAX_REQUEST_BYTES=4096
+MAX_INSPECT_NODES=128
+REQUEST_BASENAME='request.json'
+ERROR_EMITTED=0
+
+# XRAY_MITM_TEST_ROOT is only used by the fixture test harness. It cannot grant
+# privilege and is never set by the LuCI RPC service.
+TEST_ROOT=${XRAY_MITM_TEST_ROOT:-}
+if [ -n "$TEST_ROOT" ]; then
+	case "$TEST_ROOT" in
+		/tmp/*|/private/tmp/*) ;;
+		*)
+			printf '%s\n' '{"ok":false,"error":"invalid_test_root"}'
+			exit 64
+			;;
+	esac
+	ROOT=$TEST_ROOT
+else
+	ROOT=''
+fi
+
+CONFIG_DIR="$ROOT/etc/config"
+PW_CONFIG="$CONFIG_DIR/passwall2"
+PW_APP="$ROOT/usr/share/passwall2/app.sh"
+PW_INIT="$ROOT/etc/init.d/passwall2"
+STATE_DIR="$ROOT/etc/xray-mitm/passwall2-routing"
+# Plans contain a full staged copy of PassWall2 and therefore may contain node
+# credentials. Keep the single active preview in tmpfs, never in sysupgrade
+# backups or persistent flash.
+PLAN_DIR="$ROOT/tmp/xray-mitm-passwall2-plans"
+BACKUP_DIR="$STATE_DIR/backups"
+TX_DIR="$STATE_DIR/transactions"
+RECOVERY_MARKER="$STATE_DIR/recovery"
+LOCK_DIR="$ROOT/var/lock/xray-mitm"
+LOCK_FILE="$LOCK_DIR/passwall2.lock"
+
+json_error() {
+	code=$1
+	message=$2
+	printf '{"ok":false,"error":"%s","message":"%s"}\n' "$code" "$message"
+	ERROR_EMITTED=1
+}
+
+die() {
+	code=$1
+	message=$2
+	status=${3:-1}
+	json_error "$code" "$message"
+	exit "$status"
+}
+
+valid_id() {
+	case ${1:-} in
+		''|*[!A-Za-z0-9_]*) return 1 ;;
+		*) return 0 ;;
+	esac
+}
+
+valid_token() {
+	value=${1:-}
+	[ ${#value} -eq 64 ] || return 1
+	case $value in
+		*[!0-9a-f]*) return 1 ;;
+		*) return 0 ;;
+	esac
+}
+
+as_bool() {
+	case ${1:-} in
+		1|true) printf '%s' 1 ;;
+		0|false) printf '%s' 0 ;;
+		*) return 1 ;;
+	esac
+}
+
+file_hash() {
+	sha256sum "$1" 2>/dev/null | cut -d ' ' -f 1
+}
+
+now_epoch() {
+	date +%s
+}
+
+new_token() {
+	dd if=/dev/urandom bs=32 count=1 2>/dev/null | sha256sum | cut -d ' ' -f 1
+}
+
+ensure_private_dir() {
+	local path expected_uid stats
+	path=$1
+	if [ -n "$TEST_ROOT" ]; then expected_uid=$(id -u); else expected_uid=0; fi
+	[ ! -L "$path" ] || die unsafe_state_store 'A private routing state path is a symbolic link.' 70
+	if [ -e "$path" ]; then
+		[ -d "$path" ] || die unsafe_state_store 'A private routing state path is not a directory.' 70
+		stats=$(stat -c '%u %a' "$path" 2>/dev/null || true)
+		set -- $stats
+		[ "$#" -eq 2 ] && [ "$1" = "$expected_uid" ] ||
+			die unsafe_state_store 'A private routing state directory has an unexpected owner.' 70
+	else
+		mkdir "$path" || die state_store_failed 'A private routing state directory could not be created.' 70
+	fi
+	[ ! -L "$path" ] && [ -d "$path" ] || die unsafe_state_store 'A private routing state directory changed unexpectedly.' 70
+	chmod 0700 "$path" || die state_store_failed 'A private routing state directory could not be secured.' 70
+	stats=$(stat -c '%u %a' "$path" 2>/dev/null || true)
+	set -- $stats
+	[ "$#" -eq 2 ] && [ "$1" = "$expected_uid" ] && [ "$2" = 700 ] ||
+		die unsafe_state_store 'A private routing state directory failed its ownership or mode check.' 70
+}
+
+ensure_state_dirs() {
+	command -v stat >/dev/null 2>&1 || die missing_dependency 'The stat utility is required.' 69
+	ensure_private_dir "$ROOT/etc/xray-mitm"
+	ensure_private_dir "$STATE_DIR"
+	ensure_private_dir "$PLAN_DIR"
+	ensure_private_dir "$BACKUP_DIR"
+	ensure_private_dir "$TX_DIR"
+}
+
+clear_existing_plans() {
+	[ -d "$PLAN_DIR" ] || return 0
+	[ ! -L "$PLAN_DIR" ] || die unsafe_plan_store 'The private preview directory is a symbolic link.' 70
+	for old_meta in "$PLAN_DIR"/*.meta; do
+		[ -f "$old_meta" ] || continue
+		old_token=${old_meta##*/}
+		old_token=${old_token%.meta}
+		valid_token "$old_token" || continue
+		rm -rf "$PLAN_DIR/$old_token.stage"
+		rm -f "$old_meta"
+	done
+}
+
+cleanup_stale_plans() {
+	[ -d "$PLAN_DIR" ] || return 0
+	now=$(now_epoch)
+	for stale_meta in "$PLAN_DIR"/*.meta; do
+		[ -f "$stale_meta" ] || continue
+		stale_token=${stale_meta##*/}
+		stale_token=${stale_token%.meta}
+		valid_token "$stale_token" || continue
+		load_meta "$stale_meta"
+		case "$META_CREATED" in ''|*[!0-9]*) stale=1 ;; *)
+			stale_age=$((now - META_CREATED))
+			[ "$stale_age" -lt 0 ] || [ "$stale_age" -gt "$MAX_PLAN_AGE" ] && stale=1 || stale=0
+			;;
+		esac
+		if [ "$stale" -eq 1 ]; then
+			rm -rf "$PLAN_DIR/$stale_token.stage"
+			rm -f "$stale_meta"
+		fi
+	done
+}
+
+pending_changes() {
+	if uci -c "$CONFIG_DIR" -q changes passwall2 2>/dev/null | grep -q .; then
+		return 0
+	fi
+	if uci -c "$CONFIG_DIR" -q changes firewall 2>/dev/null | grep -q .; then
+		return 0
+	fi
+	return 1
+}
+
+schema_check() {
+	[ -f "$PW_CONFIG" ] || return 1
+	[ ! -L "$PW_CONFIG" ] || return 1
+	[ -f "$PW_APP" ] || return 1
+	[ -x "$PW_INIT" ] || return 1
+	command -v uci >/dev/null 2>&1 || return 1
+	command -v jsonfilter >/dev/null 2>&1 || return 1
+	command -v sha256sum >/dev/null 2>&1 || return 1
+	command -v stat >/dev/null 2>&1 || return 1
+	[ "$(uci -c "$CONFIG_DIR" -q get 'passwall2.@global[0]' 2>/dev/null || true)" = 'global' ] || return 1
+	return 0
+}
+
+section_type() {
+	uci -c "$CONFIG_DIR" -q get "passwall2.$1" 2>/dev/null || true
+}
+
+section_option() {
+	uci -c "$CONFIG_DIR" -q get "passwall2.$1.$2" 2>/dev/null || true
+}
+
+section_ids_by_type() {
+	want=$1
+	uci -c "$CONFIG_DIR" -q show passwall2 2>/dev/null |
+		sed -n "s/^passwall2\.\([A-Za-z0-9_][A-Za-z0-9_]*\)=$want$/\1/p"
+}
+
+managed_state() {
+	id=$1
+	want_type=$2
+	actual=$(section_type "$id")
+	if [ -z "$actual" ]; then
+		printf '%s' absent
+	elif [ "$actual" = "$want_type" ] && [ "$(section_option "$id" "$MANAGED_MARKER")" = '1' ]; then
+		printf '%s' managed
+	else
+		printf '%s' conflict
+	fi
+}
+
+emit_inspect_array() {
+	kind=$1
+	first=1
+	count=0
+	truncated=0
+	printf '['
+	for id in $(section_ids_by_type nodes); do
+		valid_id "$id" || continue
+		protocol=$(section_option "$id" protocol)
+		type=$(section_option "$id" type)
+		case "$kind" in
+			shunts)
+				[ "$protocol" = '_shunt' ] || continue
+				group=$(section_option "$id" shunt_group)
+				case "$group" in ''|*[!A-Za-z0-9_-]*) continue ;; esac
+				item=$(printf '{"id":"%s","group":"%s"}' "$id" "$group")
+				;;
+			targets)
+				[ "$id" != "$MITM_NODE" ] || continue
+				case "$protocol" in ''|_shunt) continue ;; esac
+				case "$type" in ''|*[!A-Za-z0-9_-]*) type='unknown' ;; esac
+				case "$protocol" in *[!A-Za-z0-9_.+-]*) protocol='unknown' ;; esac
+				item=$(printf '{"id":"%s","type":"%s","protocol":"%s"}' "$id" "$type" "$protocol")
+				;;
+		esac
+		count=$((count + 1))
+		if [ "$count" -gt "$MAX_INSPECT_NODES" ]; then
+			truncated=1
+			break
+		fi
+		[ "$first" -eq 1 ] || printf ','
+		printf '%s' "$item"
+		first=0
+	done
+	printf ']'
+	INSPECT_TRUNCATED=$truncated
+	INSPECT_COUNT=$count
+}
+
+valid_rollback_transaction() {
+	local token backup tx
+	token=$1
+	valid_token "$token" || return 1
+	backup="$BACKUP_DIR/$token.passwall2"
+	tx="$TX_DIR/$token.meta"
+	[ -f "$backup" ] && [ -f "$tx" ] || return 1
+	load_meta "$tx"
+	[ "$META_SCHEMA" = "$SCHEMA" ] || return 1
+	valid_token "$META_PRE_HASH" || return 1
+	valid_token "$META_POST_HASH" || return 1
+	[ "$(file_hash "$backup")" = "$META_PRE_HASH" ] || return 1
+	[ "$(file_hash "$PW_CONFIG")" = "$META_POST_HASH" ] || return 1
+	return 0
+}
+
+latest_rollback_token() {
+	local token
+	[ -f "$STATE_DIR/last-transaction" ] || return 1
+	token=$(sed -n '1p' "$STATE_DIR/last-transaction")
+	valid_rollback_transaction "$token" || return 1
+	printf '%s' "$token"
+}
+
+inspect() {
+	acquire_lock
+	if [ -e "$RECOVERY_MARKER" ] || [ -L "$RECOVERY_MARKER" ]; then
+		release_lock
+		printf '%s\n' '{"ok":true,"available":true,"compatible":false,"writable":false,"recovery_pending":true,"schema":"recovery-required","error":"An interrupted routing transaction must be recovered before PassWall2 can be inspected.","capabilities":{"plan":false,"apply":false,"rollback":false,"recover":true,"set_global_shunt":false,"quic_firewall":false,"dns":false}}'
+		return 0
+	fi
+	if ! schema_check; then
+		release_lock
+		printf '%s\n' '{"ok":true,"available":false,"compatible":false,"writable":false,"recovery_pending":false,"schema":"unsupported","error":"PassWall2 UCI schema or required helper files were not detected.","capabilities":{"plan":false,"apply":false,"rollback":false,"recover":false,"set_global_shunt":false,"quic_firewall":false,"dns":false}}'
+		return 0
+	fi
+
+	if pending_changes; then pending=true; else pending=false; fi
+	if command -v apk >/dev/null 2>&1; then package_manager=apk; else package_manager=unknown; fi
+	printf '{"ok":true,"available":true,"schema":"%s","pending_changes":%s,"recovery_pending":false,"package_manager":"%s",' "$SCHEMA" "$pending" "$package_manager"
+	printf '"shunt_nodes":'
+	emit_inspect_array shunts
+	truncated_shunts=$INSPECT_TRUNCATED
+	shunt_count=$INSPECT_COUNT
+	printf ',"vpn_nodes":'
+	emit_inspect_array targets
+	truncated_targets=$INSPECT_TRUNCATED
+	target_count=$INSPECT_COUNT
+	if [ "$shunt_count" -gt 0 ] && [ "$target_count" -gt 0 ]; then compatible=true; else compatible=false; fi
+	if [ "$compatible" = true ] && [ "$pending" = false ]; then writable=true; else writable=false; fi
+	printf ',"compatible":%s,"writable":%s,"truncated":%s,' "$compatible" "$writable" "$([ "$truncated_shunts" -eq 1 ] || [ "$truncated_targets" -eq 1 ] && printf true || printf false)"
+	selected_shunt=$(section_option '@global[0]' node)
+	if ! valid_id "$selected_shunt" || [ "$(section_type "$selected_shunt")" != nodes ] || [ "$(section_option "$selected_shunt" protocol)" != _shunt ]; then
+		selected_shunt=''
+	fi
+	selected_vpn=''
+	if [ -n "$selected_shunt" ]; then
+		selected_vpn=$(section_option "$selected_shunt" default_node)
+		if ! valid_id "$selected_vpn" || [ "$(section_type "$selected_vpn")" != nodes ] || [ "$(section_option "$selected_vpn" protocol)" = _shunt ]; then
+			selected_vpn=''
+		fi
+	fi
+	printf '"selected_shunt":"%s","selected_vpn":"%s",' "$selected_shunt" "$selected_vpn"
+	printf '"managed":{"node":"%s","gemini":"%s","android":"%s","youtube":"%s","google":"%s","iran":"%s"},' \
+		"$(managed_state "$MITM_NODE" nodes)" \
+		"$(managed_state "$RULE_GEMINI" shunt_rules)" \
+		"$(managed_state "$RULE_ANDROID" shunt_rules)" \
+		"$(managed_state "$RULE_YOUTUBE" shunt_rules)" \
+		"$(managed_state "$RULE_GOOGLE" shunt_rules)" \
+		"$(managed_state "$RULE_IR" shunt_rules)"
+	rollback_token=$(latest_rollback_token || true)
+	if [ -n "$rollback_token" ]; then
+		printf '"rollback_transaction":"%s",' "$rollback_token"
+	else
+		printf '"rollback_transaction":null,'
+	fi
+	release_lock
+	printf '%s\n' '"capabilities":{"plan":true,"apply":true,"rollback":true,"recover":true,"set_global_shunt":false,"quic_firewall":false,"dns":false},"note":"Only section IDs, node types, and protocols are returned; credentials and full UCI data are never returned."}'
+}
+
+safe_request_path() {
+	path=${1:-}
+	[ -n "$path" ] || return 1
+	[ -f "$path" ] || return 1
+	[ ! -L "$path" ] || return 1
+	[ "${path##*/}" = "$REQUEST_BASENAME" ] || return 1
+	dir=${path%/$REQUEST_BASENAME}
+	[ "$dir" != "$path" ] || return 1
+	[ -d "$dir" ] || return 1
+	[ ! -L "$dir" ] || return 1
+	case "$dir" in
+		"$ROOT/tmp/xray-mitm-plan."*) ;;
+		*) return 1 ;;
+	esac
+	base=${dir##*/}
+	suffix=${base#xray-mitm-plan.}
+	[ "$suffix" != "$base" ] || return 1
+	[ ${#suffix} -eq 6 ] || return 1
+	valid_id "$suffix" || return 1
+	dir_stats=$(stat -c '%u %a' "$dir" 2>/dev/null || true)
+	set -- $dir_stats
+	[ "$#" -eq 2 ] || return 1
+	[ "$1" = '0' ] || return 1
+	[ "$2" = '700' ] || return 1
+	stats=$(stat -c '%u %a %s %h' "$path" 2>/dev/null || true)
+	set -- $stats
+	[ "$#" -eq 4 ] || return 1
+	[ "$1" = '0' ] || return 1
+	[ "$2" = '600' ] || return 1
+	case "$3" in ''|*[!0-9]*) return 1 ;; esac
+	[ "$3" -le "$MAX_REQUEST_BYTES" ] || return 1
+	[ "$4" = '1' ] || return 1
+	return 0
+}
+
+request_value() {
+	path=$1
+	expr=$2
+	jsonfilter -i "$path" -e "$expr" 2>/dev/null || true
+}
+
+stage_uci() {
+	uci -c "$STAGE_CONFIG_DIR" -P "$STAGE_DELTA_DIR" "$@"
+}
+
+stage_get() {
+	stage_uci -q get "passwall2.$1.$2" 2>/dev/null || true
+}
+
+stage_type() {
+	stage_uci -q get "passwall2.$1" 2>/dev/null || true
+}
+
+assert_manageable() {
+	id=$1
+	want_type=$2
+	actual=$(stage_type "$id")
+	[ -z "$actual" ] && return 0
+	[ "$actual" = "$want_type" ] || return 1
+	[ "$(stage_get "$id" "$MANAGED_MARKER")" = '1' ] || return 1
+	return 0
+}
+
+reset_managed_section() {
+	id=$1
+	type=$2
+	stage_uci -q delete "passwall2.$id" >/dev/null 2>&1 || true
+	stage_uci -q set "passwall2.$id=$type" >/dev/null || return 1
+	stage_uci -q set "passwall2.$id.$MANAGED_MARKER=1" >/dev/null || return 1
+}
+
+set_rule() {
+	id=$1
+	remarks=$2
+	network=$3
+	domains=$4
+	iplist=${5:-}
+	group=$6
+	reset_managed_section "$id" shunt_rules || return 1
+	stage_uci -q set "passwall2.$id.remarks=$remarks" >/dev/null || return 1
+	stage_uci -q set "passwall2.$id.network=$network" >/dev/null || return 1
+	stage_uci -q set "passwall2.$id.domain_list=$domains" >/dev/null || return 1
+	if [ -n "$iplist" ]; then
+		stage_uci -q set "passwall2.$id.ip_list=$iplist" >/dev/null || return 1
+	fi
+	stage_uci -q set "passwall2.$id.group=$group" >/dev/null || return 1
+}
+
+stage_section_ids_by_type() {
+	want=$1
+	stage_uci -q show passwall2 2>/dev/null |
+		sed -n "s/^passwall2\.\([A-Za-z0-9_][A-Za-z0-9_]*\)=$want$/\1/p"
+}
+
+is_desired_rule() {
+	want=$1
+	for candidate in $DESIRED_RULES; do
+		[ "$candidate" = "$want" ] && return 0
+	done
+	return 1
+}
+
+first_unmanaged_in_group() {
+	group=$1
+	for id in $(stage_section_ids_by_type shunt_rules); do
+		valid_id "$id" || continue
+		[ "$(stage_get "$id" group)" = "$group" ] || continue
+		is_desired_rule "$id" && continue
+		printf '%s' "$id"
+		return 0
+	done
+	return 1
+}
+
+section_index() {
+	want=$1
+	index=0
+	stage_uci -q show passwall2 2>/dev/null | while IFS= read -r line; do
+		case "$line" in
+			passwall2.*=*)
+				left=${line%%=*}
+				id=${left#passwall2.}
+				case "$id" in *.*) continue ;; esac
+				if [ "$id" = "$want" ]; then
+					printf '%s\n' "$index"
+					exit 0
+				fi
+				index=$((index + 1))
+				;;
+		esac
+	done
+}
+
+section_count() {
+	stage_uci -q show passwall2 2>/dev/null |
+		sed -n 's/^passwall2\.[^.=][^.=]*=[^=]*$/x/p' | wc -l | tr -d ' '
+}
+
+order_managed_rules() {
+	group=$1
+	anchor=$(first_unmanaged_in_group "$group" || true)
+	# First move every managed rule to the end. This makes the later anchor
+	# insertion deterministic even when a prior managed rule was above it.
+	for id in $DESIRED_RULES; do
+		count=$(section_count)
+		case "$count" in ''|*[!0-9]*) return 1 ;; esac
+		[ "$count" -gt 0 ] || return 1
+		last=$((count - 1))
+		stage_uci -q reorder "passwall2.$id=$last" >/dev/null || return 1
+	done
+	if [ -n "$anchor" ]; then
+		for id in $DESIRED_RULES; do
+			index=$(section_index "$anchor")
+			case "$index" in ''|*[!0-9]*) return 1 ;; esac
+			stage_uci -q reorder "passwall2.$id=$index" >/dev/null || return 1
+		done
+	fi
+}
+
+build_stage() {
+	shunt=$1
+	vpn=$2
+	gemini=$3
+	android=$4
+	youtube=$5
+	google=$6
+	iran=$7
+	accounts_google=$8
+	set_default=$9
+	shift 9
+	force_localhost=$1
+
+	DESIRED_RULES=''
+	CLEANUP_RULES=''
+	for choice in \
+		"$gemini:$RULE_GEMINI" \
+		"$android:$RULE_ANDROID" \
+		"$youtube:$RULE_YOUTUBE" \
+		"$google:$RULE_GOOGLE" \
+		"$iran:$RULE_IR"; do
+		enabled=${choice%%:*}
+		id=${choice#*:}
+		if [ "$enabled" = 1 ]; then
+			assert_manageable "$id" shunt_rules || return 2
+			DESIRED_RULES="${DESIRED_RULES}${DESIRED_RULES:+ }$id"
+		elif [ "$(stage_type "$id")" = shunt_rules ] && [ "$(stage_get "$id" "$MANAGED_MARKER")" = 1 ]; then
+			CLEANUP_RULES="${CLEANUP_RULES}${CLEANUP_RULES:+ }$id"
+		fi
+	done
+
+	# The local SOCKS node is required only for the Google MITM rule. An idle
+	# package-owned node is retained when that rule is disabled because another
+	# administrator-created rule may have begun using it.
+	[ "$google" = 0 ] || assert_manageable "$MITM_NODE" nodes || return 2
+
+	for id in $CLEANUP_RULES; do
+		stage_uci -q delete "passwall2.$id" >/dev/null || return 1
+	done
+
+	# Remove stale mappings only for rule IDs that this transaction owns or is
+	# about to own. An unmanaged collision in the reserved namespace is never
+	# modified unless the user selects it, in which case planning fails.
+	TOUCH_RULES="${DESIRED_RULES}${CLEANUP_RULES:+ }$CLEANUP_RULES"
+	for candidate_shunt in $(stage_section_ids_by_type nodes); do
+		valid_id "$candidate_shunt" || continue
+		[ "$(stage_get "$candidate_shunt" protocol)" = _shunt ] || continue
+		for managed_rule in $TOUCH_RULES; do
+			stage_uci -q delete "passwall2.$candidate_shunt.$managed_rule" >/dev/null 2>&1 || true
+		done
+	done
+
+	group=$(stage_get "$shunt" shunt_group)
+	case "$group" in ''|*[!A-Za-z0-9_-]*) return 3 ;; esac
+
+	if [ "$google" = 1 ]; then
+		reset_managed_section "$MITM_NODE" nodes || return 1
+		stage_uci -q set "passwall2.$MITM_NODE.remarks=MITM-DF (localhost)" >/dev/null || return 1
+		stage_uci -q set "passwall2.$MITM_NODE.type=Xray" >/dev/null || return 1
+		stage_uci -q set "passwall2.$MITM_NODE.protocol=socks" >/dev/null || return 1
+		stage_uci -q set "passwall2.$MITM_NODE.address=127.0.0.1" >/dev/null || return 1
+		stage_uci -q set "passwall2.$MITM_NODE.port=10808" >/dev/null || return 1
+	fi
+
+	if [ "$gemini" = 1 ]; then
+		gemini_domains='domain:gemini.google.com
+domain:generativelanguage.googleapis.com'
+		if [ "$accounts_google" = 1 ]; then
+			gemini_domains="$gemini_domains
+domain:accounts.google.com"
+		fi
+		set_rule "$RULE_GEMINI" 'Gemini_VPN' tcp "$gemini_domains" '' "$group" || return 1
+	fi
+
+	if [ "$android" = 1 ]; then
+		set_rule "$RULE_ANDROID" 'Android_Check' tcp 'domain:connectivitycheck.gstatic.com
+domain:connectivitycheck.android.com
+domain:clients3.google.com' '' "$group" || return 1
+	fi
+
+	if [ "$youtube" = 1 ]; then
+		set_rule "$RULE_YOUTUBE" 'YouTube_Control_VPN' tcp 'domain:www.youtube.com
+domain:youtubei.googleapis.com
+domain:youtube.googleapis.com
+domain:accounts.youtube.com' '' "$group" || return 1
+	fi
+
+	[ "$google" = 0 ] || set_rule "$RULE_GOOGLE" 'Google_MITM' tcp 'geosite:google' '' "$group" || return 1
+	[ "$iran" = 0 ] || set_rule "$RULE_IR" 'IR_Direct' 'tcp,udp' 'geosite:ir' 'geoip:ir' "$group" || return 1
+
+	[ "$gemini" = 0 ] || stage_uci -q set "passwall2.$shunt.$RULE_GEMINI=$vpn" >/dev/null || return 1
+	[ "$android" = 0 ] || stage_uci -q set "passwall2.$shunt.$RULE_ANDROID=$vpn" >/dev/null || return 1
+	[ "$youtube" = 0 ] || stage_uci -q set "passwall2.$shunt.$RULE_YOUTUBE=$vpn" >/dev/null || return 1
+	[ "$google" = 0 ] || stage_uci -q set "passwall2.$shunt.$RULE_GOOGLE=$MITM_NODE" >/dev/null || return 1
+	[ "$iran" = 0 ] || stage_uci -q set "passwall2.$shunt.$RULE_IR=_direct" >/dev/null || return 1
+
+	if [ "$set_default" = 1 ]; then
+		stage_uci -q set "passwall2.$shunt.default_node=$vpn" >/dev/null || return 1
+	fi
+	if [ "$force_localhost" = 1 ]; then
+		stage_uci -q set 'passwall2.@global[0].localhost_proxy=0' >/dev/null || return 1
+	fi
+
+	stage_uci -q delete 'passwall2.@global[0].flush_set' >/dev/null 2>&1 || true
+	[ -z "$DESIRED_RULES" ] || order_managed_rules "$group" || return 4
+	stage_uci -q commit passwall2 >/dev/null || return 1
+}
+
+plan() {
+	request=${1:-}
+	[ "$#" -eq 1 ] || die invalid_arguments 'Plan requires one private request JSON path.' 64
+	safe_request_path "$request" || die invalid_request_file 'The plan request must be a root-owned 0600 regular file in the private temporary namespace.' 65
+	ensure_state_dirs
+	acquire_lock
+	recover_interrupted || die recovery_failed 'An interrupted routing transaction could not restore the prior PassWall2 file.' 70
+	schema_check || die unsupported_schema 'PassWall2 changed while the routing preview was being prepared.' 69
+	pending_changes && die pending_changes 'Save or revert existing PassWall2 or firewall UCI changes before planning.' 73
+
+	shunt=$(request_value "$request" '@.shunt_node')
+	vpn=$(request_value "$request" '@.vpn_node')
+	lan_zone=$(request_value "$request" '@.lan_zone')
+	gemini=$(as_bool "$(request_value "$request" '@.gemini')") || die invalid_request 'gemini must be a boolean.' 65
+	android=$(as_bool "$(request_value "$request" '@.android_check')") || die invalid_request 'android_check must be a boolean.' 65
+	youtube=$(as_bool "$(request_value "$request" '@.youtube_control')") || die invalid_request 'youtube_control must be a boolean.' 65
+	google=$(as_bool "$(request_value "$request" '@.google_mitm')") || die invalid_request 'google_mitm must be a boolean.' 65
+	iran=$(as_bool "$(request_value "$request" '@.iran_direct')") || die invalid_request 'iran_direct must be a boolean.' 65
+	accounts_google=$(as_bool "$(request_value "$request" '@.accounts_google')") || die invalid_request 'accounts_google must be a boolean.' 65
+	set_default=$(as_bool "$(request_value "$request" '@.set_default_vpn')") || die invalid_request 'set_default_vpn must be a boolean.' 65
+	set_global=$(as_bool "$(request_value "$request" '@.set_global_shunt')") || die invalid_request 'set_global_shunt must be a boolean.' 65
+	force_localhost=$(as_bool "$(request_value "$request" '@.set_localhost_proxy_zero')") || die invalid_request 'set_localhost_proxy_zero must be a boolean.' 65
+	block_quic=$(as_bool "$(request_value "$request" '@.block_quic')") || die invalid_request 'block_quic must be a boolean.' 65
+
+	valid_id "$shunt" || die invalid_shunt 'The selected shunt section ID is invalid.' 65
+	valid_id "$vpn" || die invalid_vpn_node 'The selected VPN node section ID is invalid.' 65
+	[ -z "$lan_zone" ] || valid_id "$lan_zone" || die invalid_lan_zone 'The LAN zone ID is invalid.' 65
+	[ "$accounts_google" = 0 ] || [ "$gemini" = 1 ] || die invalid_request 'accounts_google requires the Gemini rule.' 65
+	[ "$set_global" = 0 ] || die unsupported_scope 'Changing the PassWall2 global node is not supported by this safety-reviewed helper.' 69
+	[ "$block_quic" = 0 ] || die unsupported_scope 'Firewall and QUIC changes are outside this helper and were not applied.' 69
+	[ "$shunt" != "$vpn" ] || die invalid_selection 'The shunt and VPN target must be different sections.' 65
+	[ "$vpn" != "$MITM_NODE" ] || die invalid_selection 'The selected VPN node cannot be the managed MITM SOCKS node.' 65
+	[ "$(section_type "$shunt")" = nodes ] || die invalid_shunt 'The selected shunt section does not exist.' 65
+	[ "$(section_option "$shunt" protocol)" = _shunt ] || die invalid_shunt 'The selected node is not a shunt node.' 65
+	[ "$(section_type "$vpn")" = nodes ] || die invalid_vpn_node 'The selected VPN target does not exist.' 65
+	vpn_protocol=$(section_option "$vpn" protocol)
+	[ -n "$vpn_protocol" ] && [ "$vpn_protocol" != _shunt ] || die invalid_vpn_node 'A shunt or incomplete node cannot be used as the VPN target.' 65
+
+	cleanup_stale_plans
+	clear_existing_plans
+	token=$(new_token)
+	valid_token "$token" || die token_generation_failed 'Could not create a transaction token.' 70
+	stage="$PLAN_DIR/$token.stage"
+	meta="$PLAN_DIR/$token.meta"
+	mkdir -p "$stage/config" "$stage/delta"
+	chmod 0700 "$stage" "$stage/config" "$stage/delta"
+	cp -p "$PW_CONFIG" "$stage/config/passwall2"
+	chmod 0600 "$stage/config/passwall2"
+	STAGE_CONFIG_DIR="$stage/config"
+	STAGE_DELTA_DIR="$stage/delta"
+	export STAGE_CONFIG_DIR STAGE_DELTA_DIR
+
+	if ! build_stage "$shunt" "$vpn" "$gemini" "$android" "$youtube" "$google" "$iran" "$accounts_google" "$set_default" "$force_localhost"; then
+		rm -rf "$stage"
+		die managed_id_conflict 'A reserved managed section ID is already owned by another configuration, or rule ordering could not be validated.' 78
+	fi
+
+	source_hash=$(file_hash "$PW_CONFIG")
+	semantic_hash=$(file_hash "$stage/config/passwall2")
+	no_change=0
+	if [ "$source_hash" = "$semantic_hash" ]; then
+		no_change=1
+	else
+		stage_uci -q set 'passwall2.@global[0].flush_set=1' >/dev/null ||
+			die staging_failed 'The PassWall2 preview flush marker could not be staged.' 70
+		stage_uci -q commit passwall2 >/dev/null ||
+			die staging_failed 'The PassWall2 preview could not be committed.' 70
+	fi
+	staged_hash=$(file_hash "$stage/config/passwall2")
+	created=$(now_epoch)
+	{
+		printf 'schema=%s\n' "$SCHEMA"
+		printf 'created=%s\n' "$created"
+		printf 'source_hash=%s\n' "$source_hash"
+		printf 'staged_hash=%s\n' "$staged_hash"
+		printf 'semantic_hash=%s\n' "$semantic_hash"
+		printf 'shunt=%s\n' "$shunt"
+		printf 'vpn=%s\n' "$vpn"
+		printf 'gemini=%s\n' "$gemini"
+		printf 'android=%s\n' "$android"
+		printf 'youtube=%s\n' "$youtube"
+		printf 'google=%s\n' "$google"
+		printf 'iran=%s\n' "$iran"
+		printf 'accounts_google=%s\n' "$accounts_google"
+		printf 'set_default=%s\n' "$set_default"
+		printf 'force_localhost=%s\n' "$force_localhost"
+		printf 'no_change=%s\n' "$no_change"
+	} >"$meta"
+	chmod 0600 "$meta"
+	release_lock
+
+	printf '{"ok":true,"schema":"%s","writable":true,"token":"%s","expires_in":%s,"source_hash":"%s","staged_hash":"%s","no_change":%s,' \
+		"$SCHEMA" "$token" "$MAX_PLAN_AGE" "$source_hash" "$staged_hash" "$([ "$no_change" -eq 1 ] && printf true || printf false)"
+	printf '"selection":{"shunt":"%s","vpn_node":"%s"},' "$shunt" "$vpn"
+	printf '"operations":['
+	OP_FIRST=1
+	emit_operation() {
+		[ "$OP_FIRST" -eq 1 ] || printf ','
+		printf '%s' "$1"
+		OP_FIRST=0
+	}
+	if [ "$no_change" -eq 0 ]; then
+		[ "$google" = 0 ] || emit_operation "{\"kind\":\"upsert_local_socks_node\",\"id\":\"$MITM_NODE\",\"endpoint\":\"127.0.0.1:10808\",\"description\":\"Create or refresh the localhost-only MITM SOCKS node.\"}"
+		[ "$gemini" = 0 ] || emit_operation "{\"kind\":\"upsert_rule\",\"id\":\"$RULE_GEMINI\",\"route\":\"selected_vpn\",\"network\":\"tcp\",\"description\":\"Route Gemini control and API traffic through the selected VPN node.\"}"
+		[ "$android" = 0 ] || emit_operation "{\"kind\":\"upsert_rule\",\"id\":\"$RULE_ANDROID\",\"route\":\"selected_vpn\",\"network\":\"tcp\",\"description\":\"Route Android connectivity checks through the selected VPN node.\"}"
+		[ "$youtube" = 0 ] || emit_operation "{\"kind\":\"upsert_rule\",\"id\":\"$RULE_YOUTUBE\",\"route\":\"selected_vpn\",\"network\":\"tcp\",\"excludes\":\"googlevideo.com\",\"description\":\"Route only YouTube control and account traffic through VPN; video delivery remains excluded.\"}"
+		[ "$google" = 0 ] || emit_operation "{\"kind\":\"upsert_rule\",\"id\":\"$RULE_GOOGLE\",\"route\":\"mitm_socks\",\"network\":\"tcp\",\"description\":\"Route the Google geosite through the local MITM SOCKS node.\"}"
+		[ "$iran" = 0 ] || emit_operation "{\"kind\":\"upsert_rule\",\"id\":\"$RULE_IR\",\"route\":\"direct\",\"network\":\"tcp,udp\",\"description\":\"Route Iranian geosite and geoip matches directly.\"}"
+		for removed_rule in $CLEANUP_RULES; do
+			emit_operation "{\"kind\":\"remove_managed_rule\",\"id\":\"$removed_rule\",\"description\":\"Remove a previously package-managed rule that is now disabled.\"}"
+		done
+		[ -z "$DESIRED_RULES" ] || emit_operation '{"kind":"order_rules","policy":"before_first_unmanaged_same_group","description":"Place enabled managed rules in the documented priority order above existing rules in the same group."}'
+		[ "$set_default" = 0 ] || emit_operation '{"kind":"set_shunt_default","target":"selected_vpn","description":"Set the selected VPN node as this shunt default."}'
+		[ "$force_localhost" = 0 ] || emit_operation '{"kind":"set_localhost_proxy","value":false,"description":"Set localhost_proxy=0 to prevent the standalone Xray process from being recaptured."}'
+	fi
+	printf '%s\n' '],"excluded_scopes":["dns","firewall","quic","global_node","node_credentials"],"warning":"Apply restarts PassWall2 only when its global service switch is enabled."}'
+}
+
+load_meta() {
+	file=$1
+	META_SCHEMA=''
+	META_CREATED=''
+	META_SOURCE_HASH=''
+	META_STAGED_HASH=''
+	META_SEMANTIC_HASH=''
+	META_SHUNT=''
+	META_VPN=''
+	META_GEMINI=''
+	META_ANDROID=''
+	META_YOUTUBE=''
+	META_GOOGLE=''
+	META_IRAN=''
+	META_ACCOUNTS_GOOGLE=''
+	META_SET_DEFAULT=''
+	META_FORCE_LOCALHOST=''
+	META_NO_CHANGE=''
+	META_PRE_HASH=''
+	META_POST_HASH=''
+	while IFS='=' read -r key value; do
+		case "$key" in
+			schema) META_SCHEMA=$value ;;
+			created) META_CREATED=$value ;;
+			source_hash) META_SOURCE_HASH=$value ;;
+			staged_hash) META_STAGED_HASH=$value ;;
+			semantic_hash) META_SEMANTIC_HASH=$value ;;
+			shunt) META_SHUNT=$value ;;
+			vpn) META_VPN=$value ;;
+			gemini) META_GEMINI=$value ;;
+			android) META_ANDROID=$value ;;
+			youtube) META_YOUTUBE=$value ;;
+			google) META_GOOGLE=$value ;;
+			iran) META_IRAN=$value ;;
+			accounts_google) META_ACCOUNTS_GOOGLE=$value ;;
+			set_default) META_SET_DEFAULT=$value ;;
+			force_localhost) META_FORCE_LOCALHOST=$value ;;
+			no_change) META_NO_CHANGE=$value ;;
+			pre_hash) META_PRE_HASH=$value ;;
+			post_hash) META_POST_HASH=$value ;;
+		esac
+	done <"$file"
+}
+
+validate_plan_meta() {
+	[ "$META_SCHEMA" = "$SCHEMA" ] || return 1
+	case "$META_CREATED" in ''|*[!0-9]*) return 1 ;; esac
+	valid_token "$META_SOURCE_HASH" || return 1
+	valid_token "$META_STAGED_HASH" || return 1
+	valid_token "$META_SEMANTIC_HASH" || return 1
+	valid_id "$META_SHUNT" || return 1
+	valid_id "$META_VPN" || return 1
+	for value in "$META_GEMINI" "$META_ANDROID" "$META_YOUTUBE" "$META_GOOGLE" "$META_IRAN" "$META_ACCOUNTS_GOOGLE" "$META_SET_DEFAULT" "$META_FORCE_LOCALHOST" "$META_NO_CHANGE"; do
+		case "$value" in 0|1) ;; *) return 1 ;; esac
+	done
+	[ "$META_ACCOUNTS_GOOGLE" = 0 ] || [ "$META_GEMINI" = 1 ] || return 1
+	return 0
+}
+
+acquire_lock() {
+	command -v stat >/dev/null 2>&1 || die missing_dependency 'The stat utility is required.' 69
+	ensure_private_dir "$LOCK_DIR"
+	command -v flock >/dev/null 2>&1 || die missing_dependency 'The BusyBox flock applet is required.' 69
+	[ ! -L "$LOCK_FILE" ] || die unsafe_lock 'The routing lock path is a symbolic link.' 70
+	[ ! -e "$LOCK_FILE" ] || [ -f "$LOCK_FILE" ] || die unsafe_lock 'The routing lock path is not a regular file.' 70
+	exec 9>"$LOCK_FILE" || die lock_failed 'The routing lock could not be opened.' 70
+	chmod 0600 "$LOCK_FILE" 2>/dev/null || true
+	flock -n 9 || die busy 'Another routing transaction is in progress.' 75
+	trap 'exec 9>&-' EXIT
+	trap 'lock_signal_exit 129' HUP
+	trap 'lock_signal_exit 130' INT
+	trap 'lock_signal_exit 143' TERM
+}
+
+lock_signal_exit() {
+	status=$1
+	trap - EXIT HUP INT TERM
+	exec 9>&-
+	exit "$status"
+}
+
+release_lock() {
+	trap - EXIT HUP INT TERM
+	exec 9>&-
+}
+
+write_last_transaction() {
+	local token last_tmp
+	token=$1
+	valid_token "$token" || return 1
+	last_tmp="$STATE_DIR/.last-transaction.$token"
+	rm -f "$last_tmp"
+	printf '%s\n' "$token" >"$last_tmp" || return 1
+	chmod 0600 "$last_tmp" || return 1
+	mv -f "$last_tmp" "$STATE_DIR/last-transaction"
+}
+
+cleanup_interrupted_metadata() {
+	local kind token source previous recorded
+	kind=$1
+	token=$2
+	source=$3
+	previous=${4:-}
+	case "$kind" in
+		apply)
+			recorded=''
+			[ ! -f "$STATE_DIR/last-transaction" ] || recorded=$(sed -n '1p' "$STATE_DIR/last-transaction")
+			if [ "$recorded" = "$token" ]; then
+				if [ -n "$previous" ] && valid_rollback_transaction "$previous"; then
+					write_last_transaction "$previous" || return 1
+				else
+					rm -f "$STATE_DIR/last-transaction" || return 1
+				fi
+			fi
+			rm -f "$TX_DIR/$token.meta"
+			;;
+		rollback) ;;
+	esac
+}
+
+transaction_abort() {
+	status=${1:-70}
+	trap - EXIT HUP INT TERM
+	if [ "${RECOVERY_ACTIVE:-0}" = 1 ]; then
+		if restore_config_checked "$RECOVERY_FILE" "$RECOVERY_TOKEN" "$RECOVERY_HASH"; then
+			if restart_if_enabled &&
+				cleanup_interrupted_metadata "$RECOVERY_KIND" "$RECOVERY_TOKEN" "$RECOVERY_FILE" "${RECOVERY_PREVIOUS:-}" &&
+				rm -f "$RECOVERY_MARKER"; then
+				rm -f "$RECOVERY_FILE" || true
+			else
+				status=70
+			fi
+		else
+			[ "$ERROR_EMITTED" -eq 1 ] ||
+				json_error restore_failed 'An interrupted routing transaction could not restore the prior PassWall2 file exactly.'
+			status=70
+		fi
+	fi
+	if [ "$status" -eq 70 ] && [ "$ERROR_EMITTED" -eq 0 ]; then
+		json_error recovery_failed 'The routing transaction was interrupted and automatic recovery did not finish.'
+	fi
+	exec 9>&-
+	[ "$status" -ne 0 ] || status=70
+	exit "$status"
+}
+
+arm_recovery() {
+	local recovery_tmp previous
+	RECOVERY_FILE=$1
+	RECOVERY_HASH=$2
+	RECOVERY_TOKEN=$3
+	RECOVERY_KIND=$4
+	previous=${5:-}
+	valid_token "$RECOVERY_TOKEN" || return 1
+	valid_token "$RECOVERY_HASH" || return 1
+	[ -z "$previous" ] || valid_token "$previous" || return 1
+	[ "$previous" != "$RECOVERY_TOKEN" ] || return 1
+	case "$RECOVERY_KIND" in
+		apply) [ "$RECOVERY_FILE" = "$BACKUP_DIR/$RECOVERY_TOKEN.passwall2" ] || return 1 ;;
+		rollback) [ "$RECOVERY_FILE" = "$BACKUP_DIR/$RECOVERY_TOKEN.applied" ] || return 1 ;;
+		*) return 1 ;;
+	esac
+	[ -f "$RECOVERY_FILE" ] && [ ! -L "$RECOVERY_FILE" ] || return 1
+	[ "$(file_hash "$RECOVERY_FILE")" = "$RECOVERY_HASH" ] || return 1
+	[ ! -e "$RECOVERY_MARKER" ] && [ ! -L "$RECOVERY_MARKER" ] || return 1
+	recovery_tmp="$STATE_DIR/.recovery.$RECOVERY_TOKEN"
+	{
+		printf 'version=2\n'
+		printf 'kind=%s\n' "$RECOVERY_KIND"
+		printf 'token=%s\n' "$RECOVERY_TOKEN"
+		printf 'restore_hash=%s\n' "$RECOVERY_HASH"
+		printf 'previous_token=%s\n' "$previous"
+	} >"$recovery_tmp" || return 1
+	chmod 0600 "$recovery_tmp" || return 1
+	ln "$recovery_tmp" "$RECOVERY_MARKER" 2>/dev/null || {
+		rm -f "$recovery_tmp"
+		return 1
+	}
+	rm -f "$recovery_tmp"
+	RECOVERY_PREVIOUS=$previous
+	RECOVERY_ACTIVE=1
+	trap 'transaction_abort $?' EXIT
+	trap 'transaction_abort 129' HUP
+	trap 'transaction_abort 130' INT
+	trap 'transaction_abort 143' TERM
+}
+
+disarm_recovery() {
+	rm -f "$RECOVERY_MARKER" || return 1
+	RECOVERY_ACTIVE=0
+}
+
+recovery_field() {
+	local field count
+	field=$1
+	count=$(grep -c "^${field}=" "$RECOVERY_MARKER" 2>/dev/null || true)
+	[ "$count" = 1 ] || return 1
+	sed -n "s/^${field}=//p" "$RECOVERY_MARKER"
+}
+
+recover_interrupted() {
+	local version kind token restore_hash previous source
+	[ ! -e "$RECOVERY_MARKER" ] && [ ! -L "$RECOVERY_MARKER" ] && return 0
+	[ -f "$RECOVERY_MARKER" ] && [ ! -L "$RECOVERY_MARKER" ] || return 1
+	version=$(recovery_field version) || return 1
+	kind=$(recovery_field kind) || return 1
+	token=$(recovery_field token) || return 1
+	restore_hash=$(recovery_field restore_hash) || return 1
+	case "$version" in
+		1) previous='' ;;
+		2) previous=$(recovery_field previous_token) || return 1 ;;
+		*) return 1 ;;
+	esac
+	valid_token "$token" || return 1
+	valid_token "$restore_hash" || return 1
+	[ -z "$previous" ] || valid_token "$previous" || return 1
+	[ "$previous" != "$token" ] || return 1
+	case "$kind" in
+		apply) source="$BACKUP_DIR/$token.passwall2" ;;
+		rollback) source="$BACKUP_DIR/$token.applied" ;;
+		*) return 1 ;;
+	esac
+	[ -f "$source" ] && [ ! -L "$source" ] || return 1
+	[ "$(file_hash "$source")" = "$restore_hash" ] || return 1
+	restore_config_checked "$source" "$token" "$restore_hash" || return 1
+	restart_if_enabled || return 1
+	cleanup_interrupted_metadata "$kind" "$token" "$source" "$previous" || return 1
+	rm -f "$RECOVERY_MARKER" || return 1
+	rm -f "$source" || true
+	return 0
+}
+
+service_enabled() {
+	[ "$(uci -c "$CONFIG_DIR" -q get 'passwall2.@global[0].enabled' 2>/dev/null || true)" = 1 ]
+}
+
+restart_if_enabled() {
+	if service_enabled; then
+		"$PW_INIT" restart >/dev/null 2>&1
+		return $?
+	fi
+	return 0
+}
+
+install_config() {
+	local source token tmp stats expected_uid
+	source=$1
+	token=$2
+	valid_token "$token" || return 1
+	[ -f "$source" ] && [ ! -L "$source" ] || return 1
+	tmp="$CONFIG_DIR/.passwall2.xray-mitm-$token"
+	rm -f "$tmp" || return 1
+	[ ! -e "$tmp" ] && [ ! -L "$tmp" ] || return 1
+	cp -p "$source" "$tmp" || { rm -f "$tmp"; return 1; }
+	chmod 0600 "$tmp" || { rm -f "$tmp"; return 1; }
+	mv -f "$tmp" "$PW_CONFIG" || { rm -f "$tmp"; return 1; }
+	[ -f "$PW_CONFIG" ] && [ ! -L "$PW_CONFIG" ] || return 1
+	if [ -n "$TEST_ROOT" ]; then expected_uid=$(id -u); else expected_uid=0; fi
+	stats=$(stat -c '%u %a' "$PW_CONFIG" 2>/dev/null || true)
+	set -- $stats
+	[ "$#" -eq 2 ] && [ "$1" = "$expected_uid" ] && [ "$2" = 600 ]
+}
+
+restore_config_checked() {
+	source=$1
+	token=$2
+	expected_hash=$3
+	install_config "$source" "$token" || return 1
+	[ "$(file_hash "$PW_CONFIG")" = "$expected_hash" ]
+}
+
+verify_rule_live() {
+	id=$1
+	remarks=$2
+	network=$3
+	domains=$4
+	iplist=$5
+	group=$6
+	[ "$(section_type "$id")" = shunt_rules ] || return 1
+	[ "$(section_option "$id" "$MANAGED_MARKER")" = 1 ] || return 1
+	[ "$(section_option "$id" remarks)" = "$remarks" ] || return 1
+	[ "$(section_option "$id" network)" = "$network" ] || return 1
+	[ "$(section_option "$id" domain_list)" = "$domains" ] || return 1
+	[ "$(section_option "$id" ip_list)" = "$iplist" ] || return 1
+	[ "$(section_option "$id" group)" = "$group" ] || return 1
+}
+
+live_section_index() {
+	want=$1
+	index=0
+	uci -c "$CONFIG_DIR" -q show passwall2 2>/dev/null | while IFS= read -r line; do
+		case "$line" in
+			passwall2.*=*)
+				left=${line%%=*}
+				id=${left#passwall2.}
+				case "$id" in *.*) continue ;; esac
+				if [ "$id" = "$want" ]; then
+					printf '%s\n' "$index"
+					exit 0
+				fi
+				index=$((index + 1))
+				;;
+		esac
+	done
+}
+
+is_verify_rule() {
+	want=$1
+	for candidate in $VERIFY_RULES; do
+		[ "$candidate" = "$want" ] && return 0
+	done
+	return 1
+}
+
+first_unmanaged_live_in_group() {
+	group=$1
+	for id in $(section_ids_by_type shunt_rules); do
+		valid_id "$id" || continue
+		[ "$(section_option "$id" group)" = "$group" ] || continue
+		is_verify_rule "$id" && continue
+		printf '%s' "$id"
+		return 0
+	done
+	return 1
+}
+
+verify_live_order() {
+	group=$1
+	previous=-1
+	for id in $VERIFY_RULES; do
+		index=$(live_section_index "$id")
+		case "$index" in ''|*[!0-9]*) return 1 ;; esac
+		[ "$index" -gt "$previous" ] || return 1
+		previous=$index
+	done
+	anchor=$(first_unmanaged_live_in_group "$group" || true)
+	if [ -n "$anchor" ]; then
+		anchor_index=$(live_section_index "$anchor")
+		case "$anchor_index" in ''|*[!0-9]*) return 1 ;; esac
+		[ "$previous" -lt "$anchor_index" ] || return 1
+	fi
+	return 0
+}
+
+verify_managed_live() {
+	shunt=$1
+	vpn=$2
+	gemini=$3
+	android=$4
+	youtube=$5
+	google=$6
+	iran=$7
+	accounts_google=$8
+	set_default=$9
+	shift 9
+	force_localhost=$1
+
+	[ "$(section_type "$shunt")" = nodes ] || return 1
+	[ "$(section_option "$shunt" protocol)" = _shunt ] || return 1
+	[ "$(section_type "$vpn")" = nodes ] || return 1
+	[ "$(section_option "$vpn" protocol)" != _shunt ] || return 1
+	group=$(section_option "$shunt" shunt_group)
+	case "$group" in ''|*[!A-Za-z0-9_-]*) return 1 ;; esac
+
+	if [ "$google" = 1 ]; then
+		[ "$(section_type "$MITM_NODE")" = nodes ] || return 1
+		[ "$(section_option "$MITM_NODE" "$MANAGED_MARKER")" = 1 ] || return 1
+		[ "$(section_option "$MITM_NODE" remarks)" = 'MITM-DF (localhost)' ] || return 1
+		[ "$(section_option "$MITM_NODE" type)" = Xray ] || return 1
+		[ "$(section_option "$MITM_NODE" protocol)" = socks ] || return 1
+		[ "$(section_option "$MITM_NODE" address)" = 127.0.0.1 ] || return 1
+		[ "$(section_option "$MITM_NODE" port)" = 10808 ] || return 1
+	fi
+
+	VERIFY_RULES=''
+	if [ "$gemini" = 1 ]; then
+		gemini_domains='domain:gemini.google.com
+domain:generativelanguage.googleapis.com'
+		if [ "$accounts_google" = 1 ]; then
+			gemini_domains="$gemini_domains
+domain:accounts.google.com"
+		fi
+		verify_rule_live "$RULE_GEMINI" 'Gemini_VPN' tcp "$gemini_domains" '' "$group" || return 1
+		[ "$(section_option "$shunt" "$RULE_GEMINI")" = "$vpn" ] || return 1
+		VERIFY_RULES=$RULE_GEMINI
+	elif [ "$(section_option "$RULE_GEMINI" "$MANAGED_MARKER")" = 1 ]; then
+		return 1
+	fi
+	if [ "$android" = 1 ]; then
+		verify_rule_live "$RULE_ANDROID" 'Android_Check' tcp 'domain:connectivitycheck.gstatic.com
+domain:connectivitycheck.android.com
+domain:clients3.google.com' '' "$group" || return 1
+		[ "$(section_option "$shunt" "$RULE_ANDROID")" = "$vpn" ] || return 1
+		VERIFY_RULES="${VERIFY_RULES}${VERIFY_RULES:+ }$RULE_ANDROID"
+	elif [ "$(section_option "$RULE_ANDROID" "$MANAGED_MARKER")" = 1 ]; then
+		return 1
+	fi
+	if [ "$youtube" = 1 ]; then
+		verify_rule_live "$RULE_YOUTUBE" 'YouTube_Control_VPN' tcp 'domain:www.youtube.com
+domain:youtubei.googleapis.com
+domain:youtube.googleapis.com
+domain:accounts.youtube.com' '' "$group" || return 1
+		[ "$(section_option "$shunt" "$RULE_YOUTUBE")" = "$vpn" ] || return 1
+		VERIFY_RULES="${VERIFY_RULES}${VERIFY_RULES:+ }$RULE_YOUTUBE"
+	elif [ "$(section_option "$RULE_YOUTUBE" "$MANAGED_MARKER")" = 1 ]; then
+		return 1
+	fi
+	if [ "$google" = 1 ]; then
+		verify_rule_live "$RULE_GOOGLE" 'Google_MITM' tcp 'geosite:google' '' "$group" || return 1
+		[ "$(section_option "$shunt" "$RULE_GOOGLE")" = "$MITM_NODE" ] || return 1
+		VERIFY_RULES="${VERIFY_RULES}${VERIFY_RULES:+ }$RULE_GOOGLE"
+	elif [ "$(section_option "$RULE_GOOGLE" "$MANAGED_MARKER")" = 1 ]; then
+		return 1
+	fi
+	if [ "$iran" = 1 ]; then
+		verify_rule_live "$RULE_IR" 'IR_Direct' 'tcp,udp' 'geosite:ir' 'geoip:ir' "$group" || return 1
+		[ "$(section_option "$shunt" "$RULE_IR")" = _direct ] || return 1
+		VERIFY_RULES="${VERIFY_RULES}${VERIFY_RULES:+ }$RULE_IR"
+	elif [ "$(section_option "$RULE_IR" "$MANAGED_MARKER")" = 1 ]; then
+		return 1
+	fi
+
+	[ "$set_default" = 0 ] || [ "$(section_option "$shunt" default_node)" = "$vpn" ] || return 1
+	[ "$force_localhost" = 0 ] || [ "$(section_option '@global[0]' localhost_proxy)" = 0 ] || return 1
+	[ -z "$VERIFY_RULES" ] || verify_live_order "$group" || return 1
+	return 0
+}
+
+apply_plan() {
+	token=${1:-}
+	[ "$#" -eq 1 ] || die invalid_arguments 'Apply requires one plan token.' 64
+	valid_token "$token" || die invalid_token 'The plan token is invalid.' 65
+	ensure_state_dirs
+	acquire_lock
+	recover_interrupted || die recovery_failed 'An interrupted routing transaction could not restore the prior PassWall2 file.' 70
+	schema_check || die unsupported_schema 'Compatible PassWall2 files and UCI schema were not detected.' 69
+	meta="$PLAN_DIR/$token.meta"
+	stage="$PLAN_DIR/$token.stage/config/passwall2"
+	[ -f "$meta" ] && [ -f "$stage" ] || die plan_not_found 'The plan does not exist or was already consumed.' 66
+	load_meta "$meta"
+	validate_plan_meta || die invalid_plan 'The stored plan metadata failed validation.' 65
+	now=$(now_epoch)
+	age=$((now - META_CREATED))
+	[ "$age" -ge 0 ] && [ "$age" -le "$MAX_PLAN_AGE" ] || die plan_expired 'The plan expired; create a new preview.' 75
+	[ "$(file_hash "$stage")" = "$META_STAGED_HASH" ] || die plan_tampered 'The staged configuration hash does not match the plan.' 65
+	pending_changes && die pending_changes 'Save or revert existing PassWall2 or firewall UCI changes before applying.' 73
+	[ "$(file_hash "$PW_CONFIG")" = "$META_SOURCE_HASH" ] || die source_changed 'PassWall2 changed after preview; create a new plan.' 73
+
+	if [ "$META_NO_CHANGE" = 1 ]; then
+		rm -rf "$PLAN_DIR/$token.stage"
+		rm -f "$meta"
+		rollback_token=$(latest_rollback_token || true)
+		release_lock
+		if [ -n "$rollback_token" ]; then
+			printf '{"ok":true,"changed":false,"transaction":"%s","service_action":"none","rollback_available":true}\n' "$rollback_token"
+		else
+			printf '%s\n' '{"ok":true,"changed":false,"transaction":null,"service_action":"none","rollback_available":false}'
+		fi
+		return 0
+	fi
+
+	previous_token=''
+	if [ -f "$STATE_DIR/last-transaction" ]; then
+		previous_token=$(sed -n '1p' "$STATE_DIR/last-transaction")
+		valid_token "$previous_token" || previous_token=''
+	fi
+	backup="$BACKUP_DIR/$token.passwall2"
+	cp -p "$PW_CONFIG" "$backup"
+	chmod 0600 "$backup"
+	arm_recovery "$backup" "$META_SOURCE_HASH" "$token" apply "$previous_token" ||
+		die recovery_marker_failed 'The rollback marker could not be created; PassWall2 was not changed.' 70
+	install_config "$stage" "$token" ||
+		die install_failed 'The staged PassWall2 file could not be installed safely.' 70
+
+	if [ "$(file_hash "$PW_CONFIG")" != "$META_STAGED_HASH" ] || ! verify_managed_live "$META_SHUNT" "$META_VPN" "$META_GEMINI" "$META_ANDROID" "$META_YOUTUBE" "$META_GOOGLE" "$META_IRAN" "$META_ACCOUNTS_GOOGLE" "$META_SET_DEFAULT" "$META_FORCE_LOCALHOST"; then
+		if ! restore_config_checked "$backup" "$token" "$META_SOURCE_HASH"; then
+			die restore_failed 'PassWall2 verification failed and the prior file could not be restored exactly.' 70
+		fi
+		restart_if_enabled || die restore_restart_failed 'The prior PassWall2 file was restored, but its service could not be restarted; recovery remains armed.' 70
+		disarm_recovery || die recovery_marker_failed 'The prior file was restored but the recovery marker could not be cleared.' 70
+		rm -f "$backup"
+		release_lock
+		die verification_failed 'Managed PassWall2 values failed verification; the exact prior file was restored.' 70
+	fi
+
+	if ! restart_if_enabled; then
+		if ! restore_config_checked "$backup" "$token" "$META_SOURCE_HASH"; then
+			die restore_failed 'PassWall2 restart failed and the prior file could not be restored exactly.' 70
+		fi
+		restart_if_enabled || die restore_restart_failed 'The prior PassWall2 file was restored, but its service could not be restarted; recovery remains armed.' 70
+		disarm_recovery || die recovery_marker_failed 'The prior file was restored but the recovery marker could not be cleared.' 70
+		rm -f "$backup"
+		release_lock
+		die service_restart_failed 'PassWall2 restart failed; the exact prior file was restored.' 70
+	fi
+	if ! verify_managed_live "$META_SHUNT" "$META_VPN" "$META_GEMINI" "$META_ANDROID" "$META_YOUTUBE" "$META_GOOGLE" "$META_IRAN" "$META_ACCOUNTS_GOOGLE" "$META_SET_DEFAULT" "$META_FORCE_LOCALHOST"; then
+		if ! restore_config_checked "$backup" "$token" "$META_SOURCE_HASH"; then
+			die restore_failed 'PassWall2 changed during activation and the prior file could not be restored exactly.' 70
+		fi
+		restart_if_enabled || die restore_restart_failed 'The prior PassWall2 file was restored, but its service could not be restarted; recovery remains armed.' 70
+		disarm_recovery || die recovery_marker_failed 'The prior file was restored but the recovery marker could not be cleared.' 70
+		rm -f "$backup"
+		release_lock
+		die verification_failed 'Managed PassWall2 values changed during service activation; the exact prior file was restored.' 70
+	fi
+
+	post_hash=$(file_hash "$PW_CONFIG")
+	tx="$TX_DIR/$token.meta"
+	{
+		printf 'schema=%s\n' "$SCHEMA"
+		printf 'created=%s\n' "$(now_epoch)"
+		printf 'pre_hash=%s\n' "$META_SOURCE_HASH"
+		printf 'post_hash=%s\n' "$post_hash"
+	} >"$tx"
+	chmod 0600 "$tx"
+	write_last_transaction "$token" || die transaction_finalize_failed 'The rollback transaction pointer could not be finalized.' 70
+	rm -rf "$PLAN_DIR/$token.stage"
+	rm -f "$meta"
+	disarm_recovery || die recovery_marker_failed 'PassWall2 was applied but the recovery marker could not be finalized.' 70
+	if [ -n "$previous_token" ] && [ "$previous_token" != "$token" ]; then
+		rm -f "$BACKUP_DIR/$previous_token.passwall2" "$TX_DIR/$previous_token.meta"
+	fi
+	release_lock
+	if service_enabled; then action=restart; else action=none_service_disabled; fi
+	printf '{"ok":true,"changed":true,"transaction":"%s","post_hash":"%s","service_action":"%s","rollback_available":true}\n' \
+		"$token" "$post_hash" "$action"
+}
+
+rollback() {
+	token=${1:-}
+	[ "$#" -eq 1 ] || die invalid_arguments 'Rollback requires one transaction token.' 64
+	valid_token "$token" || die invalid_token 'The transaction token is invalid.' 65
+	ensure_state_dirs
+	acquire_lock
+	recover_interrupted || die recovery_failed 'An interrupted routing transaction could not restore the prior PassWall2 file.' 70
+	schema_check || die unsupported_schema 'Compatible PassWall2 files and UCI schema were not detected.' 69
+	backup="$BACKUP_DIR/$token.passwall2"
+	tx="$TX_DIR/$token.meta"
+	[ -f "$backup" ] && [ -f "$tx" ] || die transaction_not_found 'The rollback transaction was not found.' 66
+	[ -f "$STATE_DIR/last-transaction" ] || die transaction_not_latest 'Only the latest unchanged transaction can be rolled back.' 73
+	[ "$(sed -n '1p' "$STATE_DIR/last-transaction")" = "$token" ] || die transaction_not_latest 'Only the latest unchanged transaction can be rolled back.' 73
+	load_meta "$tx"
+	[ "$META_SCHEMA" = "$SCHEMA" ] || die invalid_transaction 'The rollback metadata failed validation.' 65
+	valid_token "$META_PRE_HASH" || die invalid_transaction 'The rollback metadata failed validation.' 65
+	valid_token "$META_POST_HASH" || die invalid_transaction 'The rollback metadata failed validation.' 65
+	[ "$(file_hash "$backup")" = "$META_PRE_HASH" ] || die backup_tampered 'The rollback backup hash is invalid.' 65
+	pending_changes && die pending_changes 'Save or revert existing PassWall2 or firewall UCI changes before rollback.' 73
+	[ "$(file_hash "$PW_CONFIG")" = "$META_POST_HASH" ] || die source_changed 'PassWall2 changed after apply; automatic rollback will not overwrite those changes.' 73
+
+	current="$BACKUP_DIR/$token.applied"
+	cp -p "$PW_CONFIG" "$current"
+	chmod 0600 "$current"
+	arm_recovery "$current" "$META_POST_HASH" "$token" rollback ||
+		die recovery_marker_failed 'The rollback marker could not be created; PassWall2 was not changed.' 70
+	install_config "$backup" "$token" ||
+		die install_failed 'The rollback PassWall2 file could not be installed safely.' 70
+	if ! restart_if_enabled; then
+		restore_config_checked "$current" "$token" "$META_POST_HASH" ||
+			die restore_failed 'Rollback restart failed and the applied file could not be restored exactly.' 70
+		restart_if_enabled || die restore_restart_failed 'The applied PassWall2 file was restored, but its service could not be restarted; recovery remains armed.' 70
+		disarm_recovery || die recovery_marker_failed 'The applied file was restored but the recovery marker could not be cleared.' 70
+		rm -f "$current"
+		release_lock
+		die service_restart_failed 'PassWall2 restart failed; the applied configuration was restored.' 70
+	fi
+	[ "$(file_hash "$PW_CONFIG")" = "$META_PRE_HASH" ] || {
+		# A running PassWall2 may legitimately consume its one-shot flush flag.
+		# If the exact bytes changed, keep both files and report instead of claiming
+		# an exact rollback.
+		restore_config_checked "$current" "$token" "$META_POST_HASH" ||
+			die restore_failed 'Rollback verification failed and the applied file could not be restored exactly.' 70
+		restart_if_enabled || die restore_restart_failed 'The applied PassWall2 file was restored, but its service could not be restarted; recovery remains armed.' 70
+		disarm_recovery || die recovery_marker_failed 'The applied file was restored but the recovery marker could not be cleared.' 70
+		rm -f "$current"
+		release_lock
+		die rollback_verification_failed 'Exact rollback verification failed; the applied configuration was restored.' 70
+	}
+	disarm_recovery || die recovery_marker_failed 'Rollback completed but the recovery marker could not be finalized.' 70
+	rm -f "$current" "$backup" "$tx" "$STATE_DIR/last-transaction"
+	release_lock
+	printf '{"ok":true,"rolled_back":true,"transaction":"%s","restored_hash":"%s"}\n' "$token" "$META_PRE_HASH"
+}
+
+recover_only() {
+	[ "$#" -eq 0 ] || die invalid_arguments 'Recover takes no arguments.' 64
+	ensure_state_dirs
+	acquire_lock
+	if [ -e "$RECOVERY_MARKER" ] || [ -L "$RECOVERY_MARKER" ]; then pending=true; else pending=false; fi
+	recover_interrupted || die recovery_failed 'An interrupted routing transaction could not restore the prior PassWall2 file.' 70
+	release_lock
+	printf '{"ok":true,"recovery_pending":%s,"recovered":%s}\n' "$pending" "$pending"
+}
+
+usage() {
+	json_error invalid_arguments 'Use inspect, plan REQUEST_JSON, apply TOKEN, rollback TRANSACTION, or recover.'
+	exit 64
+}
+
+command=${1:-}
+[ "$#" -gt 0 ] || usage
+shift
+case "$command" in
+	inspect) [ "$#" -eq 0 ] || usage; inspect ;;
+	plan) plan "$@" ;;
+	apply) apply_plan "$@" ;;
+	rollback) rollback "$@" ;;
+	recover) recover_only "$@" ;;
+	*) usage ;;
+esac

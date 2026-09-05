@@ -1,0 +1,118 @@
+#!/bin/sh
+
+set -u
+
+XRAY_MITM_LIBEXEC="${XRAY_MITM_LIBEXEC:-${XRAY_MITM_TEST_ROOT:-}/usr/libexec/xray-mitm}"
+[ -r "$XRAY_MITM_LIBEXEC/common.sh" ] || XRAY_MITM_LIBEXEC="/usr/libexec/xray-mitm"
+. "$XRAY_MITM_LIBEXEC/common.sh"
+
+XRAY_BIN="${XRAY_MITM_ROOT}/usr/bin/xray"
+
+cleanup_tmp=""
+cleanup() {
+	[ -n "$cleanup_tmp" ] && rm -f "$cleanup_tmp"
+}
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+run_validation() {
+	local file asset_dir
+	file="$1"
+	[ -x "$XRAY_BIN" ] || xray_mitm_die "xray executable is not installed"
+	[ -s "$file" ] || xray_mitm_die "configuration is not installed"
+	asset_dir="$(xray_mitm_asset_dir)"
+	[ -d "$asset_dir" ] || xray_mitm_die "Xray asset directory is missing: $asset_dir"
+	XRAY_LOCATION_ASSET="$asset_dir" "$XRAY_BIN" run -test -c "$file"
+}
+
+validate_with_cert() {
+	local cert key cert_tail slot tmp
+	cert="$1"
+	key="$2"
+	case "$cert" in
+		"$XRAY_MITM_SLOTS_DIR"/*/mycert.crt) ;;
+		*) xray_mitm_die "candidate certificate path is outside the managed store" ;;
+	esac
+	cert_tail="${cert#"$XRAY_MITM_SLOTS_DIR"/}"
+	slot="${cert_tail%/mycert.crt}"
+	case "$slot" in
+		''|*/*|*[!A-Za-z0-9._-]*) xray_mitm_die "invalid managed certificate slot" ;;
+	esac
+	[ "$key" = "$XRAY_MITM_SLOTS_DIR/$slot/mycert.key" ] ||
+		xray_mitm_die "candidate key does not match the managed certificate slot"
+	[ -s "$cert" ] && [ -s "$key" ] || xray_mitm_die "candidate certificate pair is incomplete"
+	[ -s "$XRAY_MITM_CONFIG" ] || xray_mitm_die "configuration is not installed"
+
+	umask 077
+	tmp="$(mktemp /tmp/xray-mitm-config.XXXXXX)" || xray_mitm_die "cannot create validation file"
+	cleanup_tmp="$tmp"
+	sed \
+		-e "s#/etc/xray-mitm/mycert\\.crt#$cert#g" \
+		-e "s#/etc/xray-mitm/mycert\\.key#$key#g" \
+		"$XRAY_MITM_CONFIG" >"$tmp" || xray_mitm_die "cannot prepare candidate validation"
+	chmod 0600 "$tmp"
+	run_validation "$tmp"
+}
+
+emit_validation_json() {
+	local output ok detail
+	umask 077
+	output="$(mktemp /tmp/xray-mitm-validation.XXXXXX)" || xray_mitm_die "cannot create validation output"
+	cleanup_tmp="$output"
+	ok=false
+	if run_validation "$XRAY_MITM_CONFIG" >"$output" 2>&1; then
+		ok=true
+	fi
+	detail="$(dd if="$output" bs=1 count=4096 2>/dev/null)"
+	printf '{"ok":%s,"output":' "$ok"
+	xray_mitm_json_string "$detail"
+	printf '}\n'
+	[ "$ok" = true ]
+}
+
+case "${1:-}" in
+	install-default)
+		[ -s "$XRAY_MITM_SAMPLE" ] || xray_mitm_die "packaged configuration sample is missing"
+		[ ! -e "$XRAY_MITM_CONFIG" ] && [ ! -L "$XRAY_MITM_CONFIG" ] ||
+			xray_mitm_die "configuration already exists; refusing overwrite"
+		xray_mitm_ensure_private_dirs || xray_mitm_die "cannot create private configuration directory"
+		umask 077
+		cleanup_tmp="$XRAY_MITM_DIR/.config.json.$$"
+		cp "$XRAY_MITM_SAMPLE" "$cleanup_tmp" || xray_mitm_die "cannot stage packaged configuration"
+		chmod 0600 "$cleanup_tmp" || xray_mitm_die "cannot secure staged configuration"
+		ln "$cleanup_tmp" "$XRAY_MITM_CONFIG" 2>/dev/null ||
+			xray_mitm_die "configuration appeared during installation; refusing overwrite"
+		rm -f "$cleanup_tmp"
+		cleanup_tmp=""
+		xray_mitm_refresh_provisioned || xray_mitm_die "configuration installed, but UCI state could not be updated"
+		printf '%s\n' "Installed $XRAY_MITM_CONFIG. The service remains disabled until a CA is activated."
+		;;
+	status-json)
+		present=false
+		bytes=0
+		if [ -s "$XRAY_MITM_CONFIG" ]; then
+			present=true
+			bytes="$(wc -c <"$XRAY_MITM_CONFIG" | tr -d ' ')"
+			case "$bytes" in ''|*[!0-9]*) bytes=0 ;; esac
+		fi
+		provisioned=false
+		[ "$(xray_mitm_uci_get provisioned)" = "1" ] && provisioned=true
+		printf '{"present":%s,"provisioned":%s,"bytes":%s,"path":"/etc/xray-mitm/config.json","sample":"/usr/share/xray-mitm/config.json.example"}\n' \
+			"$present" "$provisioned" "$bytes"
+		;;
+	validate)
+		run_validation "$XRAY_MITM_CONFIG"
+		;;
+	validate-json)
+		emit_validation_json
+		;;
+	validate-with-cert)
+		[ "$#" -eq 3 ] || xray_mitm_die "validate-with-cert requires a managed certificate and key path"
+		validate_with_cert "$2" "$3"
+		;;
+	*)
+		xray_mitm_die "usage: config {install-default|status-json|validate|validate-json|validate-with-cert}"
+		;;
+esac
