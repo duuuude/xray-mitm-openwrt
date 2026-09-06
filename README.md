@@ -1,9 +1,140 @@
 # Xray MITM Domain Fronting for OpenWrt
 
+**Documentation:** English | [فارسی](README.fa.md)
+
 This repository packages a standalone Xray MITM-DomainFronting service and a small LuCI management page for OpenWrt. It is designed for official OpenWrt **25.12.5 and later APK-based releases**, subject to a build and lab test for each release, and is not tied to the ASUS TUF-AX4200 or to the `mediatek/filogic` target.
 
 > [!CAUTION]
 > A locally trusted MITM certificate authority can decrypt traffic from devices that trust it. Use this only on networks and devices you own or are explicitly authorized to administer. Never publish, email, or otherwise share the generated CA private key.
+
+## Quick setup
+
+This is the shortest supported installation path. The sections below explain the design, routing options, building, upgrades, and removal in more detail.
+
+### 1. Check the router
+
+The published packages require official OpenWrt 25.12.5 or later with APK and a compatible `xray-core` package.
+
+**MAC:**
+
+```sh
+ssh root@192.168.1.1
+```
+
+**WINDOWS PC (PowerShell):**
+
+```powershell
+ssh.exe root@192.168.1.1
+```
+
+After connecting, run the following on the router:
+
+**ROUTER:**
+
+```sh
+. /etc/openwrt_release
+printf 'OpenWrt release: %s\n' "$DISTRIB_RELEASE"
+apk --version
+```
+
+### 2. Download and copy the release files
+
+Download both `.apk` files and `SHA256SUMS` from the same GitHub Release. Put them in one directory on the Mac, then create a protected temporary directory on the router.
+
+**ROUTER:**
+
+```sh
+mkdir -p -m 0700 /tmp/xray-mitm-install
+```
+
+**MAC:**
+
+```sh
+cd "/path/to/downloaded/release-files"
+scp -O xray-mitm-*.apk luci-app-xray-mitm-*.apk SHA256SUMS \
+  root@192.168.1.1:/tmp/xray-mitm-install/
+```
+
+**WINDOWS PC (PowerShell):**
+
+Windows 10 and 11 can use the optional **OpenSSH Client** feature. Confirm that `ssh.exe` and `scp.exe` are available, then copy the same three files:
+
+```powershell
+Get-Command ssh.exe, scp.exe
+Set-Location "C:\path\to\downloaded\release-files"
+$core = (Get-ChildItem -File 'xray-mitm-*.apk').FullName
+$luci = (Get-ChildItem -File 'luci-app-xray-mitm-*.apk').FullName
+$sums = (Resolve-Path '.\SHA256SUMS').Path
+scp.exe -O $core $luci $sums root@192.168.1.1:/tmp/xray-mitm-install/
+```
+
+If the router uses another address, replace `192.168.1.1`. If `Get-Command` cannot find the programs, install **OpenSSH Client** from Windows Optional Features first.
+
+### 3. Verify and install
+
+Do not install if either checksum fails.
+
+**ROUTER:**
+
+```sh
+cd /tmp/xray-mitm-install
+sha256sum -c SHA256SUMS
+apk update
+apk add --allow-untrusted ./xray-mitm-*.apk ./luci-app-xray-mitm-*.apk
+```
+
+### 4. Complete setup in LuCI
+
+1. Open LuCI over **HTTPS** and go to **Services → MITM Domain Fronting**.
+2. Select **Install packaged default configuration**.
+3. Select **Generate candidate**, or import a matching certificate and private key that you already control.
+4. Select **Activate candidate**.
+5. Download only `mycert.crt` and install it as a trusted root on each client that should use MITM.
+6. Select **Start**, run **Health check**, and confirm it passes.
+7. Select **Enable at boot** if the service should survive router restarts.
+
+Never copy `mycert.key` to a client or attach it to an issue or release.
+
+Install the downloaded public CA for the user account that will use the service:
+
+**MAC:**
+
+```sh
+security add-trusted-cert -r trustRoot \
+  -k "$HOME/Library/Keychains/login.keychain-db" ./mycert.crt
+```
+
+**WINDOWS PC (PowerShell):**
+
+```powershell
+certutil.exe -user -addstore -f Root .\mycert.crt
+```
+
+The Windows command trusts the CA for the current user. Firefox may require a separate import if it is configured to use its own certificate store.
+
+### 5. Configure PassWall2 if needed
+
+PassWall2 integration is optional. Open the routing section in the LuCI page, choose the shunt and VPN nodes, preview the proposed changes, check the rule order, and then apply them.
+
+Higher rules take priority. A domain placed in `Android_Check`, `Gemini_VPN`, or `YouTube_Control_VPN` can override `Google_MITM`. If `www.google.com` should use MITM, it must not also appear in a higher VPN rule. Keep `googlevideo.com` out of `YouTube_Control_VPN` when YouTube video delivery should use the faster MITM path.
+
+### 6. Verify from a client
+
+**MAC:**
+
+```sh
+curl -Iv --max-time 20 https://www.google.com 2>&1 |
+  grep -E 'issuer:|^HTTP/'
+```
+
+**WINDOWS PC (PowerShell):**
+
+```powershell
+curl.exe -Iv --max-time 20 https://www.google.com 2>&1 |
+  Select-String -Pattern 'issuer:', 'HTTP/'
+```
+
+For a domain assigned to `Google_MITM`, the issuer should be `CN=MITM-DomainFronting` and the request should succeed. A control domain that is not assigned to MITM should continue to show its normal public issuer.
 
 ## Package architecture
 
@@ -126,6 +257,15 @@ mkdir -p -m 0700 /tmp/xray-mitm-install
 
 ```sh
 scp -O dist/xray-mitm-*.apk dist/luci-app-xray-mitm-*.apk dist/SHA256SUMS root@192.168.1.1:/tmp/xray-mitm-install/
+```
+
+**WINDOWS PC (PowerShell):**
+
+```powershell
+$core = (Get-ChildItem -File 'dist\xray-mitm-*.apk').FullName
+$luci = (Get-ChildItem -File 'dist\luci-app-xray-mitm-*.apk').FullName
+$sums = (Resolve-Path 'dist\SHA256SUMS').Path
+scp.exe -O $core $luci $sums root@192.168.1.1:/tmp/xray-mitm-install/
 ```
 
 Verify before installing, then let APK resolve the native `xray-core` and other dependencies from the configured OpenWrt feeds.

@@ -68,7 +68,7 @@ jobs:
           mkdir -p dist
           find bin -type f -name 'xray-mitm-*.apk' -exec cp '{}' dist/ \;
           find bin -type f -name 'luci-app-xray-mitm-*.apk' -exec cp '{}' dist/ \;
-          cp LICENSE README.md THIRD_PARTY_NOTICES.md dist/
+          cp LICENSE README.md README.fa.md THIRD_PARTY_NOTICES.md dist/
           printf '%s\n' "$GITHUB_SHA" > dist/SOURCE_COMMIT
 
           test "$(find dist -maxdepth 1 -type f -name 'xray-mitm-*.apk' | wc -l)" -eq 1

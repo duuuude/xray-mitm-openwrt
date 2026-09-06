@@ -55,6 +55,7 @@ REQUIRED_PATHS = (
     ".gitignore",
     "LICENSE",
     "README.md",
+    "README.fa.md",
     "THIRD_PARTY_NOTICES.md",
     "ci/test-init-enable.sh",
     "docs/RELEASE_TESTING.md",
@@ -355,7 +356,14 @@ def check_workflow(root: Path, errors: list[str]) -> None:
     for action in uses:
         if not re.fullmatch(r"[^@\s]+@[0-9a-f]{40}", action):
             errors.append(f"{relative} action is not pinned to a full commit: {action}")
-    for required in ("SHA256SUMS", "LICENSE", "THIRD_PARTY_NOTICES.md", "SOURCE_COMMIT"):
+    for required in (
+        "SHA256SUMS",
+        "LICENSE",
+        "README.md",
+        "README.fa.md",
+        "THIRD_PARTY_NOTICES.md",
+        "SOURCE_COMMIT",
+    ):
         if required not in text:
             errors.append(f"{relative} release artifact does not mention {required}")
     if "pull_request_target:" in text:

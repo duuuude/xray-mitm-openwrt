@@ -11,7 +11,7 @@ sh scripts/validate-release.sh
 
 The structural checks use only Python's standard library and the shell checks use the host's `/bin/sh`. Node.js is optional locally and present on the GitHub-hosted runner. The validation does not connect to a router, alter network settings, or need internet access.
 
-GitHub Actions runs the same test before starting the OpenWrt SDK build. A successful SDK job must produce exactly one `xray-mitm` APK, one `luci-app-xray-mitm` APK, `SHA256SUMS`, `LICENSE`, `THIRD_PARTY_NOTICES.md`, `README.md`, and a `SOURCE_COMMIT` file.
+GitHub Actions runs the same test before starting the OpenWrt SDK build. A successful SDK job must produce exactly one `xray-mitm` APK, one `luci-app-xray-mitm` APK, `SHA256SUMS`, `LICENSE`, `THIRD_PARTY_NOTICES.md`, the English and Persian README files, and a `SOURCE_COMMIT` file.
 
 Before publishing a tagged build, also perform a disposable-router or lab-router test:
 
