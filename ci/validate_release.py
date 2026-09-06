@@ -404,7 +404,14 @@ def check_tree(root: Path) -> list[str]:
         if not path.is_file():
             continue
         text = path.read_text(encoding="utf-8", errors="replace")
-        if not re.search(r"^(?:PKGARCH|LUCI_PKGARCH)\s*:?=\s*all\s*$", text, re.MULTILINE):
+        arch_text = text
+        arch_variable = "LUCI_PKGARCH"
+        if relative == "xray-mitm/Makefile":
+            # Package/Default overwrites a top-level PKGARCH assignment.
+            package = re.search(r"^define Package/xray-mitm\s*\n(.*?)^endef", text, re.MULTILINE | re.DOTALL)
+            arch_text = package.group(1) if package else ""
+            arch_variable = "PKGARCH"
+        if not re.search(r"^[ \t]*" + arch_variable + r"\s*:?=\s*all\s*$", arch_text, re.MULTILINE):
             errors.append(f"{relative} must declare an architecture-independent package")
 
     core_makefile = root / "xray-mitm/Makefile"
