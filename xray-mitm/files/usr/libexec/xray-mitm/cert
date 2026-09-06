@@ -175,8 +175,13 @@ validate_pair() {
 	basic="$(openssl x509 -in "$cert" -noout -ext basicConstraints 2>/dev/null)" || xray_mitm_die "certificate has no usable basicConstraints extension"
 	printf '%s\n' "$basic" | grep -Eq 'CA:[[:space:]]*TRUE' || xray_mitm_die "certificate basicConstraints does not permit CA use"
 	usage="$(openssl x509 -in "$cert" -noout -ext keyUsage 2>/dev/null)" || xray_mitm_die "certificate has no usable keyUsage extension"
-	printf '%s\n' "$usage" | grep -q 'Certificate Sign' || xray_mitm_die "certificate keyUsage does not permit certificate signing"
-	printf '%s\n' "$usage" | grep -q 'CRL Sign' || xray_mitm_die "certificate keyUsage does not permit CRL signing"
+	# Existing private trust anchors may omit keyUsage. Absence is not an
+	# explicit signing restriction; generated CAs still include both bits.
+	# Fail closed for any nonempty extension output that lacks those bits.
+	if [ -n "$usage" ]; then
+		printf '%s\n' "$usage" | grep -q 'Certificate Sign' || xray_mitm_die "certificate keyUsage does not permit certificate signing"
+		printf '%s\n' "$usage" | grep -q 'CRL Sign' || xray_mitm_die "certificate keyUsage does not permit CRL signing"
+	fi
 	subject="$(openssl x509 -in "$cert" -noout -subject -nameopt RFC2253 2>/dev/null)" || xray_mitm_die "cannot read certificate subject"
 	issuer="$(openssl x509 -in "$cert" -noout -issuer -nameopt RFC2253 2>/dev/null)" || xray_mitm_die "cannot read certificate issuer"
 	[ "${subject#subject=}" = "${issuer#issuer=}" ] || xray_mitm_die "certificate is not self-issued"

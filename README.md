@@ -44,6 +44,8 @@ After installation:
 
 The private key is stored on the router with mode `0600`, meaning only `root` can read or change it. LuCI never offers a private-key download. The public certificate may be downloaded and distributed to trusted clients; it cannot be used to impersonate sites without the private key.
 
+Existing private root CAs may omit the Key Usage extension. Import and legacy adoption accept that omission, while still checking CA basic constraints, self-signature, validity, security level, and the matching private key. When Key Usage is present, certificate-signing and CRL-signing permissions remain required. Newly generated CAs always include both permissions. Adoption preserves the existing certificate; it does not reissue it or change what clients trust.
+
 OpenWrt configuration backups made after provisioning may contain the CA private key. After the optional PassWall2 integration is applied, the root-only rollback snapshot also contains the complete prior PassWall2 configuration and may therefore contain node credentials. Treat these files and every sysupgrade backup containing them as secret material; never attach them to a GitHub issue or release.
 
 ## Optional PassWall2 routing

@@ -96,6 +96,48 @@ class CertificateFixture(unittest.TestCase):
         (directory / "input.key").chmod(0o600)
         return directory
 
+    def legacy_pair(self, usage: str | None = None) -> tuple[Path, Path]:
+        directory = self.root / "etc/xray-mitm"
+        directory.mkdir(exist_ok=True)
+        cert, key = directory / "mycert.crt", directory / "mycert.key"
+        config = self.root / "tmp/openssl.cnf"
+        config.write_text(
+            "[req]\ndistinguished_name=dn\nx509_extensions=ca\nprompt=no\n"
+            "[dn]\nCN=Legacy-Test-CA\n[ca]\nbasicConstraints=critical,CA:TRUE\n"
+            + (f"keyUsage=critical,{usage}\n" if usage else ""),
+            encoding="ascii",
+        )
+        subprocess.run(
+            ["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+             "-days", "365", "-config", str(config), "-keyout", str(key),
+             "-out", str(cert)],
+            env=self.env, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+        key.chmod(0o600)
+        return cert, key
+
+    def test_legacy_without_key_usage_adopts_and_remains_valid(self) -> None:
+        cert, key = self.legacy_pair()
+        original = cert.read_bytes()
+        result = self.helper("adopt-legacy")
+        self.assertRegex(result.stdout.strip(), r"^[a-f0-9]{64}$")
+        self.assertTrue(cert.is_symlink())
+        self.assertEqual(cert.read_bytes(), original)
+        self.assertEqual(stat.S_IMODE(key.stat().st_mode), 0o600)
+        self.helper("validate-current")
+        status = json.loads(self.helper("status-json").stdout)
+        self.assertTrue(status["managed"])
+        self.assertFalse(status["recovery_pending"])
+
+    def test_explicit_signing_prohibition_rejects_without_changing_pair(self) -> None:
+        cert, key = self.legacy_pair("digitalSignature")
+        original_cert, original_key = cert.read_bytes(), key.read_bytes()
+        result = self.helper("adopt-legacy", expected_status=1)
+        self.assertIn("does not permit certificate signing", result.stderr)
+        self.assertFalse(cert.is_symlink())
+        self.assertEqual(cert.read_bytes(), original_cert)
+        self.assertEqual(key.read_bytes(), original_key)
+
     def test_generate_activate_and_export_public_only(self) -> None:
         fingerprint, slot = self.generate()
         certificate = slot / "mycert.crt"
