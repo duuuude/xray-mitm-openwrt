@@ -7,6 +7,7 @@ project_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
 PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/ci/validate_release.py" "$project_dir"
 PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_passwall2.py"
 PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_certificates.py"
+PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_startup.py"
 
 for relative in \
 	xray-mitm/files/etc/init.d/xray-mitm \

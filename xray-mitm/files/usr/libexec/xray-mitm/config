@@ -24,7 +24,7 @@ run_validation() {
 	[ -s "$file" ] || xray_mitm_die "configuration is not installed"
 	asset_dir="$(xray_mitm_asset_dir)"
 	[ -d "$asset_dir" ] || xray_mitm_die "Xray asset directory is missing: $asset_dir"
-	XRAY_LOCATION_ASSET="$asset_dir" "$XRAY_BIN" run -test -c "$file"
+	XRAY_LOCATION_ASSET="$asset_dir" "$XRAY_BIN" run -test -format=json -c "$file"
 }
 
 validate_with_cert() {

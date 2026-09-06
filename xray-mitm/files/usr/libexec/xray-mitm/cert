@@ -438,24 +438,42 @@ marker_field() {
 }
 
 restart_if_was_running() {
+	local attempt
 	[ "$1" = "1" ] || return 0
 	XRAY_MITM_CERT_TRANSACTION=1 "$XRAY_MITM_INIT" restart >/dev/null 2>&1 || return 1
-	xray_mitm_service_running
+	attempt=0
+	while [ "$attempt" -lt 15 ]; do
+		xray_mitm_service_running && return 0
+		attempt=$((attempt + 1))
+		[ "$attempt" -ge 15 ] || sleep 1
+	done
+	return 1
 }
 
 verify_running_mitm_path() {
 	local metrics port
 	port="$(xray_mitm_socks_port)"
 	metrics="$(curl --cacert "$XRAY_MITM_CERT" --proxy "socks5h://127.0.0.1:$port" \
-		--head --silent --show-error --max-time 20 --output /dev/null \
+		--head --silent --show-error --connect-timeout 2 --max-time 3 --output /dev/null \
 		--write-out '%{http_code}' https://www.google.com/ 2>/dev/null)" || return 1
 	[ "$metrics" = "200" ]
 }
 
 restart_and_verify_if_was_running() {
+	local attempt
 	[ "$1" = "1" ] || return 0
 	restart_if_was_running 1 || return 1
-	verify_running_mitm_path
+	# procd can report running before Xray has opened its SOCKS listener.
+	# Bound both the number and duration of probes; retain rollback on failure.
+	attempt=0
+	while [ "$attempt" -lt 10 ]; do
+		if xray_mitm_service_running && verify_running_mitm_path; then
+			return 0
+		fi
+		attempt=$((attempt + 1))
+		[ "$attempt" -ge 10 ] || sleep 1
+	done
+	return 1
 }
 
 restore_legacy_item() {

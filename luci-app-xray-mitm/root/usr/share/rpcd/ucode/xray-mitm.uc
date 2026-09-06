@@ -14,8 +14,19 @@ function resultError(message) {
 	return { ok: false, error: message };
 }
 
+function openCommand(argv) {
+	// Older ucode accepts only a shell string. Quote every argument separately.
+	let quoted = [];
+	for (let arg in argv) {
+		if (type(arg) != 'string' || index(arg, "\u0000") >= 0)
+			return null;
+		push(quoted, "'" + join("'\"'\"'", split(arg, "'")) + "'");
+	}
+	return popen(join(' ', quoted), 'r');
+}
+
 function runJson(argv) {
-	let proc = popen(argv, 'r');
+	let proc = openCommand(argv);
 
 	if (!proc)
 		return resultError('Unable to start the requested operation.');
@@ -174,7 +185,7 @@ const methods = {
 			if (index([ 'current', 'candidate', 'previous' ], slot) < 0)
 				return resultError('Invalid certificate slot.');
 
-			let proc = popen([ CTL, 'cert-export', slot ], 'r');
+			let proc = openCommand([ CTL, 'cert-export', slot ]);
 
 			if (!proc)
 				return resultError('Unable to export the public certificate.');
