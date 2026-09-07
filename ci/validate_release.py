@@ -60,8 +60,10 @@ REQUIRED_PATHS = (
     "ci/test-init-enable.sh",
     "docs/RELEASE_TESTING.md",
     "scripts/validate-release.sh",
+    "install.sh",
     "tests/fakes/openwrt_cmd.py",
     "tests/test_certificates.py",
+    "tests/test_installer.py",
     "tests/test_passwall2.py",
     "xray-mitm/Makefile",
     "luci-app-xray-mitm/Makefile",
@@ -357,6 +359,8 @@ def check_workflow(root: Path, errors: list[str]) -> None:
         if not re.fullmatch(r"[^@\s]+@[0-9a-f]{40}", action):
             errors.append(f"{relative} action is not pinned to a full commit: {action}")
     for required in (
+        "install.sh",
+        "PACKAGES",
         "SHA256SUMS",
         "LICENSE",
         "README.md",

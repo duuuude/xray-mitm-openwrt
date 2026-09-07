@@ -11,23 +11,38 @@ This repository packages a standalone Xray MITM-DomainFronting service and a sma
 
 This is the shortest supported installation path. The sections below explain the design, routing options, building, upgrades, and removal in more detail.
 
-### 1. Check the router
+### 1. Install with one command
 
-The published packages require official OpenWrt 25.12.5 or later with APK and a compatible `xray-core` package.
+The published packages require official OpenWrt 25.12.5 or later with APK and a compatible `xray-core` package. Replace `192.168.1.1` if the router uses another address, then run the command for your computer. Enter the router password when prompted.
 
 **MAC:**
 
 ```sh
-ssh root@192.168.1.1
+ssh root@192.168.1.1 'wget -qO /tmp/install-xray-mitm.sh https://raw.githubusercontent.com/duuuude/xray-mitm-openwrt/main/install.sh && sh /tmp/install-xray-mitm.sh'
 ```
 
 **WINDOWS PC (PowerShell):**
 
 ```powershell
-ssh.exe root@192.168.1.1
+ssh.exe root@192.168.1.1 "wget -qO /tmp/install-xray-mitm.sh https://raw.githubusercontent.com/duuuude/xray-mitm-openwrt/main/install.sh && sh /tmp/install-xray-mitm.sh"
 ```
 
-After connecting, run the following on the router:
+If you are already connected to the router through SSH, run the shorter router command:
+
+**ROUTER:**
+
+```sh
+wget -qO /tmp/install-xray-mitm.sh https://raw.githubusercontent.com/duuuude/xray-mitm-openwrt/main/install.sh && sh /tmp/install-xray-mitm.sh
+```
+
+The installer checks the router, downloads the latest GitHub Release, verifies both APKs against `SHA256SUMS`, makes a protected configuration backup during upgrades, and installs the core and LuCI packages. It does not create a CA, start the service, or change PassWall2 routing. Those actions remain explicit in LuCI.
+
+The router needs HTTPS access to `raw.githubusercontent.com` and `github.com`. If either address is unavailable from the router, use the manual alternative below to download on the Mac or Windows PC and copy the files over SSH.
+
+<details>
+<summary>Manual alternative: download and copy the release files</summary>
+
+Confirm the router uses APK:
 
 **ROUTER:**
 
@@ -36,8 +51,6 @@ After connecting, run the following on the router:
 printf 'OpenWrt release: %s\n' "$DISTRIB_RELEASE"
 apk --version
 ```
-
-### 2. Download and copy the release files
 
 Download both `.apk` files and `SHA256SUMS` from the same GitHub Release. Put them in one directory on the Mac, then create a protected temporary directory on the router.
 
@@ -70,9 +83,7 @@ scp.exe -O $core $luci $sums root@192.168.1.1:/tmp/xray-mitm-install/
 
 If the router uses another address, replace `192.168.1.1`. If `Get-Command` cannot find the programs, install **OpenSSH Client** from Windows Optional Features first.
 
-### 3. Verify and install
-
-Do not install if either checksum fails.
+Verify and install on the router. Do not continue if either checksum fails.
 
 **ROUTER:**
 
@@ -83,7 +94,9 @@ apk update
 apk add --allow-untrusted ./xray-mitm-*.apk ./luci-app-xray-mitm-*.apk
 ```
 
-### 4. Complete setup in LuCI
+</details>
+
+### 2. Complete setup in LuCI
 
 1. Open LuCI over **HTTPS** and go to **Services → MITM Domain Fronting**.
 2. Select **Install packaged default configuration**.
@@ -112,13 +125,13 @@ certutil.exe -user -addstore -f Root .\mycert.crt
 
 The Windows command trusts the CA for the current user. Firefox may require a separate import if it is configured to use its own certificate store.
 
-### 5. Configure PassWall2 if needed
+### 3. Configure PassWall2 if needed
 
 PassWall2 integration is optional. Open the routing section in the LuCI page, choose the shunt and VPN nodes, preview the proposed changes, check the rule order, and then apply them.
 
 Higher rules take priority. A domain placed in `Android_Check`, `Gemini_VPN`, or `YouTube_Control_VPN` can override `Google_MITM`. If `www.google.com` should use MITM, it must not also appear in a higher VPN rule. Keep `googlevideo.com` out of `YouTube_Control_VPN` when YouTube video delivery should use the faster MITM path.
 
-### 6. Verify from a client
+### 4. Verify from a client
 
 **MAC:**
 
@@ -199,7 +212,7 @@ An interrupted routing transaction is restored automatically before a new previe
 
 The checked-in workflow validates the release tree, then builds both noarch APKs with the official OpenWrt SDK action. Its default is the OpenWrt 25.12.5 `aarch64_generic` SDK; a manual run can select another official SDK architecture or later OpenWrt release. Because both packages declare `all`, the output APKs contain no target-native program.
 
-From GitHub, open **Actions → Build OpenWrt APKs → Run workflow**. Set the SDK architecture and release to match a supported official SDK container. The result contains both APKs, `SHA256SUMS`, the license and attribution files, and `SOURCE_COMMIT` identifying the exact source revision. CI artifacts are development packages and are not signed by a key trusted by a stock router; verify their checksums and use `--allow-untrusted` only when you trust the repository and workflow run.
+From GitHub, open **Actions → Build OpenWrt APKs → Run workflow**. Set the SDK architecture and release to match a supported official SDK container. The result contains both APKs, `install.sh`, `PACKAGES`, `SHA256SUMS`, the English and Persian guides, the license and attribution files, and `SOURCE_COMMIT` identifying the exact source revision. CI artifacts are development packages and are not signed by a key trusted by a stock router; verify their checksums and use `--allow-untrusted` only when you trust the repository and workflow run.
 
 Tag pushes run the same read-only build but deliberately do not create a GitHub Release. After the APKs pass the lab-router checklist, create the Release manually and attach the validated artifact files. This keeps pull-request builds and release publishing under separate permissions.
 
