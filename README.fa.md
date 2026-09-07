@@ -9,23 +9,38 @@
 
 ## راه‌اندازی سریع
 
-### ۱. بررسی روتر
+### ۱. نصب با یک دستور
 
-وارد SSH روتر شوید و نسخه OpenWrt و مدیر بسته را بررسی کنید.
+بسته‌های منتشرشده به OpenWrt رسمی 25.12.5 یا جدیدتر با APK و بسته سازگار `xray-core` نیاز دارند. اگر آدرس روتر شما متفاوت است، `192.168.1.1` را تغییر دهید. سپس دستور مربوط به کامپیوتر خود را اجرا و رمز روتر را وارد کنید.
 
 **مک:**
 
 ```sh
-ssh root@192.168.1.1
+ssh root@192.168.1.1 'wget -qO /tmp/install-xray-mitm.sh https://raw.githubusercontent.com/duuuude/xray-mitm-openwrt/main/install.sh && sh /tmp/install-xray-mitm.sh'
 ```
 
 **کامپیوتر ویندوزی (PowerShell):**
 
 ```powershell
-ssh.exe root@192.168.1.1
+ssh.exe root@192.168.1.1 "wget -qO /tmp/install-xray-mitm.sh https://raw.githubusercontent.com/duuuude/xray-mitm-openwrt/main/install.sh && sh /tmp/install-xray-mitm.sh"
 ```
 
-پس از اتصال، دستورهای زیر را روی روتر اجرا کنید:
+اگر از قبل با SSH وارد روتر شده‌اید، دستور کوتاه‌تر زیر را اجرا کنید:
+
+**روتر:**
+
+```sh
+wget -qO /tmp/install-xray-mitm.sh https://raw.githubusercontent.com/duuuude/xray-mitm-openwrt/main/install.sh && sh /tmp/install-xray-mitm.sh
+```
+
+نصب‌کننده روتر را بررسی می‌کند، آخرین GitHub Release را دریافت می‌کند، checksum هر دو APK را با `SHA256SUMS` می‌سنجد، هنگام ارتقا یک نسخه پشتیبان محافظت‌شده می‌سازد و بسته اصلی و LuCI را نصب می‌کند. این برنامه CA نمی‌سازد، سرویس را روشن نمی‌کند و مسیریابی PassWall2 را تغییر نمی‌دهد. این کارها همچنان به‌صورت شفاف در LuCI انجام می‌شوند.
+
+روتر باید به `raw.githubusercontent.com` و `github.com` از طریق HTTPS دسترسی داشته باشد. اگر این آدرس‌ها از روتر باز نمی‌شوند، از روش دستی زیر استفاده کنید تا فایل‌ها روی مک یا کامپیوتر ویندوزی دانلود و با SSH به روتر منتقل شوند.
+
+<details>
+<summary>روش دستی: دریافت و کپی فایل‌های انتشار</summary>
+
+ابتدا وجود APK و نسخه روتر را بررسی کنید:
 
 **روتر:**
 
@@ -34,10 +49,6 @@ ssh.exe root@192.168.1.1
 printf 'OpenWrt release: %s\n' "$DISTRIB_RELEASE"
 apk --version
 ```
-
-نسخه باید OpenWrt رسمی 25.12.5 یا جدیدتر باشد و دستور `apk` باید موجود باشد. مخزن‌های روتر نیز باید بسته سازگار `xray-core` را ارائه کنند.
-
-### ۲. دریافت فایل‌های انتشار
 
 از یک GitHub Release واحد، این سه فایل را دانلود کنید:
 
@@ -80,7 +91,7 @@ scp.exe -O $core $luci $sums root@192.168.1.1:/tmp/xray-mitm-install/
 
 اگر `Get-Command` این برنامه‌ها را پیدا نکرد، ابتدا **OpenSSH Client** را از Optional Features ویندوز نصب کنید. اگر آدرس روتر متفاوت است، `192.168.1.1` را تغییر دهید.
 
-### ۳. بررسی checksum و نصب
+checksum را بررسی و بسته‌ها را نصب کنید
 
 قبل از نصب، checksum هر دو بسته را بررسی کنید. اگر هرکدام خطا داد، نصب را ادامه ندهید.
 
@@ -95,7 +106,9 @@ apk add --allow-untrusted ./xray-mitm-*.apk ./luci-app-xray-mitm-*.apk
 
 بسته‌های CI با کلیدی که روتر معمولی به آن اعتماد دارد امضا نشده‌اند؛ به همین دلیل پس از بررسی checksum از `--allow-untrusted` استفاده می‌شود.
 
-### ۴. پیکربندی اولیه در LuCI
+</details>
+
+### ۲. پیکربندی اولیه در LuCI
 
 نصب بسته به‌تنهایی سرویس را روشن نمی‌کند، CA نمی‌سازد و مسیریابی PassWall2 را تغییر نمی‌دهد.
 
@@ -128,7 +141,7 @@ certutil.exe -user -addstore -f Root .\mycert.crt
 
 دستور ویندوز CA را فقط برای کاربر فعلی trusted می‌کند. اگر Firefox از certificate store مستقل استفاده کند، باید `mycert.crt` را داخل خود Firefox نیز وارد کنید.
 
-### ۵. اتصال اختیاری به PassWall2
+### ۳. اتصال اختیاری به PassWall2
 
 اگر فقط خود سرویس و پراکسی محلی را می‌خواهید، این مرحله لازم نیست. برای مسیریابی شفاف دامنه‌ها:
 
@@ -145,7 +158,7 @@ certutil.exe -user -addstore -f Root .\mycert.crt
 - اگر ویدیوهای YouTube باید از مسیر سریع MITM عبور کنند، `googlevideo.com` را در `YouTube_Control_VPN` قرار ندهید؛ این دامنه باید در `Google_MITM` باقی بماند.
 - گزینه `localhost_proxy=0` مانع ورود دوباره خروجی Xray مستقل به PassWall2 و ایجاد حلقه می‌شود.
 
-### ۶. آزمایش از دستگاه کلاینت
+### ۴. آزمایش از دستگاه کلاینت
 
 پس از نصب `mycert.crt` روی مک، این آزمایش را اجرا کنید:
 
