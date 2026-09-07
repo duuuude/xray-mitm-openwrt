@@ -97,9 +97,11 @@ cd "$work_dir"
 if download "$base_url/PACKAGES" PACKAGES 2>/dev/null; then
 	core_asset="$(sed -n '/^xray-mitm-[A-Za-z0-9._~+-]*\.apk$/p' PACKAGES)"
 	luci_asset="$(sed -n '/^luci-app-xray-mitm-[A-Za-z0-9._~+-]*\.apk$/p' PACKAGES)"
-	[ "$(printf '%s\n' "$core_asset" | wc -l | tr -d ' ')" = '1' ] || \
+	[ -n "$core_asset" ] && \
+		[ "$(printf '%s\n' "$core_asset" | wc -l | tr -d ' ')" = '1' ] || \
 		die 'The release package list does not identify exactly one core APK.'
-	[ "$(printf '%s\n' "$luci_asset" | wc -l | tr -d ' ')" = '1' ] || \
+	[ -n "$luci_asset" ] && \
+		[ "$(printf '%s\n' "$luci_asset" | wc -l | tr -d ' ')" = '1' ] || \
 		die 'The release package list does not identify exactly one LuCI APK.'
 else
 	# v0.1.0 predates PACKAGES. Keep this fallback so the installer can install it.

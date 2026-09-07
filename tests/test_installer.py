@@ -178,6 +178,15 @@ class InstallerTests(unittest.TestCase):
             ],
         )
 
+    def test_incomplete_package_list_stops_before_download_or_install(self) -> None:
+        (self.fixtures / "PACKAGES").write_text(f"{LUCI_ASSET}\n", encoding="utf-8")
+
+        result = self.run_installer()
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("does not identify exactly one core APK", result.stderr)
+        self.assertEqual(self.apk_calls(), [])
+
     def test_requires_root(self) -> None:
         result = self.run_installer(fake_uid="1000")
 
