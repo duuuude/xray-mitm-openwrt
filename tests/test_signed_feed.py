@@ -63,6 +63,15 @@ class SignedFeedTests(unittest.TestCase):
             )
             self.assertEqual(text.count(EXPECTED_INSTALLER_SHA256), 4)
 
+    def test_release_checksums_use_final_github_asset_names(self) -> None:
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+
+        self.assertIn('release_name="${apk_name//\\~/.}"', workflow)
+        self.assertIn('cd "$release_dir"', workflow)
+        self.assertIn("sha256sum ./*.apk packages.adb install.sh", workflow)
+        self.assertIn('"$release_dir"/*', workflow)
+        self.assertNotIn('"$feed_dir/SHA256SUMS"', workflow)
+
     def test_installer_uses_native_signed_repository_only(self) -> None:
         text = INSTALLER.read_text(encoding="utf-8")
 
