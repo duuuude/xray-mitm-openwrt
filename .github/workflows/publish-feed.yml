@@ -140,15 +140,36 @@ jobs:
         run: |
           set -euo pipefail
           feed_dir="signed-site/feed/$OPENWRT_SERIES/all"
+          release_dir="release-assets"
+          mkdir -p "$release_dir"
+
+          # GitHub normalizes '~' in uploaded asset names to '.', so prepare the
+          # final names first and generate a checksum manifest that matches what
+          # users actually download from the Release.
+          for apk in "$feed_dir"/*.apk; do
+            apk_name="$(basename "$apk")"
+            release_name="${apk_name//\~/.}"
+            cp "$apk" "$release_dir/$release_name"
+          done
+          cp "$feed_dir/packages.adb" "$release_dir/packages.adb"
+          cp "$feed_dir/SOURCE_COMMIT" "$release_dir/SOURCE_COMMIT"
+          cp "signed-site/feed/xray-mitm-feed-v1.pem" \
+            "$release_dir/xray-mitm-feed-v1.pem"
+          cp "signed-site/feed/PUBLIC_KEY_SHA256" \
+            "$release_dir/PUBLIC_KEY_SHA256"
+          cp "signed-site/install.sh" "$release_dir/install.sh"
+          cp "signed-site/INSTALLER_SHA256" "$release_dir/INSTALLER_SHA256"
+          (
+            cd "$release_dir"
+            sha256sum ./*.apk packages.adb install.sh \
+              xray-mitm-feed-v1.pem > SHA256SUMS
+            sha256sum -c SHA256SUMS
+            sha256sum -c INSTALLER_SHA256
+            sha256sum -c PUBLIC_KEY_SHA256
+          )
+
           assets=(
-            "$feed_dir"/*.apk
-            "$feed_dir/packages.adb"
-            "$feed_dir/SHA256SUMS"
-            "$feed_dir/SOURCE_COMMIT"
-            "signed-site/feed/xray-mitm-feed-v1.pem"
-            "signed-site/feed/PUBLIC_KEY_SHA256"
-            "signed-site/install.sh"
-            "signed-site/INSTALLER_SHA256"
+            "$release_dir"/*
           )
 
           if ! gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
