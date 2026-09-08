@@ -1,19 +1,19 @@
 # Xray MITM Domain Fronting for OpenWrt
 
-**Documentation:** English | [فارسی](README.fa.md)
+**Instructions:** English | [فارسی](README.fa.md)
 
-This repository packages a standalone Xray MITM-DomainFronting service and a small LuCI management page for OpenWrt. It is designed for official OpenWrt **25.12.5 and later APK-based releases**, subject to a build and lab test for each release, and is not tied to the ASUS TUF-AX4200 or to the `mediatek/filogic` target.
+This project packages a standalone Xray MITM-DomainFronting service, a LuCI management page, and optional PassWall2 routing for official OpenWrt 25.12 APK-based routers.
 
 > [!CAUTION]
-> A locally trusted MITM certificate authority can decrypt traffic from devices that trust it. Use this only on networks and devices you own or are explicitly authorized to administer. Never publish, email, or otherwise share the generated CA private key.
+> A trusted MITM certificate authority can decrypt HTTPS traffic from devices that trust it. Use it only on networks and devices you own or are authorized to manage. Install only `mycert.crt` on clients. Keep `mycert.key` on the router and in protected backups.
 
-## Quick setup
+## Start here
 
-This is the shortest supported installation path. The sections below explain the design, routing options, building, upgrades, and removal in more detail.
+The supported public feed currently targets official OpenWrt **25.12.5 and later 25.12 maintenance releases**. The router must use the `apk` package manager and have internet access to GitHub and GitHub Pages.
 
-### 1. Install with one command
+### 1. Install or update with one command
 
-The published packages require official OpenWrt 25.12.5 or later with APK and a compatible `xray-core` package. Replace `192.168.1.1` if the router uses another address, then run the command for your computer. Enter the router password when prompted.
+Replace `192.168.1.1` if your router uses another address. Enter the router password when asked.
 
 **MAC:**
 
@@ -27,7 +27,7 @@ ssh root@192.168.1.1 'wget -qO /tmp/install-xray-mitm.sh https://raw.githubuserc
 ssh.exe root@192.168.1.1 "wget -qO /tmp/install-xray-mitm.sh https://raw.githubusercontent.com/duuuude/xray-mitm-openwrt/main/install.sh && sh /tmp/install-xray-mitm.sh"
 ```
 
-If you are already connected to the router through SSH, run the shorter router command:
+If you are already connected through SSH:
 
 **ROUTER:**
 
@@ -35,80 +35,35 @@ If you are already connected to the router through SSH, run the shorter router c
 wget -qO /tmp/install-xray-mitm.sh https://raw.githubusercontent.com/duuuude/xray-mitm-openwrt/main/install.sh && sh /tmp/install-xray-mitm.sh
 ```
 
-The installer checks the router, downloads the latest GitHub Release, verifies both APKs against `SHA256SUMS`, makes a protected configuration backup during upgrades, and installs the core and LuCI packages. It does not create a CA, start the service, or change PassWall2 routing. Those actions remain explicit in LuCI.
+The same command handles first installation and later updates. It:
 
-The router needs HTTPS access to `raw.githubusercontent.com` and `github.com`. If either address is unavailable from the router, use the manual alternative below to download on the Mac or Windows PC and copy the files over SSH.
+1. Checks the OpenWrt release and package manager.
+2. Downloads the project feed public key over HTTPS.
+3. Requires this exact SHA-256 fingerprint before trusting the key:
 
-<details>
-<summary>Manual alternative: download and copy the release files</summary>
+   ```text
+   3e0dc07ffef69d1512500b6add486381d8c261a8ec3fcce54fa403b35320df8a
+   ```
 
-Confirm the router uses APK:
+4. Adds the signed feed to APK and preserves the feed configuration across firmware upgrades.
+5. Makes a protected backup under `/root/`.
+6. Lets APK verify and install or update `xray-mitm` and `luci-app-xray-mitm` by package name.
 
-**ROUTER:**
+The installer never uses `--allow-untrusted`, never upgrades every package on the router, and does not create a CA, start the service, or change PassWall2 routing.
 
-```sh
-. /etc/openwrt_release
-printf 'OpenWrt release: %s\n' "$DISTRIB_RELEASE"
-apk --version
-```
+### 2. Complete the first setup in LuCI
 
-Download both `.apk` files and `SHA256SUMS` from the same GitHub Release. Put them in one directory on the Mac, then create a protected temporary directory on the router.
+Open LuCI over **HTTPS**, then go to **Services → MITM Domain Fronting**.
 
-**ROUTER:**
+1. Select **Install packaged default configuration**.
+2. Select **Generate candidate**, or import a certificate and matching private key that you control.
+3. Select **Activate candidate**.
+4. Download only `mycert.crt`.
+5. Install `mycert.crt` as a trusted root on each client that should use MITM.
+6. Select **Start**, then run **Health check** and confirm it passes.
+7. Select **Enable at boot** if the service should start after a router reboot.
 
-```sh
-mkdir -p -m 0700 /tmp/xray-mitm-install
-```
-
-**MAC:**
-
-```sh
-cd "/path/to/downloaded/release-files"
-scp -O xray-mitm-*.apk luci-app-xray-mitm-*.apk SHA256SUMS \
-  root@192.168.1.1:/tmp/xray-mitm-install/
-```
-
-**WINDOWS PC (PowerShell):**
-
-Windows 10 and 11 can use the optional **OpenSSH Client** feature. Confirm that `ssh.exe` and `scp.exe` are available, then copy the same three files:
-
-```powershell
-Get-Command ssh.exe, scp.exe
-Set-Location "C:\path\to\downloaded\release-files"
-$core = (Get-ChildItem -File 'xray-mitm-*.apk').FullName
-$luci = (Get-ChildItem -File 'luci-app-xray-mitm-*.apk').FullName
-$sums = (Resolve-Path '.\SHA256SUMS').Path
-scp.exe -O $core $luci $sums root@192.168.1.1:/tmp/xray-mitm-install/
-```
-
-If the router uses another address, replace `192.168.1.1`. If `Get-Command` cannot find the programs, install **OpenSSH Client** from Windows Optional Features first.
-
-Verify and install on the router. Do not continue if either checksum fails.
-
-**ROUTER:**
-
-```sh
-cd /tmp/xray-mitm-install
-sha256sum -c SHA256SUMS
-apk update
-apk add --allow-untrusted ./xray-mitm-*.apk ./luci-app-xray-mitm-*.apk
-```
-
-</details>
-
-### 2. Complete setup in LuCI
-
-1. Open LuCI over **HTTPS** and go to **Services → MITM Domain Fronting**.
-2. Select **Install packaged default configuration**.
-3. Select **Generate candidate**, or import a matching certificate and private key that you already control.
-4. Select **Activate candidate**.
-5. Download only `mycert.crt` and install it as a trusted root on each client that should use MITM.
-6. Select **Start**, run **Health check**, and confirm it passes.
-7. Select **Enable at boot** if the service should survive router restarts.
-
-Never copy `mycert.key` to a client or attach it to an issue or release.
-
-Install the downloaded public CA for the user account that will use the service:
+Trust the downloaded public CA for your current user:
 
 **MAC:**
 
@@ -123,142 +78,113 @@ security add-trusted-cert -r trustRoot \
 certutil.exe -user -addstore -f Root .\mycert.crt
 ```
 
-The Windows command trusts the CA for the current user. Firefox may require a separate import if it is configured to use its own certificate store.
+Firefox may use its own certificate store. If it does, import `mycert.crt` inside Firefox too. Never copy `mycert.key` to a client.
 
-### 3. Configure PassWall2 if needed
+### 3. Route selected domains through PassWall2
 
-PassWall2 integration is optional. Open the routing section in the LuCI page, choose the shunt and VPN nodes, preview the proposed changes, check the rule order, and then apply them.
+Skip this step if you only need the local SOCKS service.
 
-Higher rules take priority. A domain placed in `Android_Check`, `Gemini_VPN`, or `YouTube_Control_VPN` can override `Google_MITM`. If `www.google.com` should use MITM, it must not also appear in a higher VPN rule. Keep `googlevideo.com` out of `YouTube_Control_VPN` when YouTube video delivery should use the faster MITM path.
+1. Open the PassWall2 section on the project’s LuCI page.
+2. Choose the existing shunt node and VPN node.
+3. Select **Preview changes**.
+4. Review the local node, domains, destinations, and rule order.
+5. Select **Apply preview** only after the preview is correct.
+
+PassWall2 uses the first matching shunt rule. A higher rule can capture a domain before `Google_MITM` sees it. For the tested routing model:
+
+- `Google_MITM` points to the local SOCKS node at `127.0.0.1:10808`.
+- Remove `www.google.com` from a higher `Android_Check` rule if Google should use MITM.
+- Gemini and YouTube control domains may use the normal VPN route.
+- Keep `googlevideo.com` out of `YouTube_Control_VPN` if YouTube video traffic should stay on the faster MITM route.
+- Keep `localhost_proxy=0` to prevent the standalone Xray output from looping back into PassWall2.
 
 ### 4. Verify from a client
 
 **MAC:**
 
 ```sh
-curl -Iv --max-time 20 https://www.google.com 2>&1 |
-  grep -E 'issuer:|^HTTP/'
+for url in \
+  https://www.google.com \
+  https://www.youtube.com \
+  https://www.cloudflare.com \
+  https://gemini.google.com
+do
+  printf '\n%s\n' "$url"
+  curl -Iv --max-time 20 "$url" 2>&1 |
+    grep -E 'issuer:|^HTTP/'
+done
 ```
 
 **WINDOWS PC (PowerShell):**
 
 ```powershell
-curl.exe -Iv --max-time 20 https://www.google.com 2>&1 |
-  Select-String -Pattern 'issuer:', 'HTTP/'
+$urls = @(
+  'https://www.google.com',
+  'https://www.youtube.com',
+  'https://www.cloudflare.com',
+  'https://gemini.google.com'
+)
+
+foreach ($url in $urls) {
+  Write-Host "`n$url"
+  curl.exe -Iv --max-time 20 $url 2>&1 |
+    Select-String -Pattern 'issuer:', 'HTTP/'
+}
 ```
 
-For a domain assigned to `Google_MITM`, the issuer should be `CN=MITM-DomainFronting` and the request should succeed. A control domain that is not assigned to MITM should continue to show its normal public issuer.
+A domain using MITM should show:
 
-## Package architecture
-
-| Package | Responsibility | Architecture |
-| --- | --- | --- |
-| `xray-mitm` | UCI defaults, procd service, hardened sample configuration, certificate lifecycle, health check, and optional PassWall2 helper | `all` (noarch) |
-| `luci-app-xray-mitm` | LuCI page and narrow rpcd interface for status, service control, public-certificate export, staged certificate setup, and routing preview | `all` (noarch) |
-
-The project does **not** bundle an Xray executable. APK resolves the official `xray-core` package for the router's CPU architecture. This keeps the project model-independent while letting OpenWrt supply and update the native executable.
-
-An architecture-independent package is not automatically compatible with every OpenWrt fork or release. Build against the OpenWrt release used by the router, and confirm that its repositories provide a compatible `xray-core`. The current configuration requires Xray 26.2.6 or newer.
-
-## Requirements and dependencies
-
-The intended build baseline is official OpenWrt 25.12.5 with APK and enough storage and memory for Xray. APK installation and runtime behavior still require lab-router validation. A later release is supported only after its official feeds provide all named dependencies and its SDK build and lab-router checks pass. The package metadata is authoritative; the intended direct dependencies are:
-
-- Core: `xray-core`, `curl`, `openssl-util`, `uci`, `jsonfilter`, `coreutils-stat`,
-  `v2ray-geoip`, and `v2ray-geosite`.
-- LuCI: `luci-base`, `xray-mitm`, `rpcd-mod-ucode`, and `ucode-mod-fs`.
-- `ca-bundle` is supplied by the normal OpenWrt/Xray dependency chain.
-- `v2ray-geoip` and `v2ray-geosite` provide the `geoip.dat` and
-  `geosite.dat` assets referenced by the packaged configuration.
-
-PassWall2 is optional and deliberately is not a hard package dependency. It is third-party software whose UCI schema can vary across versions and forks. `sing-box`, `dnsmasq-full`, firewall modules, and transparent-proxy kernel modules are also not dependencies of the standalone service.
-
-## Safe first run
-
-Installation leaves the service disabled and unprovisioned. It does not generate a CA, import a key, start Xray, or modify PassWall2, firewall, DNS, or routing state.
-
-After installation:
-
-1. Open LuCI over **HTTPS**, then go to **Services → MITM Domain Fronting**.
-2. Select **Install packaged default configuration** for a fresh installation. Existing configurations are preserved; the installer refuses to overwrite them.
-3. Generate a staged CA on the router, or import a matching certificate and private-key pair that you already control. Private-key import should never be performed over plain HTTP.
-4. Download only the public certificate and install it as a trusted root on the client devices that need this service.
-5. Activate the staged pair, select **Start**, and run the health check. Select **Enable at boot** if automatic startup is wanted.
-6. Preview the optional PassWall2 integration. Apply it only after reviewing the proposed node, rules, targets, and order.
-
-The private key is stored on the router with mode `0600`, meaning only `root` can read or change it. LuCI never offers a private-key download. The public certificate may be downloaded and distributed to trusted clients; it cannot be used to impersonate sites without the private key.
-
-Existing private root CAs may omit the Key Usage extension. Import and legacy adoption accept that omission, while still checking CA basic constraints, self-signature, validity, security level, and the matching private key. When Key Usage is present, certificate-signing and CRL-signing permissions remain required. Newly generated CAs always include both permissions. Adoption preserves the existing certificate; it does not reissue it or change what clients trust.
-
-OpenWrt configuration backups made after provisioning may contain the CA private key. After the optional PassWall2 integration is applied, the root-only rollback snapshot also contains the complete prior PassWall2 configuration and may therefore contain node credentials. Treat these files and every sysupgrade backup containing them as secret material; never attach them to a GitHub issue or release.
-
-## Optional PassWall2 routing
-
-The integration helper is intentionally opt-in. It must detect the installed PassWall2 schema, show a preview, create a rollback snapshot, and stop without making changes if compatibility cannot be established. A typical policy is:
-
-1. `Gemini_VPN` → the selected VPN node.
-2. `Android_Check` → VPN, if Android connectivity checks need it.
-3. `YouTube_Control_VPN` → VPN for selected control/account API hostnames only, if needed.
-4. `Google_MITM` → local SOCKS node `127.0.0.1:10808`.
-5. `IR_Direct` → direct, using `geosite:ir` and `geoip:ir` when those datasets are installed.
-
-Rule order matters: higher entries on PassWall2's Rule Manage page have higher priority. Do not put `googlevideo.com` in the YouTube VPN control rule if video delivery is intended to use the faster MITM path. The preview selects `localhost_proxy=0` by default to prevent the standalone Xray outbound from being captured again; it is still shown as a separate opt-in transaction change before anything is applied.
-
-QUIC/HTTP/3 is not intercepted like TCP/TLS. A separate LAN UDP/443 rejection rule can force clients to fall back to TCP, but this package does not create that broad firewall rule automatically. Certificate-pinned native applications may still reject interception even when browsers work.
-
-An interrupted routing transaction is restored automatically before a new preview, apply, or rollback. When the xray-mitm boot service is enabled, it also attempts this recovery at priority 98, before the commonly used PassWall2 priority 99. If recovery is still pending, LuCI shows an explicit recovery action and will not present the in-flight configuration as safe to edit.
-
-## Build with GitHub Actions
-
-The checked-in workflow validates the release tree, then builds both noarch APKs with the official OpenWrt SDK action. Its default is the OpenWrt 25.12.5 `aarch64_generic` SDK; a manual run can select another official SDK architecture or later OpenWrt release. Because both packages declare `all`, the output APKs contain no target-native program.
-
-From GitHub, open **Actions → Build OpenWrt APKs → Run workflow**. Set the SDK architecture and release to match a supported official SDK container. The result contains both APKs, `install.sh`, `PACKAGES`, `SHA256SUMS`, the English and Persian guides, the license and attribution files, and `SOURCE_COMMIT` identifying the exact source revision. CI artifacts are development packages and are not signed by a key trusted by a stock router; verify their checksums and use `--allow-untrusted` only when you trust the repository and workflow run.
-
-Tag pushes run the same read-only build but deliberately do not create a GitHub Release. After the APKs pass the lab-router checklist, create the Release manually and attach the validated artifact files. This keeps pull-request builds and release publishing under separate permissions.
-
-To validate the source locally without a router:
-
-**MAC:**
-
-```sh
-cd "/path/to/xray-mitm-openwrt"
-sh scripts/validate-release.sh
+```text
+issuer: CN=MITM-DomainFronting
 ```
 
-## Build manually with an OpenWrt SDK
+A domain using VPN or direct routing should show its normal public certificate authority. All expected requests should return a successful HTTP response.
 
-The SDK tools are Linux binaries. On macOS, run these commands inside a Linux VM or container using a fresh SDK for the router's OpenWrt release.
+## Updating later
 
-**MAC (inside the Linux build environment):**
-
-```sh
-sdk_dir="/path/to/openwrt-sdk-25.12.5"
-source_dir="/path/to/xray-mitm-openwrt"
-cd "$sdk_dir"
-printf 'src-link xray_mitm %s\n' "$source_dir" >> feeds.conf
-./scripts/feeds update -a
-./scripts/feeds install -p xray_mitm -f xray-mitm luci-app-xray-mitm
-make defconfig
-make package/feeds/xray_mitm/xray-mitm/compile V=s
-make package/feeds/xray_mitm/luci-app-xray-mitm/compile V=s
-find bin/packages -type f -name '*xray-mitm*.apk' -print
-```
-
-Use a fresh SDK or remove an old `src-link xray_mitm` entry before repeating the setup, so `feeds.conf` does not accumulate duplicates.
-
-## Install the APKs
-
-First confirm the router really uses APK and meets the release baseline. Do not substitute OPKG commands from older firmware.
+The easiest update is to run the same one-command installer again. After the feed is configured, you can also update directly:
 
 **ROUTER:**
 
 ```sh
-. /etc/openwrt_release
-printf 'OpenWrt release: %s\n' "$DISTRIB_RELEASE"
-apk --version
+apk update
+apk add xray-mitm luci-app-xray-mitm
 ```
 
-Copy the two APKs and checksum file. OpenWrt's Dropbear setup often lacks an SFTP server, so modern macOS `scp` may require legacy protocol mode:
+This asks APK to solve and update these two explicitly selected packages and required dependencies. Do not use a blind `apk upgrade` as a replacement for a planned OpenWrt firmware upgrade.
+
+Updates preserve `/etc/config/xray-mitm`, `/etc/xray-mitm/`, the active CA, service settings, and existing PassWall2 configuration. The installer creates `/root/xray-mitm-before-install-YYYYMMDD-HHMMSS.tar.gz` with mode `0600` before changing feed or package state.
+
+## How authentication works
+
+The first one-command run downloads the installer from GitHub over HTTPS. That installer pins the reviewed feed public-key fingerprint shown above. APK then uses the installed public key to authenticate the feed index and every package. Later updates use the same stored key and signed feed.
+
+Production publishing is separate from ordinary pull-request builds:
+
+- Pull requests run offline validation and development artifacts without the production signing key or secrets.
+- A version tag must match the package version exactly.
+- The signing job runs only behind the protected `signed-feed` GitHub environment.
+- The job proves that the protected private key matches the public key committed in `keys/xray-mitm-feed-v1.pem`.
+- OpenWrt’s SDK creates the native signed `packages.adb` index and signed APKs.
+- The workflow publishes the feed through GitHub Pages and keeps the signed files with the matching GitHub Release.
+
+The production private key is never stored in this repository or included in packages. See [Signed feed operations](docs/SIGNED_FEED.md) for publishing, recovery, and key-rotation procedures.
+
+## Requirements and package behavior
+
+The packages are architecture-independent (`all`) but currently require the official OpenWrt 25.12 APK package ecosystem. Dependencies include `xray-core`, `curl`, `openssl-util`, `uci`, `jsonfilter`, `coreutils-stat`, `v2ray-geoip`, and `v2ray-geosite`; LuCI also requires `luci-base`, `rpcd-mod-ucode`, and `ucode-mod-fs`.
+
+The default installation is intentionally inactive. Installing or updating packages does not generate a CA, enable boot startup, start Xray, alter firewall or DNS state, or apply PassWall2 changes. The three Xray listeners remain on localhost:
+
+| Purpose | Address |
+| --- | --- |
+| Local mixed/SOCKS entry | `127.0.0.1:10808` |
+| HTTP/1.1 TLS decrypt tunnel | `127.0.0.1:11666` |
+| HTTP/2 TLS decrypt tunnel | `127.0.0.1:11777` |
+
+## Manual authenticated installation
+
+Use this only when the router cannot reach GitHub Pages. Download the two APKs, `xray-mitm-feed-v1.pem`, `PUBLIC_KEY_SHA256`, and `SHA256SUMS` from the same signed GitHub Release on a Mac or Windows PC.
 
 **ROUTER:**
 
@@ -269,48 +195,72 @@ mkdir -p -m 0700 /tmp/xray-mitm-install
 **MAC:**
 
 ```sh
-scp -O dist/xray-mitm-*.apk dist/luci-app-xray-mitm-*.apk dist/SHA256SUMS root@192.168.1.1:/tmp/xray-mitm-install/
+cd "/path/to/downloaded/release-files"
+scp -O xray-mitm-*.apk luci-app-xray-mitm-*.apk \
+  xray-mitm-feed-v1.pem PUBLIC_KEY_SHA256 SHA256SUMS \
+  root@192.168.1.1:/tmp/xray-mitm-install/
 ```
 
 **WINDOWS PC (PowerShell):**
 
 ```powershell
-$core = (Get-ChildItem -File 'dist\xray-mitm-*.apk').FullName
-$luci = (Get-ChildItem -File 'dist\luci-app-xray-mitm-*.apk').FullName
-$sums = (Resolve-Path 'dist\SHA256SUMS').Path
-scp.exe -O $core $luci $sums root@192.168.1.1:/tmp/xray-mitm-install/
+Set-Location "C:\path\to\downloaded\release-files"
+scp.exe -O .\xray-mitm-*.apk .\luci-app-xray-mitm-*.apk `
+  .\xray-mitm-feed-v1.pem .\PUBLIC_KEY_SHA256 .\SHA256SUMS `
+  root@192.168.1.1:/tmp/xray-mitm-install/
 ```
 
-Verify before installing, then let APK resolve the native `xray-core` and other dependencies from the configured OpenWrt feeds.
+Verify the public-key fingerprint before installing it. Stop if it differs from the fingerprint in this README.
 
 **ROUTER:**
 
 ```sh
 cd /tmp/xray-mitm-install
-sha256sum -c SHA256SUMS
-apk update
-apk add --allow-untrusted ./xray-mitm-*.apk ./luci-app-xray-mitm-*.apk
+printf '%s  %s\n' \
+  '3e0dc07ffef69d1512500b6add486381d8c261a8ec3fcce54fa403b35320df8a' \
+  'xray-mitm-feed-v1.pem' | sha256sum -c -
+awk '$2 ~ /[.]apk$/' SHA256SUMS | sha256sum -c -
+mkdir -p /etc/apk/keys
+cp xray-mitm-feed-v1.pem /etc/apk/keys/xray-mitm-feed-v1.pem
+chmod 0644 /etc/apk/keys/xray-mitm-feed-v1.pem
+apk add ./xray-mitm-*.apk ./luci-app-xray-mitm-*.apk
 ```
 
-`--allow-untrusted` is needed when the router does not trust the build's package-signing key; it is not a replacement for checksum verification or for reviewing the source. A future package feed signed with a deliberately managed, published key should be preferred for public releases.
+CI development APKs are intentionally outside this production trust path. Do not present them to new users as signed releases.
 
-## Upgrade and removal behavior
+## Development and release testing
 
-Package upgrades preserve `/etc/config/xray-mitm` and the complete `/etc/xray-mitm/` directory. A newer packaged sample is placed under `/usr/share/xray-mitm/`; it never silently overwrites an active configuration, CA, private key, or routing snapshot.
+Run all offline safety, installer, routing, certificate, workflow, and syntax checks:
 
-Before uninstalling, stop the service, disable automatic start, and use the LuCI PassWall2 rollback while the latest transaction is still eligible. Removing the APKs does not silently remove PassWall2 rules, revoke client trust, or erase preserved configuration and CA material. Otherwise a stale routing rule could continue sending selected traffic to a listener that no longer exists. Remove the public CA from every client trust store when interception is no longer intended, and handle any remaining router-side private key as secret material.
+**MAC:**
 
-## Release safety
+```sh
+cd "/path/to/xray-mitm-openwrt"
+sh scripts/validate-release.sh
+```
 
-The release validator rejects common router backups, package inventories, generated APKs, CA material, and PEM private-key content. Before publishing, review the complete Git diff as well. In particular, never commit:
+**WINDOWS PC (PowerShell with WSL):**
 
-- `/etc/xray-mitm/mycert.key` or any other private key.
-- A generated `mycert.crt`; each installation should use its own CA.
-- `sysupgrade -b` archives, `/etc/shadow`, Dropbear host keys, or uhttpd private keys.
-- Live PassWall2 configuration, VPN subscription data, node credentials, or router package inventories.
+```powershell
+wsl.exe sh -lc 'cd /path/to/xray-mitm-openwrt && sh scripts/validate-release.sh'
+```
+
+See [Release testing](docs/RELEASE_TESTING.md) before publishing a tag.
+
+## Removal
+
+Before removing the packages, stop the service, disable boot startup, and use the LuCI PassWall2 rollback if routing was applied. Then remove the packages:
+
+**ROUTER:**
+
+```sh
+/etc/init.d/xray-mitm stop
+/etc/init.d/xray-mitm disable
+apk del luci-app-xray-mitm xray-mitm
+```
+
+Remove `mycert.crt` from every client trust store when interception is no longer intended. Treat any remaining router backup and `mycert.key` as secret material.
 
 ## Attribution
 
-The domain-fronting configuration is derived from [patterniha/MITM-DomainFronting v23](https://github.com/patterniha/MITM-DomainFronting/tree/v23), licensed under GPL-3.0. Local changes bind listeners to localhost, use explicit OpenWrt paths, and add service, certificate, health-check, LuCI, and optional PassWall2 management. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
-
-Xray-core, OpenWrt, LuCI, and PassWall2 remain separate upstream projects. They are not bundled here, and this repository is not an official release of any of them.
+The domain-fronting configuration is derived from [patterniha/MITM-DomainFronting v23](https://github.com/patterniha/MITM-DomainFronting/tree/v23), licensed under GPL-3.0. Xray-core, OpenWrt, LuCI, and PassWall2 remain separate upstream projects. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

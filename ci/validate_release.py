@@ -7,6 +7,7 @@ router or the network.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -52,6 +53,7 @@ PRIVATE_KEY_MARKER = re.compile(
 
 REQUIRED_PATHS = (
     ".github/workflows/build.yml",
+    ".github/workflows/publish-feed.yml",
     ".gitignore",
     "LICENSE",
     "README.md",
@@ -59,12 +61,16 @@ REQUIRED_PATHS = (
     "THIRD_PARTY_NOTICES.md",
     "ci/test-init-enable.sh",
     "docs/RELEASE_TESTING.md",
+    "docs/SIGNED_FEED.md",
     "scripts/validate-release.sh",
     "install.sh",
+    "keys/xray-mitm-feed-v1.pem",
+    "scripts/check-release-version.sh",
     "tests/fakes/openwrt_cmd.py",
     "tests/test_certificates.py",
     "tests/test_installer.py",
     "tests/test_passwall2.py",
+    "tests/test_signed_feed.py",
     "xray-mitm/Makefile",
     "luci-app-xray-mitm/Makefile",
     "xray-mitm/files/etc/config/xray-mitm",
@@ -111,6 +117,10 @@ EXPECTED_INBOUNDS = {
 
 EXPECTED_XRAY_MINIMUM = "26.2.6"
 EXPECTED_PROJECT_URL = "https://github.com/duuuude/xray-mitm-openwrt"
+EXPECTED_FEED_KEY_SHA256 = (
+    "3e0dc07ffef69d1512500b6add486381d8c261a8ec3fcce54fa403b35320df8a"
+)
+ALLOWED_PUBLIC_KEYS = {"keys/xray-mitm-feed-v1.pem"}
 
 MUTATING_RPC_METHODS = {
     "runHealthCheck",
@@ -350,14 +360,24 @@ def check_acl(root: Path, errors: list[str]) -> None:
 
 
 def check_workflow(root: Path, errors: list[str]) -> None:
+    for relative in (
+        ".github/workflows/build.yml",
+        ".github/workflows/publish-feed.yml",
+    ):
+        text = (root / relative).read_text(encoding="utf-8", errors="replace")
+        uses = re.findall(
+            r"^[ \t]*(?:-[ \t]*)?uses:[ \t]*([^ #]+)", text, re.MULTILINE
+        )
+        if not uses:
+            errors.append(f"{relative} does not invoke any actions")
+        for action in uses:
+            if not re.fullmatch(r"[^@\s]+@[0-9a-f]{40}", action):
+                errors.append(
+                    f"{relative} action is not pinned to a full commit: {action}"
+                )
+
     relative = ".github/workflows/build.yml"
     text = (root / relative).read_text(encoding="utf-8", errors="replace")
-    uses = re.findall(r"^[ \t]*(?:-[ \t]*)?uses:[ \t]*([^ #]+)", text, re.MULTILINE)
-    if not uses:
-        errors.append(f"{relative} does not invoke any build actions")
-    for action in uses:
-        if not re.fullmatch(r"[^@\s]+@[0-9a-f]{40}", action):
-            errors.append(f"{relative} action is not pinned to a full commit: {action}")
     for required in (
         "install.sh",
         "PACKAGES",
@@ -377,6 +397,59 @@ def check_workflow(root: Path, errors: list[str]) -> None:
     if "${{ secrets." in text:
         errors.append(f"{relative} must not expose repository secrets to package builds")
 
+    relative = ".github/workflows/publish-feed.yml"
+    text = (root / relative).read_text(encoding="utf-8", errors="replace")
+    for required in (
+        "tags:",
+        "environment: signed-feed",
+        "secrets.XRAY_MITM_APK_PRIVATE_KEY",
+        'INDEX: "1"',
+        "packages.adb",
+        "actions/upload-pages-artifact@",
+        "actions/deploy-pages@",
+        EXPECTED_FEED_KEY_SHA256,
+    ):
+        if required not in text:
+            errors.append(f"{relative} signed publishing is missing {required}")
+    for forbidden in ("pull_request:", "pull_request_target:", "workflow_dispatch:"):
+        if forbidden in text:
+            errors.append(f"{relative} must be tag-triggered only; found {forbidden}")
+    if text.count("secrets.XRAY_MITM_APK_PRIVATE_KEY") != 2:
+        errors.append(f"{relative} must use the signing secret only for key verification and signing")
+    if "--allow-untrusted" in text:
+        errors.append(f"{relative} must never bypass APK signature verification")
+
+
+def check_signed_feed(root: Path, errors: list[str]) -> None:
+    key_relative = "keys/xray-mitm-feed-v1.pem"
+    key_payload = (root / key_relative).read_bytes()
+    if b"-----BEGIN PUBLIC KEY-----" not in key_payload:
+        errors.append(f"{key_relative} must contain a PEM public key")
+    if b"PRIVATE KEY" in key_payload:
+        errors.append(f"{key_relative} must never contain private-key material")
+
+    key_digest = hashlib.sha256(key_payload).hexdigest()
+    if key_digest != EXPECTED_FEED_KEY_SHA256:
+        errors.append(f"{key_relative} does not match the reviewed public-key fingerprint")
+
+    installer_relative = "install.sh"
+    installer = (root / installer_relative).read_text(
+        encoding="utf-8", errors="replace"
+    )
+    for required in (
+        EXPECTED_FEED_KEY_SHA256,
+        "https://duuuude.github.io/xray-mitm-openwrt/feed/25.12/all/packages.adb",
+        "/etc/apk/keys",
+        "/etc/apk/repositories.d",
+        "apk add xray-mitm luci-app-xray-mitm",
+    ):
+        if required not in installer:
+            errors.append(f"{installer_relative} signed-feed logic is missing {required}")
+    if re.search(r"apk[ \t]+(?:add|upgrade).*--allow-untrusted", installer):
+        errors.append(f"{installer_relative} must not bypass APK signature verification")
+    if re.search(r"apk[ \t]+upgrade", installer):
+        errors.append(f"{installer_relative} must not upgrade unrelated router packages")
+
 
 def check_tree(root: Path) -> list[str]:
     errors: list[str] = []
@@ -392,7 +465,10 @@ def check_tree(root: Path) -> list[str]:
             errors.append(f"release tree must not contain symlinks: {relative}")
             continue
 
-        if any(pattern.search(relative) for pattern in FORBIDDEN_NAME_PATTERNS):
+        if (
+            relative not in ALLOWED_PUBLIC_KEYS
+            and any(pattern.search(relative) for pattern in FORBIDDEN_NAME_PATTERNS)
+        ):
             errors.append(f"forbidden release filename: {relative}")
             continue
 
@@ -473,6 +549,7 @@ def check_tree(root: Path) -> list[str]:
         check_safe_defaults(root, errors)
         check_acl(root, errors)
         check_workflow(root, errors)
+        check_signed_feed(root, errors)
 
     return errors
 

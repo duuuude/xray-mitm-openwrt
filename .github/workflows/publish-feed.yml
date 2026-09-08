@@ -1,0 +1,167 @@
+name: Publish signed APK feed
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: signed-feed
+  cancel-in-progress: false
+
+env:
+  OPENWRT_RELEASE: "25.12.5"
+  OPENWRT_SERIES: "25.12"
+  SDK_ARCH: aarch64_generic
+  FEED_NAME: xray_mitm
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Verify source and tag
+        run: |
+          sh scripts/validate-release.sh
+          sh scripts/check-release-version.sh "$GITHUB_WORKSPACE" "$GITHUB_REF_NAME"
+
+  build-and-sign:
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: signed-feed
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Verify the protected signing key matches the committed public key
+        shell: bash
+        env:
+          APK_PRIVATE_KEY: ${{ secrets.XRAY_MITM_APK_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$APK_PRIVATE_KEY"
+          umask 077
+          printf '%s\n' "$APK_PRIVATE_KEY" > "$RUNNER_TEMP/xray-mitm-feed-private.pem"
+          openssl pkey -in "$RUNNER_TEMP/xray-mitm-feed-private.pem" -pubout \
+            -out "$RUNNER_TEMP/xray-mitm-feed-derived.pem"
+          openssl pkey -pubin -in keys/xray-mitm-feed-v1.pem -outform DER \
+            -out "$RUNNER_TEMP/xray-mitm-feed-committed.der"
+          openssl pkey -pubin -in "$RUNNER_TEMP/xray-mitm-feed-derived.pem" -outform DER \
+            -out "$RUNNER_TEMP/xray-mitm-feed-derived.der"
+          cmp "$RUNNER_TEMP/xray-mitm-feed-committed.der" \
+            "$RUNNER_TEMP/xray-mitm-feed-derived.der"
+
+      - name: Build packages and signed OpenWrt index
+        uses: openwrt/gh-action-sdk@7fc2640243284ecc44f4a9c3f749a61746ee02cb # v11
+        env:
+          ARCH: ${{ env.SDK_ARCH }}-${{ env.OPENWRT_RELEASE }}
+          BUILD_LOG: "1"
+          FEEDNAME: ${{ env.FEED_NAME }}
+          INDEX: "1"
+          PACKAGES: xray-mitm luci-app-xray-mitm
+          PRIVATE_KEY: ${{ secrets.XRAY_MITM_APK_PRIVATE_KEY }}
+          V: s
+
+      - name: Assemble signed feed site
+        shell: bash
+        run: |
+          set -euo pipefail
+          feed_dir="site/feed/$OPENWRT_SERIES/all"
+          mkdir -p "$feed_dir"
+
+          mapfile -t core_apks < <(find bin -type f -name 'xray-mitm-*.apk')
+          mapfile -t luci_apks < <(find bin -type f -name 'luci-app-xray-mitm-*.apk')
+          mapfile -t indexes < <(find bin -type f -path "*/$FEED_NAME/packages.adb")
+          test "${#core_apks[@]}" -eq 1
+          test "${#luci_apks[@]}" -eq 1
+          test "${#indexes[@]}" -eq 1
+
+          cp "${core_apks[0]}" "${luci_apks[0]}" "${indexes[0]}" "$feed_dir/"
+          cp keys/xray-mitm-feed-v1.pem site/feed/
+          printf '%s  %s\n' \
+            '3e0dc07ffef69d1512500b6add486381d8c261a8ec3fcce54fa403b35320df8a' \
+            'xray-mitm-feed-v1.pem' > site/feed/PUBLIC_KEY_SHA256
+          printf '%s\n' "$GITHUB_SHA" > "$feed_dir/SOURCE_COMMIT"
+          (
+            cd "$feed_dir"
+            sha256sum ./*.apk packages.adb > SHA256SUMS
+            sha256sum -c SHA256SUMS
+          )
+
+      - name: Upload signed feed audit artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: signed-feed-${{ github.ref_name }}
+          path: site/
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: site/
+
+  release-assets:
+    needs: build-and-sign
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download signed feed artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: signed-feed-${{ github.ref_name }}
+          path: signed-site
+
+      - name: Publish signed release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          feed_dir="signed-site/feed/$OPENWRT_SERIES/all"
+          assets=(
+            "$feed_dir"/*.apk
+            "$feed_dir/packages.adb"
+            "$feed_dir/SHA256SUMS"
+            "$feed_dir/SOURCE_COMMIT"
+            "signed-site/feed/xray-mitm-feed-v1.pem"
+            "signed-site/feed/PUBLIC_KEY_SHA256"
+          )
+
+          if ! gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --verify-tag \
+              --title "xray-mitm $GITHUB_REF_NAME" \
+              --notes "Authenticated OpenWrt APK feed release. Install or update with the repository install.sh; APK verifies the signed feed and packages."
+          fi
+          gh release upload "$GITHUB_REF_NAME" "${assets[@]}" \
+            --repo "$GITHUB_REPOSITORY" --clobber
+
+  deploy:
+    needs:
+      - build-and-sign
+      - release-assets
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy signed feed to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
