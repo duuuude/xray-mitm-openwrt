@@ -18,13 +18,13 @@ Replace `192.168.1.1` if your router uses another address. Enter the router pass
 **MAC:**
 
 ```sh
-ssh root@192.168.1.1 'wget -qO /tmp/install-xray-mitm.sh https://raw.githubusercontent.com/duuuude/xray-mitm-openwrt/main/install.sh && sh /tmp/install-xray-mitm.sh'
+ssh root@192.168.1.1 'wget -qO /tmp/install-xray-mitm.sh https://duuuude.github.io/xray-mitm-openwrt/install.sh && printf "%s  %s\n" "bbeaa48a19df4939333375d391ca7da4c2baa6095b210252d9cc479434351d4d" "/tmp/install-xray-mitm.sh" | sha256sum -c - && sh /tmp/install-xray-mitm.sh'
 ```
 
 **WINDOWS PC (PowerShell):**
 
 ```powershell
-ssh.exe root@192.168.1.1 "wget -qO /tmp/install-xray-mitm.sh https://raw.githubusercontent.com/duuuude/xray-mitm-openwrt/main/install.sh && sh /tmp/install-xray-mitm.sh"
+ssh.exe root@192.168.1.1 'wget -qO /tmp/install-xray-mitm.sh https://duuuude.github.io/xray-mitm-openwrt/install.sh && printf "%s  %s\n" "bbeaa48a19df4939333375d391ca7da4c2baa6095b210252d9cc479434351d4d" "/tmp/install-xray-mitm.sh" | sha256sum -c - && sh /tmp/install-xray-mitm.sh'
 ```
 
 If you are already connected through SSH:
@@ -32,8 +32,10 @@ If you are already connected through SSH:
 **ROUTER:**
 
 ```sh
-wget -qO /tmp/install-xray-mitm.sh https://raw.githubusercontent.com/duuuude/xray-mitm-openwrt/main/install.sh && sh /tmp/install-xray-mitm.sh
+wget -qO /tmp/install-xray-mitm.sh https://duuuude.github.io/xray-mitm-openwrt/install.sh && printf '%s  %s\n' 'bbeaa48a19df4939333375d391ca7da4c2baa6095b210252d9cc479434351d4d' '/tmp/install-xray-mitm.sh' | sha256sum -c - && sh /tmp/install-xray-mitm.sh
 ```
+
+The command verifies the public installer before running it. Its pinned SHA-256 is `bbeaa48a19df4939333375d391ca7da4c2baa6095b210252d9cc479434351d4d`.
 
 The same command handles first installation and later updates. It:
 

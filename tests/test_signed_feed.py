@@ -15,6 +15,7 @@ WORKFLOW = ROOT / ".github/workflows/publish-feed.yml"
 PUBLIC_KEY = ROOT / "keys/xray-mitm-feed-v1.pem"
 VERSION_CHECK = ROOT / "scripts/check-release-version.sh"
 EXPECTED_KEY_SHA256 = "3e0dc07ffef69d1512500b6add486381d8c261a8ec3fcce54fa403b35320df8a"
+EXPECTED_INSTALLER_SHA256 = "bbeaa48a19df4939333375d391ca7da4c2baa6095b210252d9cc479434351d4d"
 
 
 class SignedFeedTests(unittest.TestCase):
@@ -41,6 +42,26 @@ class SignedFeedTests(unittest.TestCase):
         self.assertIn('INDEX: "1"', text)
         self.assertIn("actions/deploy-pages@", text)
         self.assertNotIn("--allow-untrusted", text)
+
+    def test_public_bootstrap_is_published_and_checksum_pinned(self) -> None:
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        installer_digest = subprocess.check_output(
+            ["sha256sum", str(INSTALLER)], text=True
+        ).split()[0]
+
+        self.assertEqual(installer_digest, EXPECTED_INSTALLER_SHA256)
+        self.assertIn("cp install.sh site/install.sh", workflow)
+        self.assertIn("site/INSTALLER_SHA256", workflow)
+        self.assertIn('"signed-site/install.sh"', workflow)
+        self.assertIn('"signed-site/INSTALLER_SHA256"', workflow)
+
+        for readme in (ROOT / "README.md", ROOT / "README.fa.md"):
+            text = readme.read_text(encoding="utf-8")
+            self.assertNotIn("raw.githubusercontent.com", text)
+            self.assertIn(
+                "https://duuuude.github.io/xray-mitm-openwrt/install.sh", text
+            )
+            self.assertEqual(text.count(EXPECTED_INSTALLER_SHA256), 4)
 
     def test_installer_uses_native_signed_repository_only(self) -> None:
         text = INSTALLER.read_text(encoding="utf-8")
