@@ -2,191 +2,105 @@
 
 **راهنما:** [English](README.md) | فارسی
 
-این پروژه یک سرویس مستقل Xray به‌همراه صفحه مدیریتی LuCI برای MITM-DomainFronting روی OpenWrt فراهم می‌کند. بسته‌های منتشرشده برای OpenWrt رسمی نسخه 25.12.5 یا جدیدتر با مدیر بسته APK ساخته شده‌اند.
+این پروژه سرویس مستقل Xray MITM-DomainFronting، صفحه مدیریتی LuCI و اتصال اختیاری به مسیریابی PassWall2 را برای OpenWrt رسمی سری 25.12 فراهم می‌کند.
 
 > [!CAUTION]
-> گواهی ریشه MITM می‌تواند ترافیک HTTPS دستگاه‌هایی را که به آن اعتماد کرده‌اند رمزگشایی کند. فقط روی شبکه و دستگاه‌هایی استفاده کنید که مالک آن‌ها هستید یا اجازه صریح مدیریتشان را دارید. کلید خصوصی `mycert.key` را هرگز منتشر یا برای شخص دیگری ارسال نکنید.
+> CA مورد اعتماد MITM می‌تواند ترافیک HTTPS دستگاه‌هایی را که به آن اعتماد دارند رمزگشایی کند. فقط روی شبکه و دستگاه‌هایی استفاده کنید که مالک آن‌ها هستید یا اجازه مدیریتشان را دارید. فقط `mycert.crt` را روی کلاینت نصب کنید. `mycert.key` باید روی روتر و در نسخه پشتیبان محافظت‌شده بماند.
 
-## راه‌اندازی سریع
+## از اینجا شروع کنید
 
-### ۱. نصب با یک دستور
+feed عمومی فعلی برای OpenWrt رسمی **نسخه 25.12.5 و نسخه‌های نگهداری جدیدتر از سری 25.12** است. روتر باید از مدیر بسته `apk` استفاده کند و به GitHub و GitHub Pages دسترسی داشته باشد.
 
-بسته‌های منتشرشده به OpenWrt رسمی 25.12.5 یا جدیدتر با APK و بسته سازگار `xray-core` نیاز دارند. اگر آدرس روتر شما متفاوت است، `192.168.1.1` را تغییر دهید. سپس دستور مربوط به کامپیوتر خود را اجرا و رمز روتر را وارد کنید.
+### ۱. نصب یا به‌روزرسانی با یک دستور
 
-**مک:**
+اگر آدرس روتر متفاوت است، `192.168.1.1` را تغییر دهید. وقتی درخواست شد رمز روتر را وارد کنید.
+
+**MAC:**
 
 ```sh
 ssh root@192.168.1.1 'wget -qO /tmp/install-xray-mitm.sh https://raw.githubusercontent.com/duuuude/xray-mitm-openwrt/main/install.sh && sh /tmp/install-xray-mitm.sh'
 ```
 
-**کامپیوتر ویندوزی (PowerShell):**
+**WINDOWS PC (PowerShell):**
 
 ```powershell
 ssh.exe root@192.168.1.1 "wget -qO /tmp/install-xray-mitm.sh https://raw.githubusercontent.com/duuuude/xray-mitm-openwrt/main/install.sh && sh /tmp/install-xray-mitm.sh"
 ```
 
-اگر از قبل با SSH وارد روتر شده‌اید، دستور کوتاه‌تر زیر را اجرا کنید:
+اگر از قبل با SSH داخل روتر هستید:
 
-**روتر:**
+**ROUTER:**
 
 ```sh
 wget -qO /tmp/install-xray-mitm.sh https://raw.githubusercontent.com/duuuude/xray-mitm-openwrt/main/install.sh && sh /tmp/install-xray-mitm.sh
 ```
 
-نصب‌کننده روتر را بررسی می‌کند، آخرین GitHub Release را دریافت می‌کند، checksum هر دو APK را با `SHA256SUMS` می‌سنجد، هنگام ارتقا یک نسخه پشتیبان محافظت‌شده می‌سازد و بسته اصلی و LuCI را نصب می‌کند. این برنامه CA نمی‌سازد، سرویس را روشن نمی‌کند و مسیریابی PassWall2 را تغییر نمی‌دهد. این کارها همچنان به‌صورت شفاف در LuCI انجام می‌شوند.
+همین دستور هم نصب اولیه و هم به‌روزرسانی‌های بعدی را انجام می‌دهد. نصب‌کننده:
 
-روتر باید به `raw.githubusercontent.com` و `github.com` از طریق HTTPS دسترسی داشته باشد. اگر این آدرس‌ها از روتر باز نمی‌شوند، از روش دستی زیر استفاده کنید تا فایل‌ها روی مک یا کامپیوتر ویندوزی دانلود و با SSH به روتر منتقل شوند.
+1. نسخه OpenWrt و مدیر بسته را بررسی می‌کند.
+2. کلید عمومی feed را با HTTPS دریافت می‌کند.
+3. فقط در صورت تطبیق دقیق fingerprint زیر، کلید را می‌پذیرد:
 
-<details>
-<summary>روش دستی: دریافت و کپی فایل‌های انتشار</summary>
+   ```text
+   3e0dc07ffef69d1512500b6add486381d8c261a8ec3fcce54fa403b35320df8a
+   ```
 
-ابتدا وجود APK و نسخه روتر را بررسی کنید:
+4. feed امضاشده را به APK اضافه و فایل‌های آن را برای ارتقای firmware نگه می‌دارد.
+5. داخل `/root/` یک نسخه پشتیبان محافظت‌شده می‌سازد.
+6. از APK می‌خواهد امضا را بررسی و فقط بسته‌های `xray-mitm` و `luci-app-xray-mitm` را نصب یا به‌روزرسانی کند.
 
-**روتر:**
+نصب‌کننده از `--allow-untrusted` استفاده نمی‌کند، همه بسته‌های روتر را یک‌جا ارتقا نمی‌دهد، CA نمی‌سازد، سرویس را روشن نمی‌کند و مسیریابی PassWall2 را تغییر نمی‌دهد.
 
-```sh
-. /etc/openwrt_release
-printf 'OpenWrt release: %s\n' "$DISTRIB_RELEASE"
-apk --version
-```
+### ۲. راه‌اندازی اولیه در LuCI
 
-از یک GitHub Release واحد، این سه فایل را دانلود کنید:
+LuCI را با **HTTPS** باز کنید و به **Services → MITM Domain Fronting** بروید.
 
-- `xray-mitm-*.apk`
-- `luci-app-xray-mitm-*.apk`
-- `SHA256SUMS`
+1. **Install packaged default configuration** را انتخاب کنید.
+2. **Generate candidate** را انتخاب کنید؛ یا یک گواهی و کلید خصوصی منطبق که در اختیار خودتان است وارد کنید.
+3. **Activate candidate** را انتخاب کنید.
+4. فقط `mycert.crt` را دانلود کنید.
+5. `mycert.crt` را روی کلاینت‌هایی که باید از MITM استفاده کنند به‌عنوان Root CA مورد اعتماد نصب کنید.
+6. **Start** را انتخاب و **Health check** را اجرا کنید؛ نتیجه باید PASS باشد.
+7. برای اجرای خودکار بعد از ریبوت، **Enable at boot** را فعال کنید.
 
-ابتدا روی روتر یک پوشه موقت محافظت‌شده بسازید.
+CA عمومی را برای کاربر فعلی نصب کنید:
 
-**روتر:**
-
-```sh
-mkdir -p -m 0700 /tmp/xray-mitm-install
-```
-
-سپس در مک وارد پوشه فایل‌های دانلودشده شوید و آن‌ها را به روتر بفرستید. گزینه `-O` برای Dropbear روتر از روش قدیمی SCP استفاده می‌کند.
-
-**مک:**
-
-```sh
-cd "/path/to/downloaded/release-files"
-scp -O xray-mitm-*.apk luci-app-xray-mitm-*.apk SHA256SUMS \
-  root@192.168.1.1:/tmp/xray-mitm-install/
-```
-
-اگر آدرس روتر شما متفاوت است، `192.168.1.1` را تغییر دهید.
-
-**کامپیوتر ویندوزی (PowerShell):**
-
-در Windows 10 و 11 می‌توانید از قابلیت اختیاری **OpenSSH Client** استفاده کنید. ابتدا وجود `ssh.exe` و `scp.exe` را بررسی و سپس همان سه فایل را کپی کنید:
-
-```powershell
-Get-Command ssh.exe, scp.exe
-Set-Location "C:\path\to\downloaded\release-files"
-$core = (Get-ChildItem -File 'xray-mitm-*.apk').FullName
-$luci = (Get-ChildItem -File 'luci-app-xray-mitm-*.apk').FullName
-$sums = (Resolve-Path '.\SHA256SUMS').Path
-scp.exe -O $core $luci $sums root@192.168.1.1:/tmp/xray-mitm-install/
-```
-
-اگر `Get-Command` این برنامه‌ها را پیدا نکرد، ابتدا **OpenSSH Client** را از Optional Features ویندوز نصب کنید. اگر آدرس روتر متفاوت است، `192.168.1.1` را تغییر دهید.
-
-checksum را بررسی و بسته‌ها را نصب کنید
-
-قبل از نصب، checksum هر دو بسته را بررسی کنید. اگر هرکدام خطا داد، نصب را ادامه ندهید.
-
-**روتر:**
-
-```sh
-cd /tmp/xray-mitm-install
-sha256sum -c SHA256SUMS
-apk update
-apk add --allow-untrusted ./xray-mitm-*.apk ./luci-app-xray-mitm-*.apk
-```
-
-بسته‌های CI با کلیدی که روتر معمولی به آن اعتماد دارد امضا نشده‌اند؛ به همین دلیل پس از بررسی checksum از `--allow-untrusted` استفاده می‌شود.
-
-</details>
-
-### ۲. پیکربندی اولیه در LuCI
-
-نصب بسته به‌تنهایی سرویس را روشن نمی‌کند، CA نمی‌سازد و مسیریابی PassWall2 را تغییر نمی‌دهد.
-
-1. LuCI را با **HTTPS** باز کنید.
-2. به **Services → MITM Domain Fronting** بروید.
-3. گزینه **Install packaged default configuration** را انتخاب کنید.
-4. برای ساخت CA جدید، **Generate candidate** را انتخاب کنید. همچنین می‌توانید یک جفت گواهی و کلید خصوصی منطبق که در اختیار خودتان است وارد کنید.
-5. گزینه **Activate candidate** را انتخاب کنید.
-6. فقط فایل عمومی `mycert.crt` را دانلود کنید.
-7. `mycert.crt` را روی دستگاه‌هایی که باید از MITM استفاده کنند به‌عنوان Root CA مورد اعتماد نصب کنید.
-8. در LuCI سرویس را **Start** کنید و **Health check** را اجرا کنید. نتیجه باید PASS باشد.
-9. اگر سرویس باید بعد از ریبوت خودکار اجرا شود، **Enable at boot** را فعال کنید.
-
-فایل `mycert.key` باید فقط روی روتر و نسخه‌های پشتیبان محافظت‌شده باقی بماند. آن را روی کلاینت نصب نکنید.
-
-CA عمومی دانلودشده را برای حساب کاربری‌ای که از سرویس استفاده می‌کند نصب کنید:
-
-**مک:**
+**MAC:**
 
 ```sh
 security add-trusted-cert -r trustRoot \
   -k "$HOME/Library/Keychains/login.keychain-db" ./mycert.crt
 ```
 
-**کامپیوتر ویندوزی (PowerShell):**
+**WINDOWS PC (PowerShell):**
 
 ```powershell
 certutil.exe -user -addstore -f Root .\mycert.crt
 ```
 
-دستور ویندوز CA را فقط برای کاربر فعلی trusted می‌کند. اگر Firefox از certificate store مستقل استفاده کند، باید `mycert.crt` را داخل خود Firefox نیز وارد کنید.
+ممکن است Firefox از certificate store جدا استفاده کند؛ در این حالت `mycert.crt` را داخل Firefox هم وارد کنید. `mycert.key` را هرگز روی کلاینت کپی نکنید.
 
-### ۳. اتصال اختیاری به PassWall2
+### ۳. مسیریابی دامنه‌های انتخابی با PassWall2
 
-اگر فقط خود سرویس و پراکسی محلی را می‌خواهید، این مرحله لازم نیست. برای مسیریابی شفاف دامنه‌ها:
+اگر فقط SOCKS محلی را می‌خواهید، این مرحله را رد کنید.
 
 1. بخش PassWall2 را در صفحه LuCI پروژه باز کنید.
-2. Shunt node و VPN node مناسب را انتخاب کنید.
-3. ابتدا **Preview changes** را اجرا کنید.
-4. node محلی، دامنه‌ها، مقصد هر قانون و ترتیب قوانین را بررسی کنید.
-5. فقط بعد از بررسی، **Apply preview** را انتخاب کنید.
+2. shunt node و VPN node موجود را انتخاب کنید.
+3. **Preview changes** را بزنید.
+4. node محلی، دامنه‌ها، مقصدها و ترتیب قوانین را بررسی کنید.
+5. فقط وقتی preview درست است **Apply preview** را انتخاب کنید.
 
-ترتیب قوانین مهم است و قانون بالاتر اول اجرا می‌شود. یک دامنه در قوانین بالاتر مانند `Android_Check`، `Gemini_VPN` یا `YouTube_Control_VPN` می‌تواند قانون `Google_MITM` را بی‌اثر کند.
+PassWall2 اولین قانون منطبق را اجرا می‌کند. یک قانون بالاتر ممکن است دامنه را قبل از `Google_MITM` بگیرد. در الگوی آزمایش‌شده:
 
-- اگر `www.google.com` باید از MITM عبور کند، آن را در قانون VPN بالاتر مانند `Android_Check` قرار ندهید.
-- برای عبور بخش کنترل YouTube از VPN می‌توانید `YouTube_Control_VPN` را فعال کنید.
-- اگر ویدیوهای YouTube باید از مسیر سریع MITM عبور کنند، `googlevideo.com` را در `YouTube_Control_VPN` قرار ندهید؛ این دامنه باید در `Google_MITM` باقی بماند.
-- گزینه `localhost_proxy=0` مانع ورود دوباره خروجی Xray مستقل به PassWall2 و ایجاد حلقه می‌شود.
+- `Google_MITM` به SOCKS محلی `127.0.0.1:10808` متصل است.
+- اگر Google باید MITM شود، `www.google.com` را از قانون بالاتری مثل `Android_Check` حذف کنید.
+- Gemini و دامنه‌های کنترلی YouTube می‌توانند از VPN عادی عبور کنند.
+- اگر ویدئوی YouTube باید روی مسیر سریع MITM بماند، `googlevideo.com` را داخل `YouTube_Control_VPN` نگذارید.
+- برای جلوگیری از loop، مقدار `localhost_proxy=0` را نگه دارید.
 
-### ۴. آزمایش از دستگاه کلاینت
+### ۴. بررسی از دستگاه کلاینت
 
-پس از نصب `mycert.crt` روی مک، این آزمایش را اجرا کنید:
-
-**مک:**
-
-```sh
-curl -Iv --max-time 20 https://www.google.com 2>&1 |
-  grep -E 'issuer:|^HTTP/'
-```
-
-**کامپیوتر ویندوزی (PowerShell):**
-
-```powershell
-curl.exe -Iv --max-time 20 https://www.google.com 2>&1 |
-  Select-String -Pattern 'issuer:', 'HTTP/'
-```
-
-اگر Google به `Google_MITM` متصل باشد، باید این issuer دیده شود:
-
-```text
-issuer: CN=MITM-DomainFronting
-```
-
-همچنین پاسخ HTTP باید موفق باشد. دامنه‌ای که در قانون MITM قرار ندارد باید گواهی عمومی عادی خود را نشان دهد.
-
-برای بررسی چند مسیر:
-
-**مک:**
+**MAC:**
 
 ```sh
 for url in \
@@ -201,7 +115,7 @@ do
 done
 ```
 
-**کامپیوتر ویندوزی (PowerShell):**
+**WINDOWS PC (PowerShell):**
 
 ```powershell
 $urls = @(
@@ -218,28 +132,129 @@ foreach ($url in $urls) {
 }
 ```
 
-نتیجه دقیق به قوانین شما بستگی دارد. در الگوی پیشنهادی:
+دامنه‌ای که از MITM عبور می‌کند باید این issuer را نشان دهد:
 
-- Google گواهی `MITM-DomainFronting` را نشان می‌دهد.
-- صفحه کنترل YouTube و Gemini که به VPN فرستاده شده‌اند گواهی عمومی نشان می‌دهند.
-- Cloudflare به‌عنوان دامنه کنترل، گواهی عمومی عادی نشان می‌دهد.
+```text
+issuer: CN=MITM-DomainFronting
+```
 
-## ارتقا
+دامنه‌های VPN یا direct باید CA عمومی عادی خود را نشان دهند. پاسخ HTTP دامنه‌های مورد انتظار نیز باید موفق باشد.
 
-ارتقای بسته، `/etc/config/xray-mitm` و کل پوشه `/etc/xray-mitm/` را حفظ می‌کند. نمونه تنظیمات جدید جای تنظیمات فعال، CA یا کلید خصوصی را نمی‌گیرد. بااین‌حال قبل از ارتقا از تنظیمات و کلید خصوصی یک نسخه پشتیبان محافظت‌شده تهیه کنید.
+## به‌روزرسانی‌های بعدی
+
+ساده‌ترین روش، اجرای دوباره همان دستور نصب یک‌خطی است. بعد از تنظیم feed می‌توانید مستقیماً روی روتر نیز به‌روزرسانی کنید:
+
+**ROUTER:**
+
+```sh
+apk update
+apk add xray-mitm luci-app-xray-mitm
+```
+
+این دستور فقط همین دو بسته انتخاب‌شده و وابستگی‌های لازم آن‌ها را بررسی می‌کند. از `apk upgrade` بدون برنامه به‌عنوان جایگزین ارتقای firmware استفاده نکنید.
+
+به‌روزرسانی، `/etc/config/xray-mitm`، پوشه `/etc/xray-mitm/`، CA فعال، وضعیت سرویس و تنظیمات PassWall2 را حفظ می‌کند. قبل از تغییر feed یا بسته‌ها، نصب‌کننده فایل پشتیبان `/root/xray-mitm-before-install-YYYYMMDD-HHMMSS.tar.gz` را با سطح دسترسی `0600` می‌سازد.
+
+## روش احراز اصالت
+
+در اجرای اول، نصب‌کننده با HTTPS از GitHub دریافت می‌شود و fingerprint کلید عمومی feed را در خود دارد. APK با این کلید، امضای index و همه بسته‌ها را بررسی می‌کند. به‌روزرسانی‌های بعدی نیز از همان کلید ذخیره‌شده و feed امضاشده استفاده می‌کنند.
+
+- build عادی pull request هیچ secretی ندارد و فقط artifact توسعه‌ای بدون کلید امضای production و بدون secret می‌سازد.
+- tag انتشار باید دقیقاً با نسخه بسته یکی باشد.
+- امضای production فقط در GitHub environment محافظت‌شده `signed-feed` انجام می‌شود.
+- workflow ابتدا تطبیق کلید خصوصی محافظت‌شده با کلید عمومی commit‌شده را بررسی می‌کند.
+- SDK رسمی OpenWrt فایل `packages.adb` و APKهای امضاشده را می‌سازد.
+- feed در GitHub Pages و فایل‌های همان نسخه در GitHub Release منتشر می‌شوند.
+
+کلید خصوصی production داخل repository یا package قرار نمی‌گیرد. جزئیات انتشار، بازیابی و تعویض کلید در [راهنمای عملیات feed امضاشده](docs/SIGNED_FEED.md) آمده است.
+
+## نیازمندی‌ها و رفتار امن
+
+بسته‌ها `all` هستند، ولی feed فعلی برای اکوسیستم APK در OpenWrt 25.12 آزمایش می‌شود. نصب اولیه عمداً غیرفعال است: CA ساخته نمی‌شود، startup فعال نمی‌شود، Xray اجرا نمی‌شود و firewall، DNS و PassWall2 تغییر نمی‌کنند.
+
+listenerها فقط روی localhost هستند:
+
+| کاربرد | آدرس |
+| --- | --- |
+| ورودی محلی mixed/SOCKS | `127.0.0.1:10808` |
+| تونل رمزگشایی TLS برای HTTP/1.1 | `127.0.0.1:11666` |
+| تونل رمزگشایی TLS برای HTTP/2 | `127.0.0.1:11777` |
+
+## نصب دستی احرازشده
+
+اگر روتر به GitHub Pages دسترسی ندارد، دو APK، فایل `xray-mitm-feed-v1.pem`، فایل `PUBLIC_KEY_SHA256` و `SHA256SUMS` را از یک GitHub Release امضاشده واحد روی مک یا ویندوز دریافت کنید.
+
+**ROUTER:**
+
+```sh
+mkdir -p -m 0700 /tmp/xray-mitm-install
+```
+
+**MAC:**
+
+```sh
+cd "/path/to/downloaded/release-files"
+scp -O xray-mitm-*.apk luci-app-xray-mitm-*.apk \
+  xray-mitm-feed-v1.pem PUBLIC_KEY_SHA256 SHA256SUMS \
+  root@192.168.1.1:/tmp/xray-mitm-install/
+```
+
+**WINDOWS PC (PowerShell):**
+
+```powershell
+Set-Location "C:\path\to\downloaded\release-files"
+scp.exe -O .\xray-mitm-*.apk .\luci-app-xray-mitm-*.apk `
+  .\xray-mitm-feed-v1.pem .\PUBLIC_KEY_SHA256 .\SHA256SUMS `
+  root@192.168.1.1:/tmp/xray-mitm-install/
+```
+
+قبل از نصب کلید، fingerprint را با مقدار این README مقایسه کنید. اگر متفاوت بود ادامه ندهید.
+
+**ROUTER:**
+
+```sh
+cd /tmp/xray-mitm-install
+printf '%s  %s\n' \
+  '3e0dc07ffef69d1512500b6add486381d8c261a8ec3fcce54fa403b35320df8a' \
+  'xray-mitm-feed-v1.pem' | sha256sum -c -
+awk '$2 ~ /[.]apk$/' SHA256SUMS | sha256sum -c -
+mkdir -p /etc/apk/keys
+cp xray-mitm-feed-v1.pem /etc/apk/keys/xray-mitm-feed-v1.pem
+chmod 0644 /etc/apk/keys/xray-mitm-feed-v1.pem
+apk add ./xray-mitm-*.apk ./luci-app-xray-mitm-*.apk
+```
+
+artifactهای توسعه‌ای CI خارج از مسیر اعتماد production هستند و نباید به‌عنوان انتشار امضاشده به کاربر تازه‌کار داده شوند.
+
+## آزمایش توسعه و انتشار
+
+**MAC:**
+
+```sh
+cd "/path/to/xray-mitm-openwrt"
+sh scripts/validate-release.sh
+```
+
+**WINDOWS PC (PowerShell with WSL):**
+
+```powershell
+wsl.exe sh -lc 'cd /path/to/xray-mitm-openwrt && sh scripts/validate-release.sh'
+```
+
+قبل از انتشار tag، [راهنمای آزمایش انتشار](docs/RELEASE_TESTING.md) را اجرا کنید.
 
 ## حذف
 
-قبل از حذف، سرویس را متوقف و اجرای خودکار آن را غیرفعال کنید. اگر اتصال PassWall2 را اعمال کرده‌اید، ابتدا از صفحه LuCI پروژه rollback را اجرا کنید. سپس CA عمومی را از trust store تمام کلاینت‌ها حذف کنید و کلید خصوصی باقی‌مانده روی روتر را محرمانه نگه دارید.
+ابتدا سرویس را متوقف و startup را غیرفعال کنید. اگر مسیریابی PassWall2 اعمال شده، rollback را از LuCI اجرا کنید. سپس:
 
-## نکات امنیتی
+**ROUTER:**
 
-- فقط `mycert.crt` عمومی را روی کلاینت‌ها نصب کنید.
-- `mycert.key` را فقط روی روتر و در نسخه پشتیبان رمزگذاری‌شده یا محافظت‌شده نگه دارید.
-- نسخه پشتیبان OpenWrt می‌تواند کلید خصوصی CA را در خود داشته باشد.
-- snapshot بازگشت PassWall2 می‌تواند مشخصات node و اطلاعات ورود پراکسی را در خود داشته باشد.
-- فایل‌های پشتیبان روتر، کلیدها یا تنظیمات واقعی PassWall2 را در GitHub Issue یا Release قرار ندهید.
+```sh
+/etc/init.d/xray-mitm stop
+/etc/init.d/xray-mitm disable
+apk del luci-app-xray-mitm xray-mitm
+```
 
-برای جزئیات معماری، build، وابستگی‌ها و آزمایش انتشار، [راهنمای انگلیسی](README.md) را ببینید.
+بعد از پایان استفاده، `mycert.crt` را از trust store همه کلاینت‌ها حذف کنید. `mycert.key` و نسخه‌های پشتیبان روتر همچنان محرمانه هستند.
 
-این پروژه مستقل از Xray-core، OpenWrt، LuCI و PassWall2 است.
+این پروژه مستقل از Xray-core، OpenWrt، LuCI و PassWall2 است. مجوزها و attribution در [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) آمده است.
