@@ -18,13 +18,13 @@ feed عمومی فعلی برای OpenWrt رسمی **نسخه 25.12.5 و نسخ�
 **MAC:**
 
 ```sh
-ssh root@192.168.1.1 'wget -qO /tmp/install-xray-mitm.sh https://raw.githubusercontent.com/duuuude/xray-mitm-openwrt/main/install.sh && sh /tmp/install-xray-mitm.sh'
+ssh root@192.168.1.1 'wget -qO /tmp/install-xray-mitm.sh https://duuuude.github.io/xray-mitm-openwrt/install.sh && printf "%s  %s\n" "bbeaa48a19df4939333375d391ca7da4c2baa6095b210252d9cc479434351d4d" "/tmp/install-xray-mitm.sh" | sha256sum -c - && sh /tmp/install-xray-mitm.sh'
 ```
 
 **WINDOWS PC (PowerShell):**
 
 ```powershell
-ssh.exe root@192.168.1.1 "wget -qO /tmp/install-xray-mitm.sh https://raw.githubusercontent.com/duuuude/xray-mitm-openwrt/main/install.sh && sh /tmp/install-xray-mitm.sh"
+ssh.exe root@192.168.1.1 'wget -qO /tmp/install-xray-mitm.sh https://duuuude.github.io/xray-mitm-openwrt/install.sh && printf "%s  %s\n" "bbeaa48a19df4939333375d391ca7da4c2baa6095b210252d9cc479434351d4d" "/tmp/install-xray-mitm.sh" | sha256sum -c - && sh /tmp/install-xray-mitm.sh'
 ```
 
 اگر از قبل با SSH داخل روتر هستید:
@@ -32,8 +32,10 @@ ssh.exe root@192.168.1.1 "wget -qO /tmp/install-xray-mitm.sh https://raw.githubu
 **ROUTER:**
 
 ```sh
-wget -qO /tmp/install-xray-mitm.sh https://raw.githubusercontent.com/duuuude/xray-mitm-openwrt/main/install.sh && sh /tmp/install-xray-mitm.sh
+wget -qO /tmp/install-xray-mitm.sh https://duuuude.github.io/xray-mitm-openwrt/install.sh && printf '%s  %s\n' 'bbeaa48a19df4939333375d391ca7da4c2baa6095b210252d9cc479434351d4d' '/tmp/install-xray-mitm.sh' | sha256sum -c - && sh /tmp/install-xray-mitm.sh
 ```
+
+دستور، فایل نصب‌کننده عمومی را پیش از اجرا بررسی می‌کند. SHA-256 ثابت آن `bbeaa48a19df4939333375d391ca7da4c2baa6095b210252d9cc479434351d4d` است.
 
 همین دستور هم نصب اولیه و هم به‌روزرسانی‌های بعدی را انجام می‌دهد. نصب‌کننده:
 

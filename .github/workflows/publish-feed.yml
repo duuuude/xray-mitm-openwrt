@@ -78,6 +78,16 @@ jobs:
           feed_dir="site/feed/$OPENWRT_SERIES/all"
           mkdir -p "$feed_dir"
 
+          cp install.sh site/install.sh
+          chmod 0755 site/install.sh
+          printf '%s  %s\n' \
+            'bbeaa48a19df4939333375d391ca7da4c2baa6095b210252d9cc479434351d4d' \
+            'install.sh' > site/INSTALLER_SHA256
+          (
+            cd site
+            sha256sum -c INSTALLER_SHA256
+          )
+
           mapfile -t core_apks < <(find bin -type f -name 'xray-mitm-*.apk')
           mapfile -t luci_apks < <(find bin -type f -name 'luci-app-xray-mitm-*.apk')
           mapfile -t indexes < <(find bin -type f -path "*/$FEED_NAME/packages.adb")
@@ -137,6 +147,8 @@ jobs:
             "$feed_dir/SOURCE_COMMIT"
             "signed-site/feed/xray-mitm-feed-v1.pem"
             "signed-site/feed/PUBLIC_KEY_SHA256"
+            "signed-site/install.sh"
+            "signed-site/INSTALLER_SHA256"
           )
 
           if ! gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
@@ -144,7 +156,7 @@ jobs:
               --repo "$GITHUB_REPOSITORY" \
               --verify-tag \
               --title "xray-mitm $GITHUB_REF_NAME" \
-              --notes "Authenticated OpenWrt APK feed release. Install or update with the repository install.sh; APK verifies the signed feed and packages."
+              --notes "Authenticated OpenWrt APK feed release. Install or update with the checksum-pinned public installer at https://duuuude.github.io/xray-mitm-openwrt/install.sh; APK verifies the signed feed and packages."
           fi
           gh release upload "$GITHUB_REF_NAME" "${assets[@]}" \
             --repo "$GITHUB_REPOSITORY" --clobber
