@@ -15,7 +15,7 @@ WORKFLOW = ROOT / ".github/workflows/publish-feed.yml"
 PUBLIC_KEY = ROOT / "keys/xray-mitm-feed-v1.pem"
 VERSION_CHECK = ROOT / "scripts/check-release-version.sh"
 EXPECTED_KEY_SHA256 = "3e0dc07ffef69d1512500b6add486381d8c261a8ec3fcce54fa403b35320df8a"
-EXPECTED_INSTALLER_SHA256 = "bbeaa48a19df4939333375d391ca7da4c2baa6095b210252d9cc479434351d4d"
+EXPECTED_INSTALLER_SHA256 = "8af96edc133c01a7e9d0a8f4673b7225c47322d73874c05a9c4a0133f3058405"
 
 
 class SignedFeedTests(unittest.TestCase):
@@ -78,20 +78,21 @@ class SignedFeedTests(unittest.TestCase):
         self.assertIn("/etc/apk/keys", text)
         self.assertIn("/etc/apk/repositories.d", text)
         self.assertRegex(text, r"apk add xray-mitm luci-app-xray-mitm")
-        self.assertNotIn("apk upgrade", text)
+        self.assertRegex(text, r"apk upgrade xray-mitm luci-app-xray-mitm")
+        self.assertNotRegex(text, r"apk upgrade(?:\s|$)(?!xray-mitm)")
         self.assertNotIn("allow-untrusted", text.replace(
             "--allow-untrusted was not used", ""
         ))
 
     def test_release_tag_must_match_package_version(self) -> None:
         good = subprocess.run(
-            ["sh", str(VERSION_CHECK), str(ROOT), "v0.2.1"],
+            ["sh", str(VERSION_CHECK), str(ROOT), "v0.2.2"],
             text=True,
             capture_output=True,
             check=False,
         )
         bad = subprocess.run(
-            ["sh", str(VERSION_CHECK), str(ROOT), "v0.2.2"],
+            ["sh", str(VERSION_CHECK), str(ROOT), "v0.2.3"],
             text=True,
             capture_output=True,
             check=False,

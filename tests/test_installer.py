@@ -94,6 +94,8 @@ class InstallerTests(unittest.TestCase):
                 raise SystemExit(1)
             if args[:1] == ["add"] and os.environ.get("FAKE_APK_ADD_FAIL") == "1":
                 raise SystemExit(1)
+            if args[:1] == ["upgrade"] and os.environ.get("FAKE_APK_UPGRADE_FAIL") == "1":
+                raise SystemExit(1)
             if args == ["add", "xray-mitm", "luci-app-xray-mitm"]:
                 world = Path(os.environ["XRAY_MITM_APK_WORLD"])
                 lines = [
@@ -177,7 +179,11 @@ class InstallerTests(unittest.TestCase):
         self.assertIn(self.public_key_sha256, result.stdout)
         self.assertEqual(
             self.apk_calls(),
-            [["update"], ["add", "xray-mitm", "luci-app-xray-mitm"]],
+            [
+                ["update"],
+                ["add", "xray-mitm", "luci-app-xray-mitm"],
+                ["upgrade", "xray-mitm", "luci-app-xray-mitm"],
+            ],
         )
         self.assertEqual(self.installed_key.read_bytes(), self.public_key.read_bytes())
         self.assertEqual(self.repository_file.read_text(), FEED_URL + "\n")
@@ -243,6 +249,27 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual(
             self.apk_calls(),
             [["update"], ["add", "xray-mitm", "luci-app-xray-mitm"]],
+        )
+        self.assertFalse(self.installed_key.exists())
+        self.assertFalse(self.repository_file.exists())
+        self.assertFalse(self.keep_file.exists())
+        self.assertEqual(self.world_file.read_text(), previous_world)
+
+    def test_targeted_upgrade_failure_restores_previous_feed_and_world(self) -> None:
+        previous_world = "base-files\nxray-mitm=0.1.0-r4\n"
+        self.world_file.write_text(previous_world, encoding="utf-8")
+
+        result = self.run_installer(extra_env={"FAKE_APK_UPGRADE_FAIL": "1"})
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Package upgrade failed", result.stderr)
+        self.assertEqual(
+            self.apk_calls(),
+            [
+                ["update"],
+                ["add", "xray-mitm", "luci-app-xray-mitm"],
+                ["upgrade", "xray-mitm", "luci-app-xray-mitm"],
+            ],
         )
         self.assertFalse(self.installed_key.exists())
         self.assertFalse(self.repository_file.exists())

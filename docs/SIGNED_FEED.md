@@ -50,9 +50,9 @@ The workflow derives a public key from the secret and compares it with the commi
 git switch main
 git pull --ff-only
 sh scripts/validate-release.sh
-git tag -s v0.2.1 -m 'xray-mitm v0.2.1'
-git tag -v v0.2.1
-git push origin v0.2.1
+git tag -s v0.2.2 -m 'xray-mitm v0.2.2'
+git tag -v v0.2.2
+git push origin v0.2.2
 ```
 
 **WINDOWS PC (PowerShell with Git and a configured signing key):**
@@ -61,12 +61,12 @@ git push origin v0.2.1
 git switch main
 git pull --ff-only
 wsl.exe sh -lc 'cd /path/to/xray-mitm-openwrt && sh scripts/validate-release.sh'
-git tag -s v0.2.1 -m "xray-mitm v0.2.1"
-git tag -v v0.2.1
-git push origin v0.2.1
+git tag -s v0.2.2 -m "xray-mitm v0.2.2"
+git tag -v v0.2.2
+git push origin v0.2.2
 ```
 
-Replace `v0.2.1` with the reviewed version. The workflow rejects a mismatched tag or package release other than `r1`.
+Replace `v0.2.2` with the reviewed version. The workflow rejects a mismatched tag or package release other than `r1`.
 
 ## Verify the published key
 
@@ -98,7 +98,7 @@ The live feed contains the current supported version. Every signed version is al
 
 ```sh
 apk update
-apk add xray-mitm luci-app-xray-mitm
+apk upgrade xray-mitm luci-app-xray-mitm
 ```
 
 For rollback, download both APKs from one older signed release, verify its checksums, and install both together. Test configuration compatibility before crossing a schema change. Never use unrestricted `apk upgrade` as the project updater.

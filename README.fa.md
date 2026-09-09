@@ -18,13 +18,13 @@ feed عمومی فعلی برای OpenWrt رسمی **نسخه 25.12.5 و نسخ�
 **MAC:**
 
 ```sh
-ssh root@192.168.1.1 'wget -qO /tmp/install-xray-mitm.sh https://duuuude.github.io/xray-mitm-openwrt/install.sh && printf "%s  %s\n" "bbeaa48a19df4939333375d391ca7da4c2baa6095b210252d9cc479434351d4d" "/tmp/install-xray-mitm.sh" | sha256sum -c - && sh /tmp/install-xray-mitm.sh'
+ssh root@192.168.1.1 'wget -qO /tmp/install-xray-mitm.sh https://duuuude.github.io/xray-mitm-openwrt/install.sh && printf "%s  %s\n" "8af96edc133c01a7e9d0a8f4673b7225c47322d73874c05a9c4a0133f3058405" "/tmp/install-xray-mitm.sh" | sha256sum -c - && sh /tmp/install-xray-mitm.sh'
 ```
 
 **WINDOWS PC (PowerShell):**
 
 ```powershell
-ssh.exe root@192.168.1.1 'wget -qO /tmp/install-xray-mitm.sh https://duuuude.github.io/xray-mitm-openwrt/install.sh && printf "%s  %s\n" "bbeaa48a19df4939333375d391ca7da4c2baa6095b210252d9cc479434351d4d" "/tmp/install-xray-mitm.sh" | sha256sum -c - && sh /tmp/install-xray-mitm.sh'
+ssh.exe root@192.168.1.1 'wget -qO /tmp/install-xray-mitm.sh https://duuuude.github.io/xray-mitm-openwrt/install.sh && printf "%s  %s\n" "8af96edc133c01a7e9d0a8f4673b7225c47322d73874c05a9c4a0133f3058405" "/tmp/install-xray-mitm.sh" | sha256sum -c - && sh /tmp/install-xray-mitm.sh'
 ```
 
 اگر از قبل با SSH داخل روتر هستید:
@@ -32,10 +32,10 @@ ssh.exe root@192.168.1.1 'wget -qO /tmp/install-xray-mitm.sh https://duuuude.git
 **ROUTER:**
 
 ```sh
-wget -qO /tmp/install-xray-mitm.sh https://duuuude.github.io/xray-mitm-openwrt/install.sh && printf '%s  %s\n' 'bbeaa48a19df4939333375d391ca7da4c2baa6095b210252d9cc479434351d4d' '/tmp/install-xray-mitm.sh' | sha256sum -c - && sh /tmp/install-xray-mitm.sh
+wget -qO /tmp/install-xray-mitm.sh https://duuuude.github.io/xray-mitm-openwrt/install.sh && printf '%s  %s\n' '8af96edc133c01a7e9d0a8f4673b7225c47322d73874c05a9c4a0133f3058405' '/tmp/install-xray-mitm.sh' | sha256sum -c - && sh /tmp/install-xray-mitm.sh
 ```
 
-دستور، فایل نصب‌کننده عمومی را پیش از اجرا بررسی می‌کند. SHA-256 ثابت آن `bbeaa48a19df4939333375d391ca7da4c2baa6095b210252d9cc479434351d4d` است.
+دستور، فایل نصب‌کننده عمومی را پیش از اجرا بررسی می‌کند. SHA-256 ثابت آن `8af96edc133c01a7e9d0a8f4673b7225c47322d73874c05a9c4a0133f3058405` است.
 
 همین دستور هم نصب اولیه و هم به‌روزرسانی‌های بعدی را انجام می‌دهد. نصب‌کننده:
 
@@ -150,10 +150,10 @@ issuer: CN=MITM-DomainFronting
 
 ```sh
 apk update
-apk add xray-mitm luci-app-xray-mitm
+apk upgrade xray-mitm luci-app-xray-mitm
 ```
 
-این دستور فقط همین دو بسته انتخاب‌شده و وابستگی‌های لازم آن‌ها را بررسی می‌کند. از `apk upgrade` بدون برنامه به‌عنوان جایگزین ارتقای firmware استفاده نکنید.
+این دستور فقط همین دو بسته انتخاب‌شده و وابستگی‌های لازم آن‌ها را ارتقا می‌دهد. از اجرای `apk upgrade` بدون نام بسته‌ها به‌عنوان جایگزین ارتقای firmware استفاده نکنید.
 
 به‌روزرسانی، `/etc/config/xray-mitm`، پوشه `/etc/xray-mitm/`، CA فعال، وضعیت سرویس و تنظیمات PassWall2 را حفظ می‌کند. قبل از تغییر feed یا بسته‌ها، نصب‌کننده فایل پشتیبان `/root/xray-mitm-before-install-YYYYMMDD-HHMMSS.tar.gz` را با سطح دسترسی `0600` می‌سازد.
 

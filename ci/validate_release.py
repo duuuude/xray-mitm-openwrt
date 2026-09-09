@@ -442,12 +442,16 @@ def check_signed_feed(root: Path, errors: list[str]) -> None:
         "/etc/apk/keys",
         "/etc/apk/repositories.d",
         "apk add xray-mitm luci-app-xray-mitm",
+        "apk upgrade xray-mitm luci-app-xray-mitm",
     ):
         if required not in installer:
             errors.append(f"{installer_relative} signed-feed logic is missing {required}")
     if re.search(r"apk[ \t]+(?:add|upgrade).*--allow-untrusted", installer):
         errors.append(f"{installer_relative} must not bypass APK signature verification")
-    if re.search(r"apk[ \t]+upgrade", installer):
+    targeted_installer = installer.replace(
+        "apk upgrade xray-mitm luci-app-xray-mitm", ""
+    )
+    if re.search(r"apk[ \t]+upgrade", targeted_installer):
         errors.append(f"{installer_relative} must not upgrade unrelated router packages")
 
 
