@@ -151,10 +151,21 @@ class PassWall2Fixture(unittest.TestCase):
         init.write_text(
             "#!/bin/sh\n"
             "[ \"${1:-}\" = restart ] || exit 64\n"
+            "[ ! -e /dev/fd/9 ] || exit 70\n"
             "printf 'restart\\n' >>\"$XRAY_MITM_TEST_ROOT/tmp/restarts\"\n",
             encoding="utf-8",
         )
         init.chmod(0o755)
+
+        mitm_init = self.root / "etc/init.d/xray-mitm"
+        mitm_init.write_text(
+            "#!/bin/sh\n"
+            "[ \"${1:-}\" = status ] || exit 64\n"
+            "[ -e \"$XRAY_MITM_TEST_ROOT/tmp/mitm-running\" ]\n",
+            encoding="utf-8",
+        )
+        mitm_init.chmod(0o755)
+        (self.root / "tmp/mitm-running").touch()
 
         fake_bin = self.root / "fake-bin"
         for command in ("uci", "jsonfilter", "stat", "flock", "apk"):
@@ -346,6 +357,31 @@ class PassWall2Fixture(unittest.TestCase):
                 self.assertEqual(self.config.read_bytes(), self.original)
                 self.assertEqual(self.restart_count(), 0)
                 pending.unlink()
+
+    def test_apply_refuses_google_route_when_mitm_stopped(self) -> None:
+        plan = self.plan_all()
+        token = str(plan["token"])
+        self.assertTrue(plan["requires_mitm_running"])
+        (self.root / "tmp/mitm-running").unlink()
+
+        _, payload = self.helper("apply", token, expected_status=69)
+
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["error"], "mitm_not_running")
+        self.assertEqual(self.config.read_bytes(), self.original)
+        self.assertEqual(self.restart_count(), 0)
+
+    def test_apply_without_google_route_allows_stopped_mitm(self) -> None:
+        _, plan = self.helper(
+            "plan", str(self.request_file({"google_mitm": False}))
+        )
+        self.assertFalse(plan["requires_mitm_running"])
+        (self.root / "tmp/mitm-running").unlink()
+
+        _, applied = self.helper("apply", str(plan["token"]))
+
+        self.assertTrue(applied["ok"])
+        self.assertEqual(self.restart_count(), 1)
 
     def test_reuses_compatible_existing_rules_and_local_mitm_node(self) -> None:
         self.config.write_text(LEGACY_CONFIG, encoding="utf-8")

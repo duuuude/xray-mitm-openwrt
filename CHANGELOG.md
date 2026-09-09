@@ -12,6 +12,16 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Documented the local branch, router test, pull request, and signed release workflow.
 - GitHub Releases now use the matching changelog section as their release notes.
 
+## [0.2.3] - 2026-09-09
+
+### Fixed
+
+- PassWall2 refuses to apply a Google MITM route while the standalone MITM
+  service is stopped, preventing traffic from being sent to an unavailable
+  local SOCKS listener.
+- PassWall2 child processes no longer inherit the routing transaction lock.
+- LuCI explains the stopped-service requirement and disables unsafe previews.
+
 ## [0.2.2] - 2026-09-09
 
 ### Fixed
@@ -52,7 +62,8 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - LuCI service, certificate lifecycle, health-check, and optional PassWall2 controls.
 - English and Persian installation and operating instructions.
 
-[Unreleased]: https://github.com/duuuude/xray-mitm-openwrt/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/duuuude/xray-mitm-openwrt/compare/v0.2.3...HEAD
+[0.2.3]: https://github.com/duuuude/xray-mitm-openwrt/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/duuuude/xray-mitm-openwrt/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/duuuude/xray-mitm-openwrt/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/duuuude/xray-mitm-openwrt/compare/v0.1.0...v0.2.0

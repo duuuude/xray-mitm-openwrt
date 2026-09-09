@@ -479,14 +479,19 @@ return view.extend({
 		callPlanPassWall2.apply(null, values).then(assertOk).then(L.bind(function(plan) {
 			this.planToken = plan.no_change === true ? null : (plan.token || null);
 			this.lastPlan = plan;
+			var mitmRequiredButStopped = plan.requires_mitm_running === true &&
+				(!this.status || this.status.running !== true);
 			dom.content(output, [
 				E('h4', {}, _('Preview')),
 				operationList(plan),
+				mitmRequiredButStopped ? E('div', { class: 'alert-message danger' }, _(
+					'Start MITM Domain Fronting before applying this preview. Google routing would otherwise point to an unavailable local SOCKS listener.'
+				)) : '',
 					plan.warning ? E('div', { class: 'alert-message warning' }, textNode(plan.warning)) : ''
 				]);
 
 			var apply = document.getElementById('xray-mitm-routing-apply');
-			apply.disabled = !this.planToken || plan.writable === false ||
+			apply.disabled = !this.planToken || mitmRequiredButStopped || plan.writable === false ||
 				(this.passwall.capabilities && this.passwall.capabilities.apply === false);
 		}, this)).catch(function(error) {
 				dom.content(output, E('div', { class: 'alert-message danger' }, textNode(error.message)));
@@ -673,6 +678,7 @@ return view.extend({
 		var hasExistingRules = Object.keys(ruleSources).some(function(name) {
 			return ruleSources[name] === 'existing';
 		});
+		var mitmRunning = this.status && this.status.running === true;
 
 		return E('div', { class: 'cbi-section' }, [
 			E('h3', {}, _('PassWall2 routing (optional)')),
@@ -711,6 +717,9 @@ return view.extend({
 				E('h4', {}, _('Managed rules')),
 				hasExistingRules ? E('div', { class: 'alert-message notice' }, _(
 					'Compatible existing PassWall2 rules were detected. Their definitions will be preserved; this wizard changes their selected-shunt assignments and the explicit accounts.google.com option.'
+				)) : '',
+				!mitmRunning ? E('div', { class: 'alert-message warning' }, _(
+					'MITM Domain Fronting is stopped. You may preview routing, but a preview that enables Google through MITM cannot be applied until the service is running.'
 				)) : '',
 				checkControl('xray-mitm-route-gemini', _('Gemini control/API through selected VPN'), routingState.gemini === true),
 				checkControl('xray-mitm-route-android-check', _('Android connectivity checks through selected VPN'), routingState.android_check === true),

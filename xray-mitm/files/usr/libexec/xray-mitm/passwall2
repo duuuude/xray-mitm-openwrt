@@ -49,6 +49,7 @@ CONFIG_DIR="$ROOT/etc/config"
 PW_CONFIG="$CONFIG_DIR/passwall2"
 PW_APP="$ROOT/usr/share/passwall2/app.sh"
 PW_INIT="$ROOT/etc/init.d/passwall2"
+MITM_INIT="$ROOT/etc/init.d/xray-mitm"
 STATE_DIR="$ROOT/etc/xray-mitm/passwall2-routing"
 # Plans contain a full staged copy of PassWall2 and therefore may contain node
 # credentials. Keep the single active preview in tmpfs, never in sysupgrade
@@ -890,7 +891,8 @@ plan() {
 		[ "$set_default" = 0 ] || emit_operation '{"kind":"set_shunt_default","target":"selected_vpn","description":"Set the selected VPN node as this shunt default."}'
 		[ "$force_localhost" = 0 ] || emit_operation '{"kind":"set_localhost_proxy","value":false,"description":"Set localhost_proxy=0 to prevent the standalone Xray process from being recaptured."}'
 	fi
-	printf '%s\n' '],"excluded_scopes":["dns","firewall","quic","global_node","node_credentials"],"warning":"Apply restarts PassWall2 only when its global service switch is enabled."}'
+	printf '],"requires_mitm_running":%s,' "$([ "$google" -eq 1 ] && printf true || printf false)"
+	printf '%s\n' '"excluded_scopes":["dns","firewall","quic","global_node","node_credentials"],"warning":"Apply restarts PassWall2 only when its global service switch is enabled."}'
 }
 
 load_meta() {
@@ -1129,9 +1131,15 @@ service_enabled() {
 	[ "$(uci -c "$CONFIG_DIR" -q get 'passwall2.@global[0].enabled' 2>/dev/null || true)" = 1 ]
 }
 
+mitm_service_running() {
+	[ -x "$MITM_INIT" ] && "$MITM_INIT" status >/dev/null 2>&1
+}
+
 restart_if_enabled() {
 	if service_enabled; then
-		"$PW_INIT" restart >/dev/null 2>&1
+		# PassWall2 starts long-lived proxy processes. Do not let them inherit the
+		# transaction lock descriptor and keep every later operation busy.
+		"$PW_INIT" restart 9>&- >/dev/null 2>&1
 		return $?
 	fi
 	return 0
@@ -1395,6 +1403,10 @@ apply_plan() {
 			printf '%s\n' '{"ok":true,"changed":false,"transaction":null,"service_action":"none","rollback_available":false}'
 		fi
 		return 0
+	fi
+
+	if [ "$META_GOOGLE" = 1 ] && ! mitm_service_running; then
+		die mitm_not_running 'Start MITM Domain Fronting before applying a Google MITM route.' 69
 	fi
 
 	previous_token=''
