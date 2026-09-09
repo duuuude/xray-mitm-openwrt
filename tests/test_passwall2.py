@@ -331,6 +331,26 @@ class PassWall2Fixture(unittest.TestCase):
         self.assertEqual(self.uci("get", "passwall2.xray_mitm_ir.network"), "tcp,udp")
         self.assertEqual(self.uci("get", "passwall2.xray_mitm_ir.ip_list"), "geoip:ir")
         self.assertEqual(self.uci("get", "passwall2.xray_mitm_gemini.network"), "tcp")
+        self.assertEqual(
+            self.uci("get", "passwall2.xray_mitm_gemini.remarks"),
+            "Gemini app and API via VPN",
+        )
+        self.assertEqual(
+            self.uci("get", "passwall2.xray_mitm_android.remarks"),
+            "Android internet check via VPN",
+        )
+        self.assertEqual(
+            self.uci("get", "passwall2.xray_mitm_youtube.remarks"),
+            "YouTube sign-in and controls via VPN",
+        )
+        self.assertEqual(
+            self.uci("get", "passwall2.xray_mitm_google.remarks"),
+            "Google services via MITM",
+        )
+        self.assertEqual(
+            self.uci("get", "passwall2.xray_mitm_ir.remarks"),
+            "Iranian sites and IPs direct",
+        )
         self.assertIn(
             "domain:accounts.google.com",
             self.uci("get", "passwall2.xray_mitm_gemini.domain_list"),

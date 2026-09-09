@@ -22,6 +22,10 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   internal UCI IDs are shown only when a node has no name.
 - Added a recommended routing preset, aligned route cards, plain-language rule
   descriptions, an advanced-options disclosure, and clearer review/apply states.
+- The four-step panel now identifies first-time setup separately from the
+  preserved configuration shown after an update.
+- Managed PassWall2 rules now use descriptive names, list their exact domain
+  scope in LuCI, and keep checkboxes beside their text across LuCI themes.
 - Changing any routing choice now invalidates the old preview immediately so a
   stale transaction cannot be applied accidentally.
 - Routing inspection now reports whether the localhost MITM SOCKS node is ready,

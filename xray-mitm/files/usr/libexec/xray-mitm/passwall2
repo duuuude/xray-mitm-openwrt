@@ -22,6 +22,11 @@ LEGACY_ANDROID='Android_Check'
 LEGACY_YOUTUBE='YouTube_Control_VPN'
 LEGACY_GOOGLE='Google_MITM'
 LEGACY_IR='IR_Direct'
+NAME_GEMINI='Gemini app and API via VPN'
+NAME_ANDROID='Android internet check via VPN'
+NAME_YOUTUBE='YouTube sign-in and controls via VPN'
+NAME_GOOGLE='Google services via MITM'
+NAME_IR='Iranian sites and IPs direct'
 MANAGED_MARKER='xray_mitm_managed'
 MAX_PLAN_AGE=600
 MAX_REQUEST_BYTES=4096
@@ -744,18 +749,18 @@ build_stage() {
 domain:generativelanguage.googleapis.com'
 			[ "$accounts_google" = 0 ] || gemini_domains="$gemini_domains
 domain:accounts.google.com"
-			set_rule "$ACTIVE_GEMINI" Gemini_VPN tcp "$gemini_domains" '' "$group" || return 1
+			set_rule "$ACTIVE_GEMINI" "$NAME_GEMINI" tcp "$gemini_domains" '' "$group" || return 1
 		fi
 	fi
-	[ "$android" = 0 ] || [ "$SOURCE_ANDROID" = existing ] || set_rule "$ACTIVE_ANDROID" Android_Check tcp 'domain:connectivitycheck.gstatic.com
+	[ "$android" = 0 ] || [ "$SOURCE_ANDROID" = existing ] || set_rule "$ACTIVE_ANDROID" "$NAME_ANDROID" tcp 'domain:connectivitycheck.gstatic.com
 domain:connectivitycheck.android.com
 domain:clients3.google.com' '' "$group" || return 1
-	[ "$youtube" = 0 ] || [ "$SOURCE_YOUTUBE" = existing ] || set_rule "$ACTIVE_YOUTUBE" YouTube_Control_VPN tcp 'domain:www.youtube.com
+	[ "$youtube" = 0 ] || [ "$SOURCE_YOUTUBE" = existing ] || set_rule "$ACTIVE_YOUTUBE" "$NAME_YOUTUBE" tcp 'domain:www.youtube.com
 domain:youtubei.googleapis.com
 domain:youtube.googleapis.com
 domain:accounts.youtube.com' '' "$group" || return 1
-	[ "$google" = 0 ] || [ "$SOURCE_GOOGLE" = existing ] || set_rule "$ACTIVE_GOOGLE" Google_MITM tcp geosite:google '' "$group" || return 1
-	[ "$iran" = 0 ] || [ "$SOURCE_IR" = existing ] || set_rule "$ACTIVE_IR" IR_Direct 'tcp,udp' geosite:ir geoip:ir "$group" || return 1
+	[ "$google" = 0 ] || [ "$SOURCE_GOOGLE" = existing ] || set_rule "$ACTIVE_GOOGLE" "$NAME_GOOGLE" tcp geosite:google '' "$group" || return 1
+	[ "$iran" = 0 ] || [ "$SOURCE_IR" = existing ] || set_rule "$ACTIVE_IR" "$NAME_IR" 'tcp,udp' geosite:ir geoip:ir "$group" || return 1
 
 	[ "$gemini" = 0 ] || stage_uci -q set "passwall2.$shunt.$ACTIVE_GEMINI=$vpn" >/dev/null || return 1
 	[ "$android" = 0 ] || stage_uci -q set "passwall2.$shunt.$ACTIVE_ANDROID=$vpn" >/dev/null || return 1
@@ -1322,7 +1327,7 @@ domain:generativelanguage.googleapis.com'
 domain:accounts.google.com"
 		fi
 		if [ "$live_gemini" = "$RULE_GEMINI" ]; then
-			verify_rule_live "$live_gemini" Gemini_VPN tcp "$gemini_domains" '' "$group" || return 1
+			verify_rule_live "$live_gemini" "$NAME_GEMINI" tcp "$gemini_domains" '' "$group" || return 1
 			VERIFY_RULES=$live_gemini
 		else
 			validate_existing_rule_live "$live_gemini" gemini "$group" || return 1
@@ -1335,7 +1340,7 @@ domain:accounts.google.com"
 	elif [ -n "$live_gemini" ] && [ -n "$(section_option "$shunt" "$live_gemini")" ]; then return 1
 	fi
 	if [ "$android" = 1 ]; then
-		if [ "$live_android" = "$RULE_ANDROID" ]; then verify_rule_live "$live_android" Android_Check tcp 'domain:connectivitycheck.gstatic.com
+		if [ "$live_android" = "$RULE_ANDROID" ]; then verify_rule_live "$live_android" "$NAME_ANDROID" tcp 'domain:connectivitycheck.gstatic.com
 domain:connectivitycheck.android.com
 domain:clients3.google.com' '' "$group" || return 1; VERIFY_RULES="${VERIFY_RULES}${VERIFY_RULES:+ }$live_android"
 		else validate_existing_rule_live "$live_android" android "$group" || return 1; fi
@@ -1345,7 +1350,7 @@ domain:clients3.google.com' '' "$group" || return 1; VERIFY_RULES="${VERIFY_RULE
 	elif [ -n "$live_android" ] && [ -n "$(section_option "$shunt" "$live_android")" ]; then return 1
 	fi
 	if [ "$youtube" = 1 ]; then
-		if [ "$live_youtube" = "$RULE_YOUTUBE" ]; then verify_rule_live "$live_youtube" YouTube_Control_VPN tcp 'domain:www.youtube.com
+		if [ "$live_youtube" = "$RULE_YOUTUBE" ]; then verify_rule_live "$live_youtube" "$NAME_YOUTUBE" tcp 'domain:www.youtube.com
 domain:youtubei.googleapis.com
 domain:youtube.googleapis.com
 domain:accounts.youtube.com' '' "$group" || return 1; VERIFY_RULES="${VERIFY_RULES}${VERIFY_RULES:+ }$live_youtube"
@@ -1356,7 +1361,7 @@ domain:accounts.youtube.com' '' "$group" || return 1; VERIFY_RULES="${VERIFY_RUL
 	elif [ -n "$live_youtube" ] && [ -n "$(section_option "$shunt" "$live_youtube")" ]; then return 1
 	fi
 	if [ "$google" = 1 ]; then
-		if [ "$live_google" = "$RULE_GOOGLE" ]; then verify_rule_live "$live_google" Google_MITM tcp geosite:google '' "$group" || return 1; VERIFY_RULES="${VERIFY_RULES}${VERIFY_RULES:+ }$live_google"
+		if [ "$live_google" = "$RULE_GOOGLE" ]; then verify_rule_live "$live_google" "$NAME_GOOGLE" tcp geosite:google '' "$group" || return 1; VERIFY_RULES="${VERIFY_RULES}${VERIFY_RULES:+ }$live_google"
 		else validate_existing_rule_live "$live_google" google "$group" || return 1; fi
 		[ "$(section_option "$shunt" "$live_google")" = "$live_mitm" ] || return 1
 	elif [ "$(section_option "$RULE_GOOGLE" "$MANAGED_MARKER")" = 1 ]; then
@@ -1364,7 +1369,7 @@ domain:accounts.youtube.com' '' "$group" || return 1; VERIFY_RULES="${VERIFY_RUL
 	elif [ -n "$live_google" ] && [ -n "$(section_option "$shunt" "$live_google")" ]; then return 1
 	fi
 	if [ "$iran" = 1 ]; then
-		if [ "$live_iran" = "$RULE_IR" ]; then verify_rule_live "$live_iran" IR_Direct 'tcp,udp' geosite:ir geoip:ir "$group" || return 1; VERIFY_RULES="${VERIFY_RULES}${VERIFY_RULES:+ }$live_iran"
+		if [ "$live_iran" = "$RULE_IR" ]; then verify_rule_live "$live_iran" "$NAME_IR" 'tcp,udp' geosite:ir geoip:ir "$group" || return 1; VERIFY_RULES="${VERIFY_RULES}${VERIFY_RULES:+ }$live_iran"
 		else validate_existing_rule_live "$live_iran" iran "$group" || return 1; fi
 		[ "$(section_option "$shunt" "$live_iran")" = _direct ] || return 1
 	elif [ "$(section_option "$RULE_IR" "$MANAGED_MARKER")" = 1 ]; then

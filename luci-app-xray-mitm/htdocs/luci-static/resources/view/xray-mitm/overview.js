@@ -320,6 +320,15 @@ function routeStatus(source, active) {
 
 function routeChoice(id, title, description, checked, source, onChange) {
 	var status = routeStatus(source, checked);
+	var checkbox = E('input', {
+		id: id,
+		class: 'cbi-input-checkbox',
+		type: 'checkbox',
+		checked: checked ? '' : null,
+		style: 'position:static!important;float:none!important;width:auto!important;' +
+			'margin:.2rem 0 0!important;flex:0 0 auto',
+		change: onChange
+	});
 
 	return E('label', {
 		for: id,
@@ -327,14 +336,9 @@ function routeChoice(id, title, description, checked, source, onChange) {
 			'margin:.55rem 0;border:1px solid var(--border-color-medium,#ccc);' +
 			'border-radius:.45rem;cursor:pointer'
 	}, [
-		E('input', {
-			id: id,
-			class: 'cbi-input-checkbox',
-			type: 'checkbox',
-			checked: checked ? '' : null,
-			style: 'margin-top:.25rem;flex:0 0 auto',
-			change: onChange
-		}),
+		E('span', {
+			style: 'display:flex;align-items:flex-start;justify-content:center;flex:0 0 1.5rem'
+		}, checkbox),
 		E('span', { style: 'display:block;flex:1;min-width:0' }, [
 			E('span', { style: 'display:flex;align-items:center;justify-content:space-between;gap:.75rem;flex-wrap:wrap' }, [
 				E('strong', {}, title),
@@ -346,19 +350,24 @@ function routeChoice(id, title, description, checked, source, onChange) {
 }
 
 function simpleCheck(id, label, description, checked, onChange) {
+	var checkbox = E('input', {
+		id: id,
+		class: 'cbi-input-checkbox',
+		type: 'checkbox',
+		checked: checked ? '' : null,
+		style: 'position:static!important;float:none!important;width:auto!important;' +
+			'margin:.15rem 0 0!important;flex:0 0 auto',
+		change: onChange
+	});
+
 	return E('label', {
 		for: id,
 		style: 'display:flex;align-items:flex-start;gap:.7rem;margin:.8rem 0;cursor:pointer'
 	}, [
-		E('input', {
-			id: id,
-			class: 'cbi-input-checkbox',
-			type: 'checkbox',
-			checked: checked ? '' : null,
-			style: 'margin-top:.2rem;flex:0 0 auto',
-			change: onChange
-		}),
-		E('span', {}, [
+		E('span', {
+			style: 'display:flex;align-items:flex-start;justify-content:center;flex:0 0 1.5rem'
+		}, checkbox),
+		E('span', { style: 'display:block;flex:1;min-width:0' }, [
 			E('strong', {}, label),
 			description ? E('small', { style: 'display:block;margin-top:.2rem;opacity:.8' }, description) : ''
 		])
@@ -666,6 +675,7 @@ return view.extend({
 		var current = slotData(certificates, 'current');
 		var routing = (passwall && passwall.routing_state) || {};
 		var routingReady = routing.google_mitm === true || routing.gemini === true || routing.iran_direct === true;
+		var firstTime = status.configured !== true || !slotPresent(current);
 		var steps = [
 			{
 				number: '1',
@@ -694,15 +704,17 @@ return view.extend({
 		];
 
 		return E('div', { class: 'cbi-section' }, [
-			E('h3', {}, _('Start here')),
-			E('p', {}, _('Complete these steps in order. Green items are already ready.')),
+			E('h3', {}, firstTime ? _('First-time setup') : _('System overview')),
+			E('p', {}, firstTime ?
+				_('Complete these steps once, in order. Green items are already ready.') :
+				_('Updates preserve your configuration and certificate. These cards show the current state; complete only items that are not ready.')),
 			E('div', { style: 'display:grid;grid-template-columns:repeat(auto-fit,minmax(14rem,1fr));gap:.75rem' },
 				steps.map(function(step) {
 					return E('div', {
 						style: 'padding:1rem;border:1px solid var(--border-color-medium,#ccc);border-radius:.45rem'
 					}, [
 						E('div', { style: 'display:flex;align-items:center;gap:.55rem;margin-bottom:.45rem' }, [
-							statusPill(step.done ? '✓' : step.number, step.done ? 'good' : 'muted'),
+							statusPill(step.done ? '✓' : (firstTime ? step.number : '!'), step.done ? 'good' : 'warn'),
 							E('strong', {}, step.title)
 						]),
 						E('small', { style: 'line-height:1.45;opacity:.8' }, step.description)
@@ -924,7 +936,7 @@ return view.extend({
 				routeChoice('xray-mitm-route-google-mitm', _('Google through MITM'), _(
 					'Google websites use the local MITM Domain Fronting service. The required localhost SOCKS node is reused or created automatically.'
 				), routingState.google_mitm === true, ruleSources.google_mitm, selectionChanged),
-				routeChoice('xray-mitm-route-gemini', _('Gemini through VPN'), _(
+				routeChoice('xray-mitm-route-gemini', _('Gemini app and API through VPN'), _(
 					'Gemini website and API traffic use the VPN connection selected above.'
 				), routingState.gemini === true, ruleSources.gemini, selectionChanged),
 				routeChoice('xray-mitm-route-iran-direct', _('Iranian websites connect directly'), _(
@@ -938,15 +950,51 @@ return view.extend({
 					simpleCheck('xray-mitm-route-youtube-control', _('YouTube sign-in and controls through VPN'), _(
 						'Only account and control requests use VPN. Video delivery stays on the faster Google MITM route.'
 					), routingState.youtube_control === true, selectionChanged),
-					simpleCheck('xray-mitm-route-accounts-google', _('Send Google sign-in through VPN'), _(
-						'Affects accounts.google.com beyond Gemini. Leave disabled unless sign-in needs the VPN.'
+					simpleCheck('xray-mitm-route-accounts-google', _('Google Account sign-in through VPN'), _(
+						'Adds accounts.google.com to the Gemini VPN exception. It affects Google sign-in beyond Gemini, so leave it disabled unless sign-in needs the VPN.'
 					), routingState.accounts_google === true, selectionChanged),
 					simpleCheck('xray-mitm-route-set-default-vpn', _('Make this VPN the fallback route'), _(
 						'Changes the shunt default for traffic that does not match a rule.'
 					), routingState.set_default_vpn === true, selectionChanged),
 					simpleCheck('xray-mitm-route-set-localhost-proxy-zero', _('Protect the local MITM connection from recapture'), _(
 						'Recommended. Sets localhost_proxy=0 so PassWall2 does not capture the local SOCKS connection again.'
-					), routingState.set_localhost_proxy_zero === true, selectionChanged)
+					), routingState.set_localhost_proxy_zero === true, selectionChanged),
+					E('details', { style: 'margin:1rem 0' }, [
+						E('summary', { style: 'cursor:pointer;font-weight:600;padding:.45rem 0' }, _('Domains used by these rules')),
+						E('table', { class: 'table', style: 'margin-top:.5rem' }, [
+							E('tr', { class: 'tr table-titles' }, [
+								E('th', { class: 'th left' }, _('Choice')),
+								E('th', { class: 'th left' }, _('Traffic matched'))
+							]),
+							E('tr', { class: 'tr' }, [
+								E('td', { class: 'td left' }, _('Gemini app and API')),
+								E('td', { class: 'td left' }, 'gemini.google.com, generativelanguage.googleapis.com')
+							]),
+							E('tr', { class: 'tr' }, [
+								E('td', { class: 'td left' }, _('Android internet check')),
+								E('td', { class: 'td left' }, 'connectivitycheck.gstatic.com, connectivitycheck.android.com, clients3.google.com')
+							]),
+							E('tr', { class: 'tr' }, [
+								E('td', { class: 'td left' }, _('YouTube sign-in and controls')),
+								E('td', { class: 'td left' }, 'www.youtube.com, youtubei.googleapis.com, youtube.googleapis.com, accounts.youtube.com')
+							]),
+							E('tr', { class: 'tr' }, [
+								E('td', { class: 'td left' }, _('Google Account sign-in')),
+								E('td', { class: 'td left' }, 'accounts.google.com')
+							]),
+							E('tr', { class: 'tr' }, [
+								E('td', { class: 'td left' }, _('Google through MITM')),
+								E('td', { class: 'td left' }, 'geosite:google')
+							]),
+							E('tr', { class: 'tr' }, [
+								E('td', { class: 'td left' }, _('Iranian websites direct')),
+								E('td', { class: 'td left' }, 'geosite:ir, geoip:ir')
+							])
+						]),
+						E('small', { style: 'display:block;line-height:1.45;opacity:.8' }, _(
+							'YouTube video delivery domains such as googlevideo.com are deliberately excluded from the VPN rule, so video can remain on the Google MITM route.'
+						))
+					])
 				]),
 				E('h4', {}, _('3. Review and apply')),
 				E('p', { style: 'opacity:.82' }, _(
