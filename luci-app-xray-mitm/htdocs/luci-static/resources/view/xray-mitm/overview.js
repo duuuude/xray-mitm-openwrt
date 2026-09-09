@@ -244,6 +244,21 @@ function certificateRows(data) {
 	});
 }
 
+function decodeRemarks(item) {
+	if (!item || !item.remarks_b64)
+		return item && (item.remarks || item.label) || '';
+
+	try {
+		var bytes = Uint8Array.from(atob(item.remarks_b64), function(character) {
+			return character.charCodeAt(0);
+		});
+		return new TextDecoder('utf-8').decode(bytes);
+	}
+	catch (error) {
+		return '';
+	}
+}
+
 function optionList(items) {
 	if (!Array.isArray(items))
 		return [];
@@ -252,10 +267,10 @@ function optionList(items) {
 		if (typeof item === 'string')
 			return { id: item, label: item };
 
-		return {
-			id: item.id || item.name || item.section,
-			label: item.label || item.remarks || item.name || item.id || item.section
-		};
+		var id = item.id || item.name || item.section;
+		var details = [ item.type, item.protocol, item.group ].filter(Boolean).join('/');
+		var remarks = decodeRemarks(item);
+		return { id: id, label: (remarks || id) + (details ? ' — ' + details : '') + ' [' + id + ']' };
 	}).filter(function(item) { return !!item.id; });
 }
 
@@ -273,9 +288,11 @@ function selectControl(id, items, selected) {
 }
 
 function checkControl(id, label, checked) {
-	return E('label', { style: 'display:block; margin:.45em 0' }, [
-		E('input', { id: id, type: 'checkbox', checked: checked ? '' : null }),
-		' ', label
+	return E('div', { class: 'cbi-value' }, [
+		E('label', { class: 'cbi-value-title', for: id }, label),
+		E('div', { class: 'cbi-value-field' }, [
+			E('input', { id: id, class: 'cbi-input-checkbox', type: 'checkbox', checked: checked ? '' : null })
+		])
 	]);
 }
 
@@ -460,7 +477,7 @@ return view.extend({
 		setBusy(button, true);
 
 		callPlanPassWall2.apply(null, values).then(assertOk).then(L.bind(function(plan) {
-			this.planToken = plan.token || null;
+			this.planToken = plan.no_change === true ? null : (plan.token || null);
 			this.lastPlan = plan;
 			dom.content(output, [
 				E('h4', {}, _('Preview')),
@@ -483,7 +500,7 @@ return view.extend({
 			return;
 
 		this.runMutation(ev.currentTarget, callApplyPassWall2(this.planToken),
-			_('PassWall2 routing changes applied.'), false).then(L.bind(function(result) {
+			_('PassWall2 routing changes applied.'), true).then(L.bind(function(result) {
 			if (!result || !result.ok)
 				return;
 
@@ -651,6 +668,11 @@ return view.extend({
 		var canRollback = !recoveryPending && capabilities.rollback !== false && !!this.rollbackTransaction;
 		var selectedShunt = inspect.selected_shunt || inspect.current_shunt || (shunts[0] && shunts[0].id);
 		var selectedVpn = inspect.selected_vpn || (vpns[0] && vpns[0].id);
+		var routingState = inspect.routing_state || {};
+		var ruleSources = inspect.rule_sources || {};
+		var hasExistingRules = Object.keys(ruleSources).some(function(name) {
+			return ruleSources[name] === 'existing';
+		});
 
 		return E('div', { class: 'cbi-section' }, [
 			E('h3', {}, _('PassWall2 routing (optional)')),
@@ -687,15 +709,18 @@ return view.extend({
 					E('div', { class: 'cbi-value-field' }, selectControl('xray-mitm-route-vpn-node', vpns, selectedVpn))
 				]),
 				E('h4', {}, _('Managed rules')),
-				checkControl('xray-mitm-route-gemini', _('Gemini control/API through selected VPN'), true),
-				checkControl('xray-mitm-route-android-check', _('Android connectivity checks through selected VPN'), false),
-				checkControl('xray-mitm-route-youtube-control', _('YouTube control/account API through selected VPN (never video delivery)'), false),
-				checkControl('xray-mitm-route-google-mitm', _('Google through MITM Domain Fronting'), true),
-				checkControl('xray-mitm-route-iran-direct', _('Iranian domains and IPs direct'), true),
-				checkControl('xray-mitm-route-accounts-google', _('Also put accounts.google.com in the Gemini VPN rule'), false),
+				hasExistingRules ? E('div', { class: 'alert-message notice' }, _(
+					'Compatible existing PassWall2 rules were detected. Their definitions will be preserved; this wizard changes their selected-shunt assignments and the explicit accounts.google.com option.'
+				)) : '',
+				checkControl('xray-mitm-route-gemini', _('Gemini control/API through selected VPN'), routingState.gemini === true),
+				checkControl('xray-mitm-route-android-check', _('Android connectivity checks through selected VPN'), routingState.android_check === true),
+				checkControl('xray-mitm-route-youtube-control', _('YouTube control/account API through selected VPN (never video delivery)'), routingState.youtube_control === true),
+				checkControl('xray-mitm-route-google-mitm', _('Google through MITM Domain Fronting'), routingState.google_mitm === true),
+				checkControl('xray-mitm-route-iran-direct', _('Iranian domains and IPs direct'), routingState.iran_direct === true),
+				checkControl('xray-mitm-route-accounts-google', _('Also put accounts.google.com in the Gemini VPN rule'), routingState.accounts_google === true),
 				E('h4', {}, _('Separate routing changes')),
-				checkControl('xray-mitm-route-set-default-vpn', _('Make selected VPN the shunt default'), false),
-				checkControl('xray-mitm-route-set-localhost-proxy-zero', _('Set localhost_proxy=0 to prevent recapture'), true),
+				checkControl('xray-mitm-route-set-default-vpn', _('Make selected VPN the shunt default'), routingState.set_default_vpn === true),
+				checkControl('xray-mitm-route-set-localhost-proxy-zero', _('Set localhost_proxy=0 to prevent recapture'), routingState.set_localhost_proxy_zero === true),
 				E('div', { class: 'alert-message warning' }, _(
 					'accounts.google.com changes authentication routing beyond Gemini. Enable it only when that broader behavior is intended. Firewall, QUIC, and DNS settings remain outside this transaction.'
 				)),

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hashlib
+import base64
 import json
 import os
 import shutil
@@ -50,6 +51,56 @@ config shunt_rules 'existing_main'
 \toption network 'tcp,udp'
 \toption domain_list 'domain:existing.fixture.invalid'
 \toption group 'main_group'
+"""
+
+LEGACY_CONFIG = """\
+config global 'global'
+	option enabled '1'
+	option localhost_proxy '0'
+	option node 'v0iEAVtN'
+
+config nodes '2xExBSCp'
+	option remarks '🇩🇪  𝔻𝔼『🎖』'
+	option type 'Xray'
+	option protocol 'vless'
+
+config nodes 'sdt8MGIZ'
+	option remarks 'MITM-DF'
+	option type 'Xray'
+	option protocol 'socks'
+	option address '127.0.0.1'
+	option port '10808'
+
+config nodes 'v0iEAVtN'
+	option remarks 'M Node'
+	option type 'sing-box'
+	option protocol '_shunt'
+	option shunt_group 'IR'
+	option default_node '2xExBSCp'
+	option IR_Direct '_direct'
+
+config shunt_rules 'Gemini_VPN'
+	option remarks 'Gemini_VPN'
+	option network 'tcp'
+	option domain_list 'domain:gemini.google.com
+domain:generativelanguage.googleapis.com
+domain:accounts.google.com'
+	option group 'IR'
+
+config shunt_rules 'Google_MITM'
+	option remarks 'Google_MITM'
+	option network 'tcp'
+	option domain_list 'geosite:google
+domain:googlevideo.com'
+	option group 'IR'
+
+config shunt_rules 'IR_Direct'
+	option remarks 'IR_Direct'
+	option network 'tcp,udp'
+	option domain_list 'geosite:ir
+tanya.james-dean.net'
+	option ip_list 'geoip:ir'
+	option group 'IR'
 """
 
 
@@ -295,6 +346,91 @@ class PassWall2Fixture(unittest.TestCase):
                 self.assertEqual(self.config.read_bytes(), self.original)
                 self.assertEqual(self.restart_count(), 0)
                 pending.unlink()
+
+    def test_reuses_compatible_existing_rules_and_local_mitm_node(self) -> None:
+        self.config.write_text(LEGACY_CONFIG, encoding="utf-8")
+        self.original = self.config.read_bytes()
+
+        _, inspection = self.helper("inspect")
+        self.assertEqual(inspection["rule_sources"]["gemini"], "existing")
+        self.assertEqual(inspection["rule_sources"]["google_mitm"], "existing")
+        self.assertEqual(inspection["rule_sources"]["iran_direct"], "existing")
+        self.assertTrue(inspection["routing_state"]["iran_direct"])
+        self.assertTrue(inspection["routing_state"]["accounts_google"])
+        vpn_ids = [item["id"] for item in inspection["vpn_nodes"]]
+        self.assertNotIn("sdt8MGIZ", vpn_ids)
+        vpn = next(item for item in inspection["vpn_nodes"] if item["id"] == "2xExBSCp")
+        self.assertEqual(base64.b64decode(vpn["remarks_b64"]).decode(), "🇩🇪  𝔻𝔼『🎖』")
+        _, rejected = self.helper(
+            "plan",
+            str(self.request_file({
+                "shunt_node": "v0iEAVtN",
+                "vpn_node": "sdt8MGIZ",
+            })),
+            expected_status=65,
+        )
+        self.assertEqual(rejected["error"], "invalid_vpn_node")
+
+        request = self.request_file({
+            "shunt_node": "v0iEAVtN",
+            "vpn_node": "2xExBSCp",
+            "gemini": True,
+            "android_check": False,
+            "youtube_control": False,
+            "google_mitm": True,
+            "iran_direct": True,
+            "accounts_google": False,
+            "set_default_vpn": False,
+        })
+        _, plan = self.helper("plan", str(request))
+        self.assertFalse(plan["no_change"])
+        token = str(plan["token"])
+        staged_dir = self.root / "tmp/xray-mitm-passwall2-plans" / f"{token}.stage/config"
+        self.assertEqual(self._uci_from_path(staged_dir, "get", "passwall2.v0iEAVtN.Gemini_VPN"), "2xExBSCp")
+        self.assertEqual(self._uci_from_path(staged_dir, "get", "passwall2.v0iEAVtN.Google_MITM"), "sdt8MGIZ")
+        self.assertIn("tanya.james-dean.net", self._uci_from_path(staged_dir, "get", "passwall2.IR_Direct.domain_list"))
+        staged_text = (staged_dir / "passwall2").read_text(encoding="utf-8")
+        self.assertNotIn("config shunt_rules 'xray_mitm_", staged_text)
+        self.assertEqual(self.config.read_bytes(), self.original)
+
+        _, applied = self.helper("apply", token)
+        self.assertTrue(applied["ok"])
+        _, after = self.helper("inspect")
+        self.assertTrue(after["routing_state"]["gemini"])
+        self.assertTrue(after["routing_state"]["google_mitm"])
+        self.assertTrue(after["routing_state"]["iran_direct"])
+        self.assertFalse(after["routing_state"]["accounts_google"])
+        self.assertNotIn("config shunt_rules 'xray_mitm_", self.config.read_text(encoding="utf-8"))
+        self.assertEqual(self.restart_count(), 1)
+
+        _, rolled_back = self.helper("rollback", token)
+        self.assertTrue(rolled_back["ok"])
+        self.assertEqual(self.config.read_bytes(), self.original)
+
+    def test_staging_uses_committable_private_delta_directory(self) -> None:
+        helper_text = HELPER.read_text(encoding="utf-8")
+        self.assertIn('-t "$STAGE_DELTA_DIR"', helper_text)
+        self.assertNotIn('-P "$STAGE_DELTA_DIR"', helper_text)
+
+        broken = self.root / "tmp/broken-passwall2"
+        broken.write_text(
+            helper_text.replace('-t "$STAGE_DELTA_DIR"', '-P "$STAGE_DELTA_DIR"'),
+            encoding="utf-8",
+        )
+        broken.chmod(0o755)
+        request = self.request_file()
+        result = subprocess.run(
+            ["sh", str(broken), "plan", str(request)],
+            env=self.env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertTrue(payload["no_change"])
+        self.assertEqual(payload["operations"], [])
 
     def test_plan_recovers_an_interrupted_apply_before_previewing(self) -> None:
         token = "a" * 64

@@ -17,6 +17,11 @@ RULE_ANDROID='xray_mitm_android'
 RULE_YOUTUBE='xray_mitm_youtube'
 RULE_GOOGLE='xray_mitm_google'
 RULE_IR='xray_mitm_ir'
+LEGACY_GEMINI='Gemini_VPN'
+LEGACY_ANDROID='Android_Check'
+LEGACY_YOUTUBE='YouTube_Control_VPN'
+LEGACY_GOOGLE='Google_MITM'
+LEGACY_IR='IR_Direct'
 MANAGED_MARKER='xray_mitm_managed'
 MAX_PLAN_AGE=600
 MAX_REQUEST_BYTES=4096
@@ -190,6 +195,7 @@ schema_check() {
 	command -v jsonfilter >/dev/null 2>&1 || return 1
 	command -v sha256sum >/dev/null 2>&1 || return 1
 	command -v stat >/dev/null 2>&1 || return 1
+	command -v base64 >/dev/null 2>&1 || return 1
 	[ "$(uci -c "$CONFIG_DIR" -q get 'passwall2.@global[0]' 2>/dev/null || true)" = 'global' ] || return 1
 	return 0
 }
@@ -221,6 +227,57 @@ managed_state() {
 	fi
 }
 
+is_local_mitm_node() {
+	id=$1
+	[ "$(section_type "$id")" = nodes ] &&
+		[ "$(section_option "$id" protocol)" = socks ] &&
+		[ "$(section_option "$id" address)" = 127.0.0.1 ] &&
+		[ "$(section_option "$id" port)" = 10808 ]
+}
+
+find_local_mitm_node() {
+	is_local_mitm_node "$MITM_NODE" && { printf '%s' "$MITM_NODE"; return 0; }
+	for id in $(section_ids_by_type nodes); do
+		valid_id "$id" || continue
+		is_local_mitm_node "$id" || continue
+		printf '%s' "$id"
+		return 0
+	done
+	return 1
+}
+
+resolve_live_rule() {
+	managed=$1
+	legacy=$2
+	remark=$3
+	[ "$(managed_state "$managed" shunt_rules)" = managed ] && { printf '%s' "$managed"; return 0; }
+	[ "$(section_type "$legacy")" = shunt_rules ] &&
+		[ "$(section_option "$legacy" remarks)" = "$remark" ] || return 1
+	printf '%s' "$legacy"
+}
+
+rule_source() {
+	[ -n "$1" ] || { printf absent; return; }
+	[ "$1" = "$2" ] && printf managed || printf existing
+}
+
+remark_b64() {
+	remark=$(section_option "$1" remarks)
+	printf '%s' "$remark" | head -c 256 | base64 | tr -d '\n'
+}
+
+rule_is_routed_to() {
+	[ -n "$1" ] && [ -n "$2" ] && [ "$(section_option "$3" "$1")" = "$2" ]
+}
+
+option_has_line() {
+	section_option "$1" "$2" | grep -Fqx "$3"
+}
+
+json_bool() {
+	if "$@"; then printf true; else printf false; fi
+}
+
 emit_inspect_array() {
 	kind=$1
 	first=1
@@ -236,14 +293,14 @@ emit_inspect_array() {
 				[ "$protocol" = '_shunt' ] || continue
 				group=$(section_option "$id" shunt_group)
 				case "$group" in ''|*[!A-Za-z0-9_-]*) continue ;; esac
-				item=$(printf '{"id":"%s","group":"%s"}' "$id" "$group")
+				item=$(printf '{"id":"%s","group":"%s","remarks_b64":"%s"}' "$id" "$group" "$(remark_b64 "$id")")
 				;;
 			targets)
-				[ "$id" != "$MITM_NODE" ] || continue
+				is_local_mitm_node "$id" && continue
 				case "$protocol" in ''|_shunt) continue ;; esac
 				case "$type" in ''|*[!A-Za-z0-9_-]*) type='unknown' ;; esac
 				case "$protocol" in *[!A-Za-z0-9_.+-]*) protocol='unknown' ;; esac
-				item=$(printf '{"id":"%s","type":"%s","protocol":"%s"}' "$id" "$type" "$protocol")
+				item=$(printf '{"id":"%s","type":"%s","protocol":"%s","remarks_b64":"%s"}' "$id" "$type" "$protocol" "$(remark_b64 "$id")")
 				;;
 		esac
 		count=$((count + 1))
@@ -318,11 +375,30 @@ inspect() {
 	selected_vpn=''
 	if [ -n "$selected_shunt" ]; then
 		selected_vpn=$(section_option "$selected_shunt" default_node)
-		if ! valid_id "$selected_vpn" || [ "$(section_type "$selected_vpn")" != nodes ] || [ "$(section_option "$selected_vpn" protocol)" = _shunt ]; then
+		if ! valid_id "$selected_vpn" || [ "$(section_type "$selected_vpn")" != nodes ] || [ "$(section_option "$selected_vpn" protocol)" = _shunt ] || is_local_mitm_node "$selected_vpn"; then
 			selected_vpn=''
 		fi
 	fi
 	printf '"selected_shunt":"%s","selected_vpn":"%s",' "$selected_shunt" "$selected_vpn"
+	live_gemini=$(resolve_live_rule "$RULE_GEMINI" "$LEGACY_GEMINI" Gemini_VPN || true)
+	live_android=$(resolve_live_rule "$RULE_ANDROID" "$LEGACY_ANDROID" Android_Check || true)
+	live_youtube=$(resolve_live_rule "$RULE_YOUTUBE" "$LEGACY_YOUTUBE" YouTube_Control_VPN || true)
+	live_google=$(resolve_live_rule "$RULE_GOOGLE" "$LEGACY_GOOGLE" Google_MITM || true)
+	live_iran=$(resolve_live_rule "$RULE_IR" "$LEGACY_IR" IR_Direct || true)
+	live_mitm=$(find_local_mitm_node || true)
+	printf '"routing_state":{"gemini":%s,"android_check":%s,"youtube_control":%s,"google_mitm":%s,"iran_direct":%s,"accounts_google":%s,"set_default_vpn":%s,"set_localhost_proxy_zero":%s},' \
+		"$(json_bool rule_is_routed_to "$live_gemini" "$selected_vpn" "$selected_shunt")" \
+		"$(json_bool rule_is_routed_to "$live_android" "$selected_vpn" "$selected_shunt")" \
+		"$(json_bool rule_is_routed_to "$live_youtube" "$selected_vpn" "$selected_shunt")" \
+		"$(json_bool rule_is_routed_to "$live_google" "$live_mitm" "$selected_shunt")" \
+		"$(json_bool rule_is_routed_to "$live_iran" _direct "$selected_shunt")" \
+		"$(json_bool option_has_line "$live_gemini" domain_list domain:accounts.google.com)" \
+		"$(json_bool test -n "$selected_vpn" -a "$(section_option "$selected_shunt" default_node)" = "$selected_vpn")" \
+		"$(json_bool test "$(section_option '@global[0]' localhost_proxy)" = 0)"
+	printf '"rule_sources":{"gemini":"%s","android_check":"%s","youtube_control":"%s","google_mitm":"%s","iran_direct":"%s"},' \
+		"$(rule_source "$live_gemini" "$RULE_GEMINI")" "$(rule_source "$live_android" "$RULE_ANDROID")" \
+		"$(rule_source "$live_youtube" "$RULE_YOUTUBE")" "$(rule_source "$live_google" "$RULE_GOOGLE")" \
+		"$(rule_source "$live_iran" "$RULE_IR")"
 	printf '"managed":{"node":"%s","gemini":"%s","android":"%s","youtube":"%s","google":"%s","iran":"%s"},' \
 		"$(managed_state "$MITM_NODE" nodes)" \
 		"$(managed_state "$RULE_GEMINI" shunt_rules)" \
@@ -337,7 +413,7 @@ inspect() {
 		printf '"rollback_transaction":null,'
 	fi
 	release_lock
-	printf '%s\n' '"capabilities":{"plan":true,"apply":true,"rollback":true,"recover":true,"set_global_shunt":false,"quic_firewall":false,"dns":false},"note":"Only section IDs, node types, and protocols are returned; credentials and full UCI data are never returned."}'
+	printf '%s\n' '"capabilities":{"plan":true,"apply":true,"rollback":true,"recover":true,"set_global_shunt":false,"quic_firewall":false,"dns":false},"note":"Node remarks, IDs, types, protocols, and routing state are returned; credentials and full UCI data are never returned."}'
 }
 
 safe_request_path() {
@@ -382,7 +458,9 @@ request_value() {
 }
 
 stage_uci() {
-	uci -c "$STAGE_CONFIG_DIR" -P "$STAGE_DELTA_DIR" "$@"
+	# OpenWrt UCI's -P flag also enables NOCOMMIT, so a successful commit would
+	# leave the staged file unchanged. -t keeps the delta private and committable.
+	uci -c "$STAGE_CONFIG_DIR" -t "$STAGE_DELTA_DIR" "$@"
 }
 
 stage_get() {
@@ -499,62 +577,150 @@ order_managed_rules() {
 	fi
 }
 
+stage_is_local_mitm_node() {
+	id=$1
+	[ "$(stage_type "$id")" = nodes ] &&
+		[ "$(stage_get "$id" protocol)" = socks ] &&
+		[ "$(stage_get "$id" address)" = 127.0.0.1 ] &&
+		[ "$(stage_get "$id" port)" = 10808 ]
+}
+
+find_stage_local_mitm_node() {
+	stage_is_local_mitm_node "$MITM_NODE" && { printf '%s' "$MITM_NODE"; return 0; }
+	for id in $(stage_section_ids_by_type nodes); do
+		valid_id "$id" || continue
+		stage_is_local_mitm_node "$id" || continue
+		printf '%s' "$id"
+		return 0
+	done
+	return 1
+}
+
+stage_resolve_rule() {
+	managed=$1
+	legacy=$2
+	remark=$3
+	if [ "$(stage_type "$managed")" = shunt_rules ] && [ "$(stage_get "$managed" "$MANAGED_MARKER")" = 1 ]; then
+		printf '%s managed' "$managed"
+		return 0
+	fi
+	if [ "$(stage_type "$legacy")" = shunt_rules ] && [ "$(stage_get "$legacy" remarks)" = "$remark" ]; then
+		printf '%s existing' "$legacy"
+		return 0
+	fi
+	printf '%s new' "$managed"
+}
+
+stage_option_has_line() {
+	stage_get "$1" "$2" | grep -Fqx "$3"
+}
+
+validate_existing_rule() {
+	id=$1
+	kind=$2
+	group=$3
+	[ "$(stage_get "$id" group)" = "$group" ] || return 1
+	case "$kind" in
+		gemini)
+			stage_option_has_line "$id" domain_list domain:gemini.google.com &&
+				stage_option_has_line "$id" domain_list domain:generativelanguage.googleapis.com
+			;;
+		android)
+			stage_option_has_line "$id" domain_list domain:connectivitycheck.gstatic.com &&
+				stage_option_has_line "$id" domain_list domain:connectivitycheck.android.com &&
+				stage_option_has_line "$id" domain_list domain:clients3.google.com
+			;;
+		youtube)
+			stage_option_has_line "$id" domain_list domain:www.youtube.com &&
+				! stage_get "$id" domain_list | grep -Fq googlevideo.com
+			;;
+		google) stage_option_has_line "$id" domain_list geosite:google ;;
+		iran)
+			stage_option_has_line "$id" domain_list geosite:ir &&
+				stage_option_has_line "$id" ip_list geoip:ir
+			;;
+		*) return 1 ;;
+	esac
+}
+
+set_existing_accounts_google() {
+	id=$1
+	want=$2
+	old=$(stage_get "$id" domain_list)
+	new=$(printf '%s\n' "$old" | sed '/^domain:accounts\.google\.com$/d')
+	if [ "$want" = 1 ]; then
+		new="${new}${new:+
+}domain:accounts.google.com"
+	fi
+	stage_uci -q set "passwall2.$id.domain_list=$new" >/dev/null
+}
+
 build_stage() {
-	shunt=$1
-	vpn=$2
-	gemini=$3
-	android=$4
-	youtube=$5
-	google=$6
-	iran=$7
-	accounts_google=$8
-	set_default=$9
+	shunt=$1; vpn=$2; gemini=$3; android=$4; youtube=$5; google=$6; iran=$7
+	accounts_google=$8; set_default=$9
 	shift 9
 	force_localhost=$1
-
-	DESIRED_RULES=''
-	CLEANUP_RULES=''
-	for choice in \
-		"$gemini:$RULE_GEMINI" \
-		"$android:$RULE_ANDROID" \
-		"$youtube:$RULE_YOUTUBE" \
-		"$google:$RULE_GOOGLE" \
-		"$iran:$RULE_IR"; do
-		enabled=${choice%%:*}
-		id=${choice#*:}
-		if [ "$enabled" = 1 ]; then
-			assert_manageable "$id" shunt_rules || return 2
-			DESIRED_RULES="${DESIRED_RULES}${DESIRED_RULES:+ }$id"
-		elif [ "$(stage_type "$id")" = shunt_rules ] && [ "$(stage_get "$id" "$MANAGED_MARKER")" = 1 ]; then
-			CLEANUP_RULES="${CLEANUP_RULES}${CLEANUP_RULES:+ }$id"
-		fi
-	done
-
-	# The local SOCKS node is required only for the Google MITM rule. An idle
-	# package-owned node is retained when that rule is disabled because another
-	# administrator-created rule may have begun using it.
-	[ "$google" = 0 ] || assert_manageable "$MITM_NODE" nodes || return 2
-
-	for id in $CLEANUP_RULES; do
-		stage_uci -q delete "passwall2.$id" >/dev/null || return 1
-	done
-
-	# Remove stale mappings only for rule IDs that this transaction owns or is
-	# about to own. An unmanaged collision in the reserved namespace is never
-	# modified unless the user selects it, in which case planning fails.
-	TOUCH_RULES="${DESIRED_RULES}${CLEANUP_RULES:+ }$CLEANUP_RULES"
-	for candidate_shunt in $(stage_section_ids_by_type nodes); do
-		valid_id "$candidate_shunt" || continue
-		[ "$(stage_get "$candidate_shunt" protocol)" = _shunt ] || continue
-		for managed_rule in $TOUCH_RULES; do
-			stage_uci -q delete "passwall2.$candidate_shunt.$managed_rule" >/dev/null 2>&1 || true
-		done
-	done
 
 	group=$(stage_get "$shunt" shunt_group)
 	case "$group" in ''|*[!A-Za-z0-9_-]*) return 3 ;; esac
 
-	if [ "$google" = 1 ]; then
+	set -- $(stage_resolve_rule "$RULE_GEMINI" "$LEGACY_GEMINI" Gemini_VPN); ACTIVE_GEMINI=$1; SOURCE_GEMINI=$2
+	set -- $(stage_resolve_rule "$RULE_ANDROID" "$LEGACY_ANDROID" Android_Check); ACTIVE_ANDROID=$1; SOURCE_ANDROID=$2
+	set -- $(stage_resolve_rule "$RULE_YOUTUBE" "$LEGACY_YOUTUBE" YouTube_Control_VPN); ACTIVE_YOUTUBE=$1; SOURCE_YOUTUBE=$2
+	set -- $(stage_resolve_rule "$RULE_GOOGLE" "$LEGACY_GOOGLE" Google_MITM); ACTIVE_GOOGLE=$1; SOURCE_GOOGLE=$2
+	set -- $(stage_resolve_rule "$RULE_IR" "$LEGACY_IR" IR_Direct); ACTIVE_IR=$1; SOURCE_IR=$2
+
+	DESIRED_RULES=''
+	ORDER_RULES=''
+	CLEANUP_RULES=''
+	for choice in \
+		"$gemini:$ACTIVE_GEMINI:$SOURCE_GEMINI:gemini" \
+		"$android:$ACTIVE_ANDROID:$SOURCE_ANDROID:android" \
+		"$youtube:$ACTIVE_YOUTUBE:$SOURCE_YOUTUBE:youtube" \
+		"$google:$ACTIVE_GOOGLE:$SOURCE_GOOGLE:google" \
+		"$iran:$ACTIVE_IR:$SOURCE_IR:iran"; do
+		enabled=${choice%%:*}; rest=${choice#*:}
+		id=${rest%%:*}; rest=${rest#*:}
+		source=${rest%%:*}; kind=${rest#*:}
+		if [ "$enabled" = 1 ]; then
+			if [ "$source" = existing ]; then
+				validate_existing_rule "$id" "$kind" "$group" || return 5
+			else
+				assert_manageable "$id" shunt_rules || return 2
+				ORDER_RULES="${ORDER_RULES}${ORDER_RULES:+ }$id"
+			fi
+			DESIRED_RULES="${DESIRED_RULES}${DESIRED_RULES:+ }$id"
+		elif [ "$source" = managed ]; then
+			CLEANUP_RULES="${CLEANUP_RULES}${CLEANUP_RULES:+ }$id"
+		fi
+	done
+
+	MITM_TARGET=$(find_stage_local_mitm_node || true)
+	MITM_SOURCE=existing
+	if [ -z "$MITM_TARGET" ]; then MITM_TARGET=$MITM_NODE; MITM_SOURCE=new; fi
+	[ "$google" = 0 ] || [ "$MITM_SOURCE" = existing ] || assert_manageable "$MITM_NODE" nodes || return 2
+
+	REMOVE_EXISTING_GEMINI=0; REMOVE_EXISTING_ANDROID=0; REMOVE_EXISTING_YOUTUBE=0
+	REMOVE_EXISTING_GOOGLE=0; REMOVE_EXISTING_IR=0
+	[ "$gemini" = 0 ] && [ "$SOURCE_GEMINI" = existing ] && [ -n "$(stage_get "$shunt" "$ACTIVE_GEMINI")" ] && REMOVE_EXISTING_GEMINI=1
+	[ "$android" = 0 ] && [ "$SOURCE_ANDROID" = existing ] && [ -n "$(stage_get "$shunt" "$ACTIVE_ANDROID")" ] && REMOVE_EXISTING_ANDROID=1
+	[ "$youtube" = 0 ] && [ "$SOURCE_YOUTUBE" = existing ] && [ -n "$(stage_get "$shunt" "$ACTIVE_YOUTUBE")" ] && REMOVE_EXISTING_YOUTUBE=1
+	[ "$google" = 0 ] && [ "$SOURCE_GOOGLE" = existing ] && [ -n "$(stage_get "$shunt" "$ACTIVE_GOOGLE")" ] && REMOVE_EXISTING_GOOGLE=1
+	[ "$iran" = 0 ] && [ "$SOURCE_IR" = existing ] && [ -n "$(stage_get "$shunt" "$ACTIVE_IR")" ] && REMOVE_EXISTING_IR=1
+
+	for id in $CLEANUP_RULES; do stage_uci -q delete "passwall2.$id" >/dev/null || return 1; done
+	for candidate_shunt in $(stage_section_ids_by_type nodes); do
+		valid_id "$candidate_shunt" || continue
+		[ "$(stage_get "$candidate_shunt" protocol)" = _shunt ] || continue
+		for managed_rule in $ORDER_RULES $CLEANUP_RULES; do
+			stage_uci -q delete "passwall2.$candidate_shunt.$managed_rule" >/dev/null 2>&1 || true
+		done
+	done
+	for existing_rule in "$ACTIVE_GEMINI" "$ACTIVE_ANDROID" "$ACTIVE_YOUTUBE" "$ACTIVE_GOOGLE" "$ACTIVE_IR"; do
+		stage_uci -q delete "passwall2.$shunt.$existing_rule" >/dev/null 2>&1 || true
+	done
+
+	if [ "$google" = 1 ] && [ "$MITM_SOURCE" = new ]; then
 		reset_managed_section "$MITM_NODE" nodes || return 1
 		stage_uci -q set "passwall2.$MITM_NODE.remarks=MITM-DF (localhost)" >/dev/null || return 1
 		stage_uci -q set "passwall2.$MITM_NODE.type=Xray" >/dev/null || return 1
@@ -564,46 +730,37 @@ build_stage() {
 	fi
 
 	if [ "$gemini" = 1 ]; then
-		gemini_domains='domain:gemini.google.com
+		if [ "$SOURCE_GEMINI" = existing ]; then
+			set_existing_accounts_google "$ACTIVE_GEMINI" "$accounts_google" || return 1
+		else
+			gemini_domains='domain:gemini.google.com
 domain:generativelanguage.googleapis.com'
-		if [ "$accounts_google" = 1 ]; then
-			gemini_domains="$gemini_domains
+			[ "$accounts_google" = 0 ] || gemini_domains="$gemini_domains
 domain:accounts.google.com"
+			set_rule "$ACTIVE_GEMINI" Gemini_VPN tcp "$gemini_domains" '' "$group" || return 1
 		fi
-		set_rule "$RULE_GEMINI" 'Gemini_VPN' tcp "$gemini_domains" '' "$group" || return 1
 	fi
-
-	if [ "$android" = 1 ]; then
-		set_rule "$RULE_ANDROID" 'Android_Check' tcp 'domain:connectivitycheck.gstatic.com
+	[ "$android" = 0 ] || [ "$SOURCE_ANDROID" = existing ] || set_rule "$ACTIVE_ANDROID" Android_Check tcp 'domain:connectivitycheck.gstatic.com
 domain:connectivitycheck.android.com
 domain:clients3.google.com' '' "$group" || return 1
-	fi
-
-	if [ "$youtube" = 1 ]; then
-		set_rule "$RULE_YOUTUBE" 'YouTube_Control_VPN' tcp 'domain:www.youtube.com
+	[ "$youtube" = 0 ] || [ "$SOURCE_YOUTUBE" = existing ] || set_rule "$ACTIVE_YOUTUBE" YouTube_Control_VPN tcp 'domain:www.youtube.com
 domain:youtubei.googleapis.com
 domain:youtube.googleapis.com
 domain:accounts.youtube.com' '' "$group" || return 1
-	fi
+	[ "$google" = 0 ] || [ "$SOURCE_GOOGLE" = existing ] || set_rule "$ACTIVE_GOOGLE" Google_MITM tcp geosite:google '' "$group" || return 1
+	[ "$iran" = 0 ] || [ "$SOURCE_IR" = existing ] || set_rule "$ACTIVE_IR" IR_Direct 'tcp,udp' geosite:ir geoip:ir "$group" || return 1
 
-	[ "$google" = 0 ] || set_rule "$RULE_GOOGLE" 'Google_MITM' tcp 'geosite:google' '' "$group" || return 1
-	[ "$iran" = 0 ] || set_rule "$RULE_IR" 'IR_Direct' 'tcp,udp' 'geosite:ir' 'geoip:ir' "$group" || return 1
-
-	[ "$gemini" = 0 ] || stage_uci -q set "passwall2.$shunt.$RULE_GEMINI=$vpn" >/dev/null || return 1
-	[ "$android" = 0 ] || stage_uci -q set "passwall2.$shunt.$RULE_ANDROID=$vpn" >/dev/null || return 1
-	[ "$youtube" = 0 ] || stage_uci -q set "passwall2.$shunt.$RULE_YOUTUBE=$vpn" >/dev/null || return 1
-	[ "$google" = 0 ] || stage_uci -q set "passwall2.$shunt.$RULE_GOOGLE=$MITM_NODE" >/dev/null || return 1
-	[ "$iran" = 0 ] || stage_uci -q set "passwall2.$shunt.$RULE_IR=_direct" >/dev/null || return 1
-
-	if [ "$set_default" = 1 ]; then
-		stage_uci -q set "passwall2.$shunt.default_node=$vpn" >/dev/null || return 1
-	fi
-	if [ "$force_localhost" = 1 ]; then
-		stage_uci -q set 'passwall2.@global[0].localhost_proxy=0' >/dev/null || return 1
-	fi
+	[ "$gemini" = 0 ] || stage_uci -q set "passwall2.$shunt.$ACTIVE_GEMINI=$vpn" >/dev/null || return 1
+	[ "$android" = 0 ] || stage_uci -q set "passwall2.$shunt.$ACTIVE_ANDROID=$vpn" >/dev/null || return 1
+	[ "$youtube" = 0 ] || stage_uci -q set "passwall2.$shunt.$ACTIVE_YOUTUBE=$vpn" >/dev/null || return 1
+	[ "$google" = 0 ] || stage_uci -q set "passwall2.$shunt.$ACTIVE_GOOGLE=$MITM_TARGET" >/dev/null || return 1
+	[ "$iran" = 0 ] || stage_uci -q set "passwall2.$shunt.$ACTIVE_IR=_direct" >/dev/null || return 1
+	[ "$set_default" = 0 ] || stage_uci -q set "passwall2.$shunt.default_node=$vpn" >/dev/null || return 1
+	[ "$force_localhost" = 0 ] || stage_uci -q set 'passwall2.@global[0].localhost_proxy=0' >/dev/null || return 1
 
 	stage_uci -q delete 'passwall2.@global[0].flush_set' >/dev/null 2>&1 || true
-	[ -z "$DESIRED_RULES" ] || order_managed_rules "$group" || return 4
+	DESIRED_RULES=$ORDER_RULES
+	[ -z "$ORDER_RULES" ] || order_managed_rules "$group" || return 4
 	stage_uci -q commit passwall2 >/dev/null || return 1
 }
 
@@ -642,6 +799,7 @@ plan() {
 	[ "$(section_type "$shunt")" = nodes ] || die invalid_shunt 'The selected shunt section does not exist.' 65
 	[ "$(section_option "$shunt" protocol)" = _shunt ] || die invalid_shunt 'The selected node is not a shunt node.' 65
 	[ "$(section_type "$vpn")" = nodes ] || die invalid_vpn_node 'The selected VPN target does not exist.' 65
+	! is_local_mitm_node "$vpn" || die invalid_vpn_node 'The local MITM SOCKS node cannot be used as the VPN target.' 65
 	vpn_protocol=$(section_option "$vpn" protocol)
 	[ -n "$vpn_protocol" ] && [ "$vpn_protocol" != _shunt ] || die invalid_vpn_node 'A shunt or incomplete node cannot be used as the VPN target.' 65
 
@@ -659,8 +817,13 @@ plan() {
 	STAGE_DELTA_DIR="$stage/delta"
 	export STAGE_CONFIG_DIR STAGE_DELTA_DIR
 
-	if ! build_stage "$shunt" "$vpn" "$gemini" "$android" "$youtube" "$google" "$iran" "$accounts_google" "$set_default" "$force_localhost"; then
+	stage_status=0
+	build_stage "$shunt" "$vpn" "$gemini" "$android" "$youtube" "$google" "$iran" "$accounts_google" "$set_default" "$force_localhost" || stage_status=$?
+	if [ "$stage_status" -ne 0 ]; then
 		rm -rf "$stage"
+		if [ "$stage_status" -eq 5 ]; then
+			die existing_rule_conflict 'An existing rule uses a recognized name but does not contain the required safe routing entries for this shunt.' 78
+		fi
 		die managed_id_conflict 'A reserved managed section ID is already owned by another configuration, or rule ordering could not be validated.' 78
 	fi
 
@@ -709,16 +872,21 @@ plan() {
 		OP_FIRST=0
 	}
 	if [ "$no_change" -eq 0 ]; then
-		[ "$google" = 0 ] || emit_operation "{\"kind\":\"upsert_local_socks_node\",\"id\":\"$MITM_NODE\",\"endpoint\":\"127.0.0.1:10808\",\"description\":\"Create or refresh the localhost-only MITM SOCKS node.\"}"
-		[ "$gemini" = 0 ] || emit_operation "{\"kind\":\"upsert_rule\",\"id\":\"$RULE_GEMINI\",\"route\":\"selected_vpn\",\"network\":\"tcp\",\"description\":\"Route Gemini control and API traffic through the selected VPN node.\"}"
-		[ "$android" = 0 ] || emit_operation "{\"kind\":\"upsert_rule\",\"id\":\"$RULE_ANDROID\",\"route\":\"selected_vpn\",\"network\":\"tcp\",\"description\":\"Route Android connectivity checks through the selected VPN node.\"}"
-		[ "$youtube" = 0 ] || emit_operation "{\"kind\":\"upsert_rule\",\"id\":\"$RULE_YOUTUBE\",\"route\":\"selected_vpn\",\"network\":\"tcp\",\"excludes\":\"googlevideo.com\",\"description\":\"Route only YouTube control and account traffic through VPN; video delivery remains excluded.\"}"
-		[ "$google" = 0 ] || emit_operation "{\"kind\":\"upsert_rule\",\"id\":\"$RULE_GOOGLE\",\"route\":\"mitm_socks\",\"network\":\"tcp\",\"description\":\"Route the Google geosite through the local MITM SOCKS node.\"}"
-		[ "$iran" = 0 ] || emit_operation "{\"kind\":\"upsert_rule\",\"id\":\"$RULE_IR\",\"route\":\"direct\",\"network\":\"tcp,udp\",\"description\":\"Route Iranian geosite and geoip matches directly.\"}"
+		[ "$google" = 0 ] || [ "$MITM_SOURCE" = existing ] || emit_operation "{\"kind\":\"upsert_local_socks_node\",\"id\":\"$MITM_TARGET\",\"endpoint\":\"127.0.0.1:10808\",\"description\":\"Create the localhost-only MITM SOCKS node.\"}"
+		[ "$gemini" = 0 ] || emit_operation "{\"kind\":\"$([ "$SOURCE_GEMINI" = existing ] && printf reuse_existing_rule || printf upsert_rule)\",\"id\":\"$ACTIVE_GEMINI\",\"route\":\"selected_vpn\",\"network\":\"tcp\",\"description\":\"Route Gemini control and API traffic through the selected VPN node.\"}"
+		[ "$android" = 0 ] || emit_operation "{\"kind\":\"$([ "$SOURCE_ANDROID" = existing ] && printf reuse_existing_rule || printf upsert_rule)\",\"id\":\"$ACTIVE_ANDROID\",\"route\":\"selected_vpn\",\"network\":\"tcp\",\"description\":\"Route Android connectivity checks through the selected VPN node.\"}"
+		[ "$youtube" = 0 ] || emit_operation "{\"kind\":\"$([ "$SOURCE_YOUTUBE" = existing ] && printf reuse_existing_rule || printf upsert_rule)\",\"id\":\"$ACTIVE_YOUTUBE\",\"route\":\"selected_vpn\",\"network\":\"tcp\",\"excludes\":\"googlevideo.com\",\"description\":\"Route only YouTube control and account traffic through VPN; video delivery remains excluded.\"}"
+		[ "$google" = 0 ] || emit_operation "{\"kind\":\"$([ "$SOURCE_GOOGLE" = existing ] && printf reuse_existing_rule || printf upsert_rule)\",\"id\":\"$ACTIVE_GOOGLE\",\"route\":\"mitm_socks\",\"network\":\"tcp\",\"description\":\"Route the Google geosite through the local MITM SOCKS node.\"}"
+		[ "$iran" = 0 ] || emit_operation "{\"kind\":\"$([ "$SOURCE_IR" = existing ] && printf reuse_existing_rule || printf upsert_rule)\",\"id\":\"$ACTIVE_IR\",\"route\":\"direct\",\"network\":\"tcp,udp\",\"description\":\"Route Iranian geosite and geoip matches directly.\"}"
 		for removed_rule in $CLEANUP_RULES; do
 			emit_operation "{\"kind\":\"remove_managed_rule\",\"id\":\"$removed_rule\",\"description\":\"Remove a previously package-managed rule that is now disabled.\"}"
 		done
-		[ -z "$DESIRED_RULES" ] || emit_operation '{"kind":"order_rules","policy":"before_first_unmanaged_same_group","description":"Place enabled managed rules in the documented priority order above existing rules in the same group."}'
+		[ "$REMOVE_EXISTING_GEMINI" = 0 ] || emit_operation "{\"kind\":\"disable_existing_rule_route\",\"id\":\"$ACTIVE_GEMINI\",\"description\":\"Remove this existing rule assignment from the selected shunt while preserving its definition.\"}"
+		[ "$REMOVE_EXISTING_ANDROID" = 0 ] || emit_operation "{\"kind\":\"disable_existing_rule_route\",\"id\":\"$ACTIVE_ANDROID\",\"description\":\"Remove this existing rule assignment from the selected shunt while preserving its definition.\"}"
+		[ "$REMOVE_EXISTING_YOUTUBE" = 0 ] || emit_operation "{\"kind\":\"disable_existing_rule_route\",\"id\":\"$ACTIVE_YOUTUBE\",\"description\":\"Remove this existing rule assignment from the selected shunt while preserving its definition.\"}"
+		[ "$REMOVE_EXISTING_GOOGLE" = 0 ] || emit_operation "{\"kind\":\"disable_existing_rule_route\",\"id\":\"$ACTIVE_GOOGLE\",\"description\":\"Remove this existing rule assignment from the selected shunt while preserving its definition.\"}"
+		[ "$REMOVE_EXISTING_IR" = 0 ] || emit_operation "{\"kind\":\"disable_existing_rule_route\",\"id\":\"$ACTIVE_IR\",\"description\":\"Remove this existing rule assignment from the selected shunt while preserving its definition.\"}"
+		[ -z "$ORDER_RULES" ] || emit_operation '{"kind":"order_rules","policy":"before_first_unmanaged_same_group","description":"Place newly managed rules in the documented priority order above existing rules in the same group."}'
 		[ "$set_default" = 0 ] || emit_operation '{"kind":"set_shunt_default","target":"selected_vpn","description":"Set the selected VPN node as this shunt default."}'
 		[ "$force_localhost" = 0 ] || emit_operation '{"kind":"set_localhost_proxy","value":false,"description":"Set localhost_proxy=0 to prevent the standalone Xray process from being recaptured."}'
 	fi
@@ -1069,6 +1237,32 @@ verify_live_order() {
 	return 0
 }
 
+validate_existing_rule_live() {
+	id=$1
+	kind=$2
+	group=$3
+	[ "$(section_type "$id")" = shunt_rules ] || return 1
+	[ "$(section_option "$id" group)" = "$group" ] || return 1
+	case "$kind" in
+		gemini)
+			option_has_line "$id" domain_list domain:gemini.google.com &&
+				option_has_line "$id" domain_list domain:generativelanguage.googleapis.com
+			;;
+		android)
+			option_has_line "$id" domain_list domain:connectivitycheck.gstatic.com &&
+				option_has_line "$id" domain_list domain:connectivitycheck.android.com &&
+				option_has_line "$id" domain_list domain:clients3.google.com
+			;;
+		youtube)
+			option_has_line "$id" domain_list domain:www.youtube.com &&
+				! section_option "$id" domain_list | grep -Fq googlevideo.com
+			;;
+		google) option_has_line "$id" domain_list geosite:google ;;
+		iran) option_has_line "$id" domain_list geosite:ir && option_has_line "$id" ip_list geoip:ir ;;
+		*) return 1 ;;
+	esac
+}
+
 verify_managed_live() {
 	shunt=$1
 	vpn=$2
@@ -1089,17 +1283,23 @@ verify_managed_live() {
 	group=$(section_option "$shunt" shunt_group)
 	case "$group" in ''|*[!A-Za-z0-9_-]*) return 1 ;; esac
 
-	if [ "$google" = 1 ]; then
-		[ "$(section_type "$MITM_NODE")" = nodes ] || return 1
-		[ "$(section_option "$MITM_NODE" "$MANAGED_MARKER")" = 1 ] || return 1
-		[ "$(section_option "$MITM_NODE" remarks)" = 'MITM-DF (localhost)' ] || return 1
-		[ "$(section_option "$MITM_NODE" type)" = Xray ] || return 1
-		[ "$(section_option "$MITM_NODE" protocol)" = socks ] || return 1
-		[ "$(section_option "$MITM_NODE" address)" = 127.0.0.1 ] || return 1
-		[ "$(section_option "$MITM_NODE" port)" = 10808 ] || return 1
-	fi
+	live_gemini=$(resolve_live_rule "$RULE_GEMINI" "$LEGACY_GEMINI" Gemini_VPN || true)
+	live_android=$(resolve_live_rule "$RULE_ANDROID" "$LEGACY_ANDROID" Android_Check || true)
+	live_youtube=$(resolve_live_rule "$RULE_YOUTUBE" "$LEGACY_YOUTUBE" YouTube_Control_VPN || true)
+	live_google=$(resolve_live_rule "$RULE_GOOGLE" "$LEGACY_GOOGLE" Google_MITM || true)
+	live_iran=$(resolve_live_rule "$RULE_IR" "$LEGACY_IR" IR_Direct || true)
+	live_mitm=$(find_local_mitm_node || true)
 
 	VERIFY_RULES=''
+	if [ "$google" = 1 ]; then
+		is_local_mitm_node "$live_mitm" || return 1
+		if [ "$live_mitm" = "$MITM_NODE" ]; then
+			[ "$(section_option "$MITM_NODE" "$MANAGED_MARKER")" = 1 ] || return 1
+			[ "$(section_option "$MITM_NODE" remarks)" = 'MITM-DF (localhost)' ] || return 1
+			[ "$(section_option "$MITM_NODE" type)" = Xray ] || return 1
+		fi
+	fi
+
 	if [ "$gemini" = 1 ]; then
 		gemini_domains='domain:gemini.google.com
 domain:generativelanguage.googleapis.com'
@@ -1107,44 +1307,55 @@ domain:generativelanguage.googleapis.com'
 			gemini_domains="$gemini_domains
 domain:accounts.google.com"
 		fi
-		verify_rule_live "$RULE_GEMINI" 'Gemini_VPN' tcp "$gemini_domains" '' "$group" || return 1
-		[ "$(section_option "$shunt" "$RULE_GEMINI")" = "$vpn" ] || return 1
-		VERIFY_RULES=$RULE_GEMINI
+		if [ "$live_gemini" = "$RULE_GEMINI" ]; then
+			verify_rule_live "$live_gemini" Gemini_VPN tcp "$gemini_domains" '' "$group" || return 1
+			VERIFY_RULES=$live_gemini
+		else
+			validate_existing_rule_live "$live_gemini" gemini "$group" || return 1
+			if [ "$accounts_google" = 1 ]; then option_has_line "$live_gemini" domain_list domain:accounts.google.com || return 1
+			else ! option_has_line "$live_gemini" domain_list domain:accounts.google.com || return 1; fi
+		fi
+		[ "$(section_option "$shunt" "$live_gemini")" = "$vpn" ] || return 1
 	elif [ "$(section_option "$RULE_GEMINI" "$MANAGED_MARKER")" = 1 ]; then
 		return 1
+	elif [ -n "$live_gemini" ] && [ -n "$(section_option "$shunt" "$live_gemini")" ]; then return 1
 	fi
 	if [ "$android" = 1 ]; then
-		verify_rule_live "$RULE_ANDROID" 'Android_Check' tcp 'domain:connectivitycheck.gstatic.com
+		if [ "$live_android" = "$RULE_ANDROID" ]; then verify_rule_live "$live_android" Android_Check tcp 'domain:connectivitycheck.gstatic.com
 domain:connectivitycheck.android.com
-domain:clients3.google.com' '' "$group" || return 1
-		[ "$(section_option "$shunt" "$RULE_ANDROID")" = "$vpn" ] || return 1
-		VERIFY_RULES="${VERIFY_RULES}${VERIFY_RULES:+ }$RULE_ANDROID"
+domain:clients3.google.com' '' "$group" || return 1; VERIFY_RULES="${VERIFY_RULES}${VERIFY_RULES:+ }$live_android"
+		else validate_existing_rule_live "$live_android" android "$group" || return 1; fi
+		[ "$(section_option "$shunt" "$live_android")" = "$vpn" ] || return 1
 	elif [ "$(section_option "$RULE_ANDROID" "$MANAGED_MARKER")" = 1 ]; then
 		return 1
+	elif [ -n "$live_android" ] && [ -n "$(section_option "$shunt" "$live_android")" ]; then return 1
 	fi
 	if [ "$youtube" = 1 ]; then
-		verify_rule_live "$RULE_YOUTUBE" 'YouTube_Control_VPN' tcp 'domain:www.youtube.com
+		if [ "$live_youtube" = "$RULE_YOUTUBE" ]; then verify_rule_live "$live_youtube" YouTube_Control_VPN tcp 'domain:www.youtube.com
 domain:youtubei.googleapis.com
 domain:youtube.googleapis.com
-domain:accounts.youtube.com' '' "$group" || return 1
-		[ "$(section_option "$shunt" "$RULE_YOUTUBE")" = "$vpn" ] || return 1
-		VERIFY_RULES="${VERIFY_RULES}${VERIFY_RULES:+ }$RULE_YOUTUBE"
+domain:accounts.youtube.com' '' "$group" || return 1; VERIFY_RULES="${VERIFY_RULES}${VERIFY_RULES:+ }$live_youtube"
+		else validate_existing_rule_live "$live_youtube" youtube "$group" || return 1; fi
+		[ "$(section_option "$shunt" "$live_youtube")" = "$vpn" ] || return 1
 	elif [ "$(section_option "$RULE_YOUTUBE" "$MANAGED_MARKER")" = 1 ]; then
 		return 1
+	elif [ -n "$live_youtube" ] && [ -n "$(section_option "$shunt" "$live_youtube")" ]; then return 1
 	fi
 	if [ "$google" = 1 ]; then
-		verify_rule_live "$RULE_GOOGLE" 'Google_MITM' tcp 'geosite:google' '' "$group" || return 1
-		[ "$(section_option "$shunt" "$RULE_GOOGLE")" = "$MITM_NODE" ] || return 1
-		VERIFY_RULES="${VERIFY_RULES}${VERIFY_RULES:+ }$RULE_GOOGLE"
+		if [ "$live_google" = "$RULE_GOOGLE" ]; then verify_rule_live "$live_google" Google_MITM tcp geosite:google '' "$group" || return 1; VERIFY_RULES="${VERIFY_RULES}${VERIFY_RULES:+ }$live_google"
+		else validate_existing_rule_live "$live_google" google "$group" || return 1; fi
+		[ "$(section_option "$shunt" "$live_google")" = "$live_mitm" ] || return 1
 	elif [ "$(section_option "$RULE_GOOGLE" "$MANAGED_MARKER")" = 1 ]; then
 		return 1
+	elif [ -n "$live_google" ] && [ -n "$(section_option "$shunt" "$live_google")" ]; then return 1
 	fi
 	if [ "$iran" = 1 ]; then
-		verify_rule_live "$RULE_IR" 'IR_Direct' 'tcp,udp' 'geosite:ir' 'geoip:ir' "$group" || return 1
-		[ "$(section_option "$shunt" "$RULE_IR")" = _direct ] || return 1
-		VERIFY_RULES="${VERIFY_RULES}${VERIFY_RULES:+ }$RULE_IR"
+		if [ "$live_iran" = "$RULE_IR" ]; then verify_rule_live "$live_iran" IR_Direct 'tcp,udp' geosite:ir geoip:ir "$group" || return 1; VERIFY_RULES="${VERIFY_RULES}${VERIFY_RULES:+ }$live_iran"
+		else validate_existing_rule_live "$live_iran" iran "$group" || return 1; fi
+		[ "$(section_option "$shunt" "$live_iran")" = _direct ] || return 1
 	elif [ "$(section_option "$RULE_IR" "$MANAGED_MARKER")" = 1 ]; then
 		return 1
+	elif [ -n "$live_iran" ] && [ -n "$(section_option "$shunt" "$live_iran")" ]; then return 1
 	fi
 
 	[ "$set_default" = 0 ] || [ "$(section_option "$shunt" default_node)" = "$vpn" ] || return 1

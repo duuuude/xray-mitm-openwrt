@@ -85,13 +85,13 @@ class SignedFeedTests(unittest.TestCase):
 
     def test_release_tag_must_match_package_version(self) -> None:
         good = subprocess.run(
-            ["sh", str(VERSION_CHECK), str(ROOT), "v0.2.0"],
+            ["sh", str(VERSION_CHECK), str(ROOT), "v0.2.1"],
             text=True,
             capture_output=True,
             check=False,
         )
         bad = subprocess.run(
-            ["sh", str(VERSION_CHECK), str(ROOT), "v0.2.1"],
+            ["sh", str(VERSION_CHECK), str(ROOT), "v0.2.2"],
             text=True,
             capture_output=True,
             check=False,
