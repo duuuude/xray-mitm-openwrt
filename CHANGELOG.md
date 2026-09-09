@@ -14,6 +14,19 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.2.3] - 2026-09-09
 
+### Changed
+
+- Reworked the LuCI page around a four-step beginner setup guide and a simpler
+  three-step PassWall2 routing assistant.
+- PassWall2 nodes now use readable remarks and protocol details in selectors;
+  internal UCI IDs are shown only when a node has no name.
+- Added a recommended routing preset, aligned route cards, plain-language rule
+  descriptions, an advanced-options disclosure, and clearer review/apply states.
+- Changing any routing choice now invalidates the old preview immediately so a
+  stale transaction cannot be applied accidentally.
+- Routing inspection now reports whether the localhost MITM SOCKS node is ready,
+  reusable, or will be created when Google MITM routing is selected.
+
 ### Fixed
 
 - PassWall2 refuses to apply a Google MITM route while the standalone MITM

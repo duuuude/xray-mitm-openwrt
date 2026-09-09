@@ -387,6 +387,12 @@ inspect() {
 	live_google=$(resolve_live_rule "$RULE_GOOGLE" "$LEGACY_GOOGLE" Google_MITM || true)
 	live_iran=$(resolve_live_rule "$RULE_IR" "$LEGACY_IR" IR_Direct || true)
 	live_mitm=$(find_local_mitm_node || true)
+	if [ -n "$live_mitm" ]; then
+		printf '"mitm_node":{"status":"ready","id":"%s","endpoint":"127.0.0.1:10808","source":"%s"},' \
+			"$live_mitm" "$([ "$live_mitm" = "$MITM_NODE" ] && printf managed || printf existing)"
+	else
+		printf '%s' '"mitm_node":{"status":"missing","id":"xray_mitm_socks","endpoint":"127.0.0.1:10808","source":"new"},'
+	fi
 	printf '"routing_state":{"gemini":%s,"android_check":%s,"youtube_control":%s,"google_mitm":%s,"iran_direct":%s,"accounts_google":%s,"set_default_vpn":%s,"set_localhost_proxy_zero":%s},' \
 		"$(json_bool rule_is_routed_to "$live_gemini" "$selected_vpn" "$selected_shunt")" \
 		"$(json_bool rule_is_routed_to "$live_android" "$selected_vpn" "$selected_shunt")" \
