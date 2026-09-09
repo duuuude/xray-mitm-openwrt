@@ -207,6 +207,18 @@ if ! apk add xray-mitm luci-app-xray-mitm; then
 	fi
 	die 'Package installation failed and automatic rollback was incomplete; use the protected backup.'
 fi
+
+# OpenWrt apk v3's add operation records missing packages in world, but it does
+# not upgrade an already installed package merely because a newer candidate is
+# available. Run a targeted upgrade so repeat invocations update these two
+# packages without performing an unsafe system-wide upgrade.
+if ! apk upgrade xray-mitm luci-app-xray-mitm; then
+	if restore_feed_state; then
+		feed_state_changed=0
+		die 'Package upgrade failed; the previous feed and package-selection state was restored.'
+	fi
+	die 'Package upgrade failed and automatic rollback was incomplete; use the protected backup.'
+fi
 feed_state_changed=0
 
 if [ -r "$APK_WORLD" ]; then
