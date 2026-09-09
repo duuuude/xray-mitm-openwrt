@@ -112,15 +112,20 @@ def parse_reference(reference: str) -> tuple[str, str, str | None] | None:
 
 def uci_main(argv: list[str]) -> int:
     config_dir: Path | None = None
+    saved_dir: Path | None = None
+    no_commit = False
     index = 0
     while index < len(argv) and argv[index].startswith("-"):
         option = argv[index]
         index += 1
-        if option in {"-c", "-P"}:
+        if option in {"-c", "-P", "-t"}:
             if index >= len(argv):
                 return fail()
             if option == "-c":
                 config_dir = Path(argv[index])
+            else:
+                saved_dir = Path(argv[index])
+                no_commit = option == "-P"
             index += 1
         elif option == "-q":
             continue
@@ -136,6 +141,20 @@ def uci_main(argv: list[str]) -> int:
     action = argv[index]
     operands = argv[index + 1 :]
 
+    def package_path(package: str, mutating: bool = False) -> Path:
+        source = config_dir / package
+        if saved_dir is None:
+            return source
+        overlay = saved_dir / package
+        if overlay.exists():
+            return overlay
+        if mutating:
+            saved_dir.mkdir(parents=True, exist_ok=True)
+            overlay.write_bytes(source.read_bytes())
+            overlay.chmod(0o600)
+            return overlay
+        return source
+
     if action == "changes":
         if len(operands) != 1:
             return fail()
@@ -149,7 +168,7 @@ def uci_main(argv: list[str]) -> int:
             return fail()
         package = operands[0]
         try:
-            sections = load_uci(config_dir / package)
+            sections = load_uci(package_path(package))
         except ValueError:
             return fail()
         for section in sections:
@@ -164,7 +183,7 @@ def uci_main(argv: list[str]) -> int:
             return fail()
         package, selector, option = parsed
         try:
-            sections = load_uci(config_dir / package)
+            sections = load_uci(package_path(package))
         except ValueError:
             return fail()
         section = resolve_section(sections, selector)
@@ -185,7 +204,16 @@ def uci_main(argv: list[str]) -> int:
         return 0
 
     if action == "commit":
-        return 0 if len(operands) == 1 and operands[0] in {"passwall2", "xray-mitm"} else fail()
+        if len(operands) != 1 or operands[0] not in {"passwall2", "xray-mitm"}:
+            return fail()
+        if no_commit or saved_dir is None:
+            return 0
+        overlay = saved_dir / operands[0]
+        if overlay.exists():
+            (config_dir / operands[0]).write_bytes(overlay.read_bytes())
+            (config_dir / operands[0]).chmod(0o600)
+            overlay.unlink()
+        return 0
 
     if len(operands) != 1:
         return fail()
@@ -198,9 +226,9 @@ def uci_main(argv: list[str]) -> int:
         if parsed is None:
             return fail()
         package, selector, option = parsed
-        package_path = config_dir / package
+        target_path = package_path(package, mutating=True)
         try:
-            sections = load_uci(package_path)
+            sections = load_uci(target_path)
         except ValueError:
             return fail()
         section = resolve_section(sections, selector)
@@ -215,7 +243,7 @@ def uci_main(argv: list[str]) -> int:
             options = section["options"]
             assert isinstance(options, dict)
             options[option] = value
-        save_uci(package_path, sections)
+        save_uci(target_path, sections)
         return 0
 
     if action == "delete":
@@ -223,9 +251,9 @@ def uci_main(argv: list[str]) -> int:
         if parsed is None:
             return fail()
         package, selector, option = parsed
-        package_path = config_dir / package
+        target_path = package_path(package, mutating=True)
         try:
-            sections = load_uci(package_path)
+            sections = load_uci(target_path)
         except ValueError:
             return fail()
         section = resolve_section(sections, selector)
@@ -239,7 +267,7 @@ def uci_main(argv: list[str]) -> int:
             if option not in options:
                 return fail()
             del options[option]
-        save_uci(package_path, sections)
+        save_uci(target_path, sections)
         return 0
 
     if action == "reorder":
@@ -249,9 +277,9 @@ def uci_main(argv: list[str]) -> int:
         parsed = parse_reference(reference)
         if parsed is None or parsed[2] is not None:
             return fail()
-        package_path = config_dir / parsed[0]
+        target_path = package_path(parsed[0], mutating=True)
         try:
-            sections = load_uci(package_path)
+            sections = load_uci(target_path)
         except ValueError:
             return fail()
         section = resolve_section(sections, parsed[1])
@@ -263,7 +291,7 @@ def uci_main(argv: list[str]) -> int:
             return fail()
         sections.remove(section)
         sections.insert(position, section)
-        save_uci(package_path, sections)
+        save_uci(target_path, sections)
         return 0
 
     return fail(f"unsupported fake uci action: {action}")
