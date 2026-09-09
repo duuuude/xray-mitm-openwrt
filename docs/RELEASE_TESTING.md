@@ -25,10 +25,11 @@ These checks are offline and do not connect to a router.
 
 Before the tag:
 
-1. Confirm `PKG_VERSION` is intended, `PKG_RELEASE` is `1`, and the tag will be exactly `v${PKG_VERSION}`.
-2. Review the full diff and confirm only `keys/xray-mitm-feed-v1.pem` is public-key material.
-3. Confirm the private key exists only in protected storage and the `signed-feed` environment secret.
-4. Confirm required environment reviewers and GitHub Pages are configured.
+1. Confirm `CHANGELOG.md` has a dated section for the intended version and no released entries remain under `Unreleased`.
+2. Confirm `PKG_VERSION` is intended, `PKG_RELEASE` is `1`, and the tag will be exactly `v${PKG_VERSION}`.
+3. Review the full diff and confirm only `keys/xray-mitm-feed-v1.pem` is public-key material.
+4. Confirm the private key exists only in protected storage and the `signed-feed` environment secret.
+5. Confirm required environment reviewers and GitHub Pages are configured.
 
 After approving the tagged workflow:
 

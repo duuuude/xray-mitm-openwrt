@@ -2,6 +2,8 @@
 
 **راهنما:** [English](README.md) | فارسی
 
+**پروژه:** [فهرست تغییرات](CHANGELOG.md) | [راهنمای مشارکت](CONTRIBUTING.md)
+
 این پروژه سرویس مستقل Xray MITM-DomainFronting، صفحه مدیریتی LuCI و اتصال اختیاری به مسیریابی PassWall2 را برای OpenWrt رسمی سری 25.12 فراهم می‌کند.
 
 > [!CAUTION]
@@ -229,6 +231,9 @@ apk add ./xray-mitm-*.apk ./luci-app-xray-mitm-*.apk
 artifactهای توسعه‌ای CI خارج از مسیر اعتماد production هستند و نباید به‌عنوان انتشار امضاشده به کاربر تازه‌کار داده شوند.
 
 ## آزمایش توسعه و انتشار
+
+برای روند branch محلی و pull request، [راهنمای مشارکت](CONTRIBUTING.md) و برای
+تاریخچه تغییرات قابل مشاهده کاربران، [فهرست تغییرات](CHANGELOG.md) را ببینید.
 
 **MAC:**
 

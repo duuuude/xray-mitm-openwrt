@@ -2,6 +2,8 @@
 
 **Instructions:** English | [فارسی](README.fa.md)
 
+**Project:** [Changelog](CHANGELOG.md) | [Contributing](CONTRIBUTING.md)
+
 This project packages a standalone Xray MITM-DomainFronting service, a LuCI management page, and optional PassWall2 routing for official OpenWrt 25.12 APK-based routers.
 
 > [!CAUTION]
@@ -231,6 +233,9 @@ apk add ./xray-mitm-*.apk ./luci-app-xray-mitm-*.apk
 CI development APKs are intentionally outside this production trust path. Do not present them to new users as signed releases.
 
 ## Development and release testing
+
+See [Contributing](CONTRIBUTING.md) for the local branch and pull request workflow,
+and [Changelog](CHANGELOG.md) for user-facing release history.
 
 Run all offline safety, installer, routing, certificate, workflow, and syntax checks:
 
