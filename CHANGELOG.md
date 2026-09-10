@@ -23,6 +23,8 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - LuCI now reaches PassWall2 operations through the supported `xray-mitmctl`
   boundary, and obsolete routing request arguments were removed.
+- The Simple dashboard now presents PassWall2-style grouped routing controls,
+  readable destinations, rule status, and a direct view of the managed rules.
 - The PassWall2 routing assistant now uses clearer rule headers, destination
   status, and PassWall2-style selectable rows with aligned native checkboxes.
 - LuCI now opens in a beginner-focused Simple view for automatic setup,
