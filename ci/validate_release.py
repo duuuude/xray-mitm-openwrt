@@ -127,6 +127,7 @@ ALLOWED_PUBLIC_KEYS = {"keys/xray-mitm-feed-v1.pem"}
 
 MUTATING_RPC_METHODS = {
     "runHealthCheck",
+    "setupRecommended",
     "serviceAction",
     "installDefaultConfig",
     "generateCandidate",
@@ -143,6 +144,7 @@ MUTATING_RPC_METHODS = {
 
 READ_ONLY_RPC_METHODS = {
     "getStatus",
+    "getSetupStatus",
     "getCertificateStatus",
     "exportCertificate",
     "inspectPassWall2",

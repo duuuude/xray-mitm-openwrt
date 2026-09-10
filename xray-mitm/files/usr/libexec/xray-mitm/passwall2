@@ -380,12 +380,12 @@ inspect() {
 	acquire_lock
 	if [ -e "$RECOVERY_MARKER" ] || [ -L "$RECOVERY_MARKER" ]; then
 		release_lock
-		printf '%s\n' '{"ok":true,"available":true,"compatible":false,"writable":false,"recovery_pending":true,"schema":"recovery-required","error":"An interrupted routing transaction must be recovered before PassWall2 can be inspected.","capabilities":{"plan":false,"apply":false,"rollback":false,"recover":true,"set_global_shunt":false,"quic_firewall":false,"dns":false}}'
+		printf '%s\n' '{"ok":true,"available":true,"compatible":false,"writable":false,"recovery_pending":true,"schema":"recovery-required","error":"An interrupted routing transaction must be recovered before PassWall2 can be inspected.","capabilities":{"plan":false,"apply":false,"rollback":false,"recover":true,"dns":false}}'
 		return 0
 	fi
 	if ! schema_check; then
 		release_lock
-		printf '%s\n' '{"ok":true,"available":false,"compatible":false,"writable":false,"recovery_pending":false,"schema":"unsupported","error":"PassWall2 UCI schema or required helper files were not detected.","capabilities":{"plan":false,"apply":false,"rollback":false,"recover":false,"set_global_shunt":false,"quic_firewall":false,"dns":false}}'
+		printf '%s\n' '{"ok":true,"available":false,"compatible":false,"writable":false,"recovery_pending":false,"schema":"unsupported","error":"PassWall2 UCI schema or required helper files were not detected.","capabilities":{"plan":false,"apply":false,"rollback":false,"recover":false,"dns":false}}'
 		return 0
 	fi
 
@@ -402,7 +402,11 @@ inspect() {
 	target_count=$INSPECT_COUNT
 	if [ "$shunt_count" -gt 0 ] && [ "$target_count" -gt 0 ]; then compatible=true; else compatible=false; fi
 	if [ "$compatible" = true ] && [ "$pending" = false ]; then writable=true; else writable=false; fi
-	printf ',"compatible":%s,"writable":%s,"truncated":%s,' "$compatible" "$writable" "$([ "$truncated_shunts" -eq 1 ] || [ "$truncated_targets" -eq 1 ] && printf true || printf false)"
+	printf ',"compatible":%s,"writable":%s,"shunt_available":%s,"vpn_available":%s,"truncated":%s,' \
+		"$compatible" "$writable" \
+		"$([ "$shunt_count" -gt 0 ] && printf true || printf false)" \
+		"$([ "$target_count" -gt 0 ] && printf true || printf false)" \
+		"$([ "$truncated_shunts" -eq 1 ] || [ "$truncated_targets" -eq 1 ] && printf true || printf false)"
 	selected_shunt=$(section_option '@global[0]' node)
 	if ! valid_id "$selected_shunt" || [ "$(section_type "$selected_shunt")" != nodes ] || [ "$(section_option "$selected_shunt" protocol)" != _shunt ]; then
 		selected_shunt=''
@@ -467,7 +471,7 @@ inspect() {
 		printf '"rollback_transaction":null,'
 	fi
 	release_lock
-	printf '%s\n' '"capabilities":{"plan":true,"apply":true,"rollback":true,"recover":true,"set_global_shunt":false,"quic_firewall":false,"dns":false},"note":"Node remarks, IDs, types, protocols, and routing state are returned; credentials and full UCI data are never returned."}'
+	printf '%s\n' '"capabilities":{"plan":true,"apply":true,"rollback":true,"recover":true,"dns":false},"note":"Node remarks, IDs, types, protocols, and routing state are returned; credentials and full UCI data are never returned."}'
 }
 
 safe_request_path() {
@@ -756,7 +760,6 @@ plan() {
 
 	shunt=$(request_value "$request" '@.shunt_node')
 	vpn=$(request_value "$request" '@.vpn_node')
-	lan_zone=$(request_value "$request" '@.lan_zone')
 	gemini=$(as_bool "$(request_value "$request" '@.gemini')") || die invalid_request 'gemini must be a boolean.' 65
 	android=$(as_bool "$(request_value "$request" '@.android_check')") || die invalid_request 'android_check must be a boolean.' 65
 	youtube=$(as_bool "$(request_value "$request" '@.youtube_control')") || die invalid_request 'youtube_control must be a boolean.' 65
@@ -766,15 +769,10 @@ plan() {
 	iran=$(as_bool "$(request_value "$request" '@.iran_direct')") || die invalid_request 'iran_direct must be a boolean.' 65
 	accounts_google=$(as_bool "$(request_value "$request" '@.accounts_google')") || die invalid_request 'accounts_google must be a boolean.' 65
 	set_default=$(as_bool "$(request_value "$request" '@.set_default_vpn')") || die invalid_request 'set_default_vpn must be a boolean.' 65
-	set_global=$(as_bool "$(request_value "$request" '@.set_global_shunt')") || die invalid_request 'set_global_shunt must be a boolean.' 65
 	force_localhost=$(as_bool "$(request_value "$request" '@.set_localhost_proxy_zero')") || die invalid_request 'set_localhost_proxy_zero must be a boolean.' 65
-	block_quic=$(as_bool "$(request_value "$request" '@.block_quic')") || die invalid_request 'block_quic must be a boolean.' 65
 
 	valid_id "$shunt" || die invalid_shunt 'The selected shunt section ID is invalid.' 65
 	valid_id "$vpn" || die invalid_vpn_node 'The selected VPN node section ID is invalid.' 65
-	[ -z "$lan_zone" ] || valid_id "$lan_zone" || die invalid_lan_zone 'The LAN zone ID is invalid.' 65
-	[ "$set_global" = 0 ] || die unsupported_scope 'Changing the PassWall2 global node is not supported by this safety-reviewed helper.' 69
-	[ "$block_quic" = 0 ] || die unsupported_scope 'Firewall and QUIC changes are outside this helper and were not applied.' 69
 	[ "$shunt" != "$vpn" ] || die invalid_selection 'The shunt and VPN target must be different sections.' 65
 	[ "$vpn" != "$MITM_NODE" ] || die invalid_selection 'The selected VPN node cannot be the managed MITM SOCKS node.' 65
 	[ "$(section_type "$shunt")" = nodes ] || die invalid_shunt 'The selected shunt section does not exist.' 65

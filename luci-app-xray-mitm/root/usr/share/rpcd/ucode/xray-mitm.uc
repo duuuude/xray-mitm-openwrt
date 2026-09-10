@@ -2,10 +2,9 @@
 
 'use strict';
 
-import { access, mkdtemp, open, popen, rmdir, unlink } from 'fs';
+import { mkdtemp, open, popen, rmdir, unlink } from 'fs';
 
 const CTL = '/usr/sbin/xray-mitmctl';
-const PASSWALL = '/usr/libexec/xray-mitm/passwall2';
 const MAX_JSON = 128 * 1024;
 const MAX_CERT = 32 * 1024;
 const MAX_KEY = 64 * 1024;
@@ -127,15 +126,12 @@ function validPlanRequest(args) {
 		'gemini', 'android_check', 'youtube_control', 'google_mitm',
 		'meta_mitm', 'fastly_mitm',
 		'iran_direct', 'accounts_google', 'set_default_vpn',
-		'set_global_shunt', 'set_localhost_proxy_zero', 'block_quic'
+		'set_localhost_proxy_zero'
 	];
 
 	for (let name in flags)
 		if (type(args[name]) != 'bool')
 			return false;
-
-	if (args.lan_zone != '' && !validSectionId(args.lan_zone))
-		return false;
 
 	return true;
 }
@@ -144,6 +140,18 @@ const methods = {
 	getStatus: {
 		call: function() {
 			return runJson([ CTL, 'status-json' ]);
+		}
+	},
+
+	getSetupStatus: {
+		call: function() {
+			return runJson([ CTL, 'setup-status-json' ]);
+		}
+	},
+
+	setupRecommended: {
+		call: function() {
+			return runJson([ CTL, 'setup-recommended' ]);
 		}
 	},
 
@@ -288,19 +296,13 @@ const methods = {
 
 	inspectPassWall2: {
 		call: function() {
-			if (!access(PASSWALL, 'x'))
-				return { ok: true, available: false, writable: false };
-
-			return runJson([ PASSWALL, 'inspect' ]);
+			return runJson([ CTL, 'passwall2', 'inspect' ]);
 		}
 	},
 
 	recoverPassWall2: {
 		call: function() {
-			if (!access(PASSWALL, 'x'))
-				return resultError('The PassWall2 integration helper is unavailable.');
-
-			return runJson([ PASSWALL, 'recover' ]);
+			return runJson([ CTL, 'passwall2', 'recover' ]);
 		}
 	},
 
@@ -308,7 +310,6 @@ const methods = {
 		args: {
 			shunt_node: '',
 			vpn_node: '',
-			lan_zone: '',
 			gemini: true,
 			android_check: false,
 			youtube_control: false,
@@ -318,9 +319,7 @@ const methods = {
 			iran_direct: true,
 			accounts_google: false,
 			set_default_vpn: false,
-			set_global_shunt: false,
-			set_localhost_proxy_zero: true,
-			block_quic: false
+			set_localhost_proxy_zero: true
 		},
 		call: function(request) {
 			if (!validPlanRequest(request.args))
@@ -338,7 +337,7 @@ const methods = {
 				return resultError('Unable to prepare the routing preview.');
 			}
 
-			let result = runJson([ PASSWALL, 'plan', dir + '/request.json' ]);
+			let result = runJson([ CTL, 'passwall2', 'plan', dir + '/request.json' ]);
 			cleanupPlan(dir);
 			return result;
 		}
@@ -351,7 +350,7 @@ const methods = {
 				!match(request.args.token, /^[a-f0-9]{64}$/))
 				return resultError('Invalid or expired routing preview token.');
 
-			return runJson([ PASSWALL, 'apply', request.args.token ]);
+			return runJson([ CTL, 'passwall2', 'apply', request.args.token ]);
 		}
 	},
 
@@ -362,7 +361,7 @@ const methods = {
 				!match(request.args.transaction, /^[a-f0-9]{64}$/))
 				return resultError('Invalid rollback transaction.');
 
-			return runJson([ PASSWALL, 'rollback', request.args.transaction ]);
+			return runJson([ CTL, 'passwall2', 'rollback', request.args.transaction ]);
 		}
 	}
 };

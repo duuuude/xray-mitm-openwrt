@@ -299,14 +299,22 @@ def uci_main(argv: list[str]) -> int:
 
 def jsonfilter_main(argv: list[str]) -> int:
     try:
-        input_path = Path(argv[argv.index("-i") + 1])
         expression = argv[argv.index("-e") + 1]
-        data = json.loads(input_path.read_text(encoding="utf-8"))
+        if "-i" in argv:
+            input_path = Path(argv[argv.index("-i") + 1])
+            raw = input_path.read_text(encoding="utf-8")
+        else:
+            raw = argv[argv.index("-s") + 1]
+        data = json.loads(raw)
     except (ValueError, IndexError, OSError, json.JSONDecodeError):
         return fail()
     if not expression.startswith("@."):
         return fail()
-    value = data.get(expression[2:])
+    value = data
+    for part in expression[2:].split("."):
+        if not isinstance(value, dict) or part not in value:
+            return 0
+        value = value[part]
     if value is None:
         return 0
     if isinstance(value, bool):

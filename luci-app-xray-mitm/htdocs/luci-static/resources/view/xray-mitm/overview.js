@@ -96,10 +96,9 @@ var callRecoverPassWall2 = rpc.declare({
 });
 
 var routingParams = [
-	'shunt_node', 'vpn_node', 'lan_zone', 'gemini', 'android_check',
+	'shunt_node', 'vpn_node', 'gemini', 'android_check',
 	'youtube_control', 'google_mitm', 'meta_mitm', 'fastly_mitm', 'iran_direct', 'accounts_google',
-	'set_default_vpn', 'set_global_shunt', 'set_localhost_proxy_zero',
-	'block_quic'
+	'set_default_vpn', 'set_localhost_proxy_zero'
 ];
 
 var callPlanPassWall2 = rpc.declare({
@@ -539,7 +538,7 @@ return view.extend({
 			var element = document.getElementById('xray-mitm-route-' + name.replace(/_/g, '-'));
 
 			if (!element)
-				return name === 'lan_zone' ? '' : false;
+				return false;
 
 			return element.type === 'checkbox' ? element.checked : element.value;
 		});

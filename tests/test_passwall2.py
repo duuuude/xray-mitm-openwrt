@@ -107,7 +107,6 @@ tanya.james-dean.net'
 DEFAULT_REQUEST = {
     "shunt_node": "main_shunt",
     "vpn_node": "vpn_node",
-    "lan_zone": "",
     "gemini": True,
     "android_check": True,
     "youtube_control": True,
@@ -117,9 +116,7 @@ DEFAULT_REQUEST = {
     "iran_direct": True,
     "accounts_google": True,
     "set_default_vpn": True,
-    "set_global_shunt": False,
     "set_localhost_proxy_zero": True,
-    "block_quic": False,
 }
 
 

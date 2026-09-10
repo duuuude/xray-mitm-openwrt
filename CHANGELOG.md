@@ -7,6 +7,21 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Added an idempotent Quick Setup backend that preserves existing configuration
+  and certificate state, recovers interrupted certificate work first, starts the
+  service, and enables automatic startup.
+- Added a product-level setup status contract for certificate, service,
+  PassWall2, routing, recovery, and explicitly unchecked health state.
+- Added a supported `xray-mitmctl passwall2` command namespace for inspection,
+  staged plans, apply, rollback, and recovery.
+
+### Changed
+
+- LuCI now reaches PassWall2 operations through the supported `xray-mitmctl`
+  boundary, and obsolete routing request arguments were removed.
+
 ## [0.3.0] - 2026-09-10
 
 ### Changed
