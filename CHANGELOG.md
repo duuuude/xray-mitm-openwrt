@@ -21,6 +21,9 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - LuCI now reaches PassWall2 operations through the supported `xray-mitmctl`
   boundary, and obsolete routing request arguments were removed.
+- LuCI now opens in a beginner-focused Simple view for automatic setup,
+  public-certificate download, PassWall2 prerequisites, recommended routing,
+  and status checks, while retaining every existing control under Advanced.
 
 ## [0.3.0] - 2026-09-10
 
