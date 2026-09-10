@@ -112,6 +112,8 @@ DEFAULT_REQUEST = {
     "android_check": True,
     "youtube_control": True,
     "google_mitm": True,
+    "meta_mitm": False,
+    "fastly_mitm": False,
     "iran_direct": True,
     "accounts_google": True,
     "set_default_vpn": True,
@@ -271,50 +273,39 @@ class PassWall2Fixture(unittest.TestCase):
 
         self.assertEqual(self.config.read_bytes(), self.original)
         operation_kinds = [item["kind"] for item in plan["operations"]]
-        self.assertEqual(
-            operation_kinds[:6],
-            [
-                "upsert_local_socks_node",
-                "upsert_rule",
-                "upsert_rule",
-                "upsert_rule",
-                "upsert_rule",
-                "upsert_rule",
-            ],
-        )
+        self.assertEqual(operation_kinds[:4], [
+            "upsert_local_socks_node", "upsert_rule", "upsert_rule", "upsert_rule"
+        ])
         staged = (
             self.root
             / "tmp/xray-mitm-passwall2-plans"
             / f"{token}.stage/config/passwall2"
         )
         staged_text = staged.read_text(encoding="utf-8")
-        youtube_domains = self._uci_from_path(
-            staged.parent, "get", "passwall2.xray_mitm_youtube.domain_list"
+        vpn_domains = self._uci_from_path(
+            staged.parent, "get", "passwall2.xray_mitm_vpn_overrides.domain_list"
         )
-        self.assertNotIn("googlevideo.com", youtube_domains)
+        self.assertNotIn("googlevideo.com", vpn_domains)
         self.assertNotIn("googlevideo.com", staged_text)
-        self.assertEqual(
-            youtube_domains.splitlines(),
-            [
-                "domain:www.youtube.com",
-                "domain:youtubei.googleapis.com",
-                "domain:youtube.googleapis.com",
-                "domain:accounts.youtube.com",
-            ],
-        )
+        self.assertEqual(vpn_domains.splitlines(), [
+            "domain:gemini.google.com",
+            "domain:generativelanguage.googleapis.com",
+            "domain:connectivitycheck.gstatic.com",
+            "domain:connectivitycheck.android.com",
+            "domain:clients3.google.com",
+            "domain:www.youtube.com",
+            "domain:youtubei.googleapis.com",
+            "domain:youtube.googleapis.com",
+            "domain:accounts.youtube.com",
+            "domain:accounts.google.com",
+        ])
         staged_order = self._section_order(staged.parent)
-        managed_order = [
-            "xray_mitm_gemini",
-            "xray_mitm_android",
-            "xray_mitm_youtube",
-            "xray_mitm_google",
-            "xray_mitm_ir",
-        ]
+        managed_order = ["xray_mitm_vpn_overrides", "xray_mitm_services", "xray_mitm_regional_direct"]
         self.assertEqual(
             [name for name in staged_order if name in managed_order], managed_order
         )
         self.assertLess(
-            staged_order.index("xray_mitm_ir"), staged_order.index("existing_main")
+            staged_order.index("xray_mitm_regional_direct"), staged_order.index("existing_main")
         )
 
         _, applied = self.helper("apply", token)
@@ -326,34 +317,17 @@ class PassWall2Fixture(unittest.TestCase):
         self.assertEqual(self.uci("get", "passwall2.@global[0].localhost_proxy"), "0")
         self.assertEqual(self.uci("get", "passwall2.xray_mitm_socks.address"), "127.0.0.1")
         self.assertEqual(self.uci("get", "passwall2.xray_mitm_socks.port"), "10808")
-        self.assertEqual(self.uci("get", "passwall2.main_shunt.xray_mitm_google"), "xray_mitm_socks")
-        self.assertEqual(self.uci("get", "passwall2.main_shunt.xray_mitm_ir"), "_direct")
-        self.assertEqual(self.uci("get", "passwall2.xray_mitm_ir.network"), "tcp,udp")
-        self.assertEqual(self.uci("get", "passwall2.xray_mitm_ir.ip_list"), "geoip:ir")
-        self.assertEqual(self.uci("get", "passwall2.xray_mitm_gemini.network"), "tcp")
-        self.assertEqual(
-            self.uci("get", "passwall2.xray_mitm_gemini.remarks"),
-            "Gemini app and API via VPN",
-        )
-        self.assertEqual(
-            self.uci("get", "passwall2.xray_mitm_android.remarks"),
-            "Android internet check via VPN",
-        )
-        self.assertEqual(
-            self.uci("get", "passwall2.xray_mitm_youtube.remarks"),
-            "YouTube sign-in and controls via VPN",
-        )
-        self.assertEqual(
-            self.uci("get", "passwall2.xray_mitm_google.remarks"),
-            "Google services via MITM",
-        )
-        self.assertEqual(
-            self.uci("get", "passwall2.xray_mitm_ir.remarks"),
-            "Iranian sites and IPs direct",
-        )
+        self.assertEqual(self.uci("get", "passwall2.main_shunt.xray_mitm_vpn_overrides"), "vpn_node")
+        self.assertEqual(self.uci("get", "passwall2.main_shunt.xray_mitm_services"), "xray_mitm_socks")
+        self.assertEqual(self.uci("get", "passwall2.main_shunt.xray_mitm_regional_direct"), "_direct")
+        self.assertEqual(self.uci("get", "passwall2.xray_mitm_regional_direct.network"), "tcp,udp")
+        self.assertEqual(self.uci("get", "passwall2.xray_mitm_regional_direct.ip_list"), "geoip:ir")
+        self.assertEqual(self.uci("get", "passwall2.xray_mitm_vpn_overrides.remarks"), "VPN Overrides")
+        self.assertEqual(self.uci("get", "passwall2.xray_mitm_services.remarks"), "MITM-Compatible Services")
+        self.assertEqual(self.uci("get", "passwall2.xray_mitm_regional_direct.remarks"), "Regional Direct Access")
         self.assertIn(
             "domain:accounts.google.com",
-            self.uci("get", "passwall2.xray_mitm_gemini.domain_list"),
+            self.uci("get", "passwall2.xray_mitm_vpn_overrides.domain_list"),
         )
 
         _, rolled_back = self.helper("rollback", token)
@@ -406,19 +380,101 @@ class PassWall2Fixture(unittest.TestCase):
         self.assertTrue(applied["ok"])
         self.assertEqual(self.restart_count(), 1)
 
+    def test_meta_and_fastly_bundles_require_mitm_and_use_one_rule(self) -> None:
+        _, plan = self.helper("plan", str(self.request_file({
+            "google_mitm": False,
+            "meta_mitm": True,
+            "fastly_mitm": True,
+        })))
+        self.assertTrue(plan["requires_mitm_running"])
+        token = str(plan["token"])
+        staged_dir = self.root / "tmp/xray-mitm-passwall2-plans" / f"{token}.stage/config"
+        domains = self._uci_from_path(staged_dir, "get", "passwall2.xray_mitm_services.domain_list")
+        self.assertEqual(domains.splitlines(), [
+            "geosite:meta", "geosite:fastly", "geosite:reddit", "geosite:cnn", "domain:buzzfeed.com"
+        ])
+        self.assertEqual(self._uci_from_path(staged_dir, "get", "passwall2.xray_mitm_services.ip_list"), "geoip:fastly")
+        self.assertNotIn("xray_mitm_google", (staged_dir / "passwall2").read_text(encoding="utf-8"))
+
+        _, applied = self.helper("apply", token)
+        self.assertTrue(applied["ok"])
+        _, inspection = self.helper("inspect")
+        self.assertFalse(inspection["routing_state"]["google_mitm"])
+        self.assertTrue(inspection["routing_state"]["meta_mitm"])
+        self.assertTrue(inspection["routing_state"]["fastly_mitm"])
+
+    def test_google_account_bundle_is_independent_of_gemini(self) -> None:
+        _, plan = self.helper("plan", str(self.request_file({
+            "gemini": False,
+            "android_check": False,
+            "youtube_control": False,
+            "accounts_google": True,
+        })))
+        token = str(plan["token"])
+        staged_dir = self.root / "tmp/xray-mitm-passwall2-plans" / f"{token}.stage/config"
+        self.assertEqual(
+            self._uci_from_path(staged_dir, "get", "passwall2.xray_mitm_vpn_overrides.domain_list"),
+            "domain:accounts.google.com",
+        )
+
+    def test_second_identical_preview_is_no_change(self) -> None:
+        first = self.plan_all()
+        _, applied = self.helper("apply", str(first["token"]))
+        self.assertTrue(applied["ok"])
+        _, second = self.helper("plan", str(self.request_file()))
+        self.assertTrue(second["no_change"])
+        self.assertEqual(second["operations"], [])
+
+    def test_migrates_old_package_managed_rules_to_three_rules(self) -> None:
+        old = BASE_CONFIG.replace(
+            "\toption existing_main '_direct'",
+            "\toption existing_main '_direct'\n"
+            "\toption xray_mitm_gemini 'vpn_node'\n"
+            "\toption xray_mitm_android 'vpn_node'\n"
+            "\toption xray_mitm_youtube 'vpn_node'\n"
+            "\toption xray_mitm_google 'xray_mitm_socks'\n"
+            "\toption xray_mitm_ir '_direct'",
+        ) + """
+config nodes 'xray_mitm_socks'
+\toption xray_mitm_managed '1'
+\toption remarks 'MITM-DF (localhost)'
+\toption type 'Xray'
+\toption protocol 'socks'
+\toption address '127.0.0.1'
+\toption port '10808'
+
+""" + "\n".join(
+            f"config shunt_rules '{rule}'\n\toption xray_mitm_managed '1'\n\toption remarks 'old'\n\toption network 'tcp'\n\toption domain_list 'domain:old.invalid'\n\toption group 'main_group'\n"
+            for rule in ("xray_mitm_gemini", "xray_mitm_android", "xray_mitm_youtube", "xray_mitm_google", "xray_mitm_ir")
+        )
+        self.config.write_text(old, encoding="utf-8")
+        self.original = self.config.read_bytes()
+        plan = self.plan_all()
+        token = str(plan["token"])
+        staged = self.root / "tmp/xray-mitm-passwall2-plans" / f"{token}.stage/config/passwall2"
+        text = staged.read_text(encoding="utf-8")
+        for rule in ("xray_mitm_gemini", "xray_mitm_android", "xray_mitm_youtube", "xray_mitm_google", "xray_mitm_ir"):
+            self.assertNotIn(f"config shunt_rules '{rule}'", text)
+        self.assertIn("config shunt_rules 'xray_mitm_vpn_overrides'", text)
+        _, applied = self.helper("apply", token)
+        self.assertTrue(applied["ok"])
+        _, rolled_back = self.helper("rollback", token)
+        self.assertTrue(rolled_back["ok"])
+        self.assertEqual(self.config.read_bytes(), self.original)
+
     def test_reuses_compatible_existing_rules_and_local_mitm_node(self) -> None:
         self.config.write_text(LEGACY_CONFIG, encoding="utf-8")
         self.original = self.config.read_bytes()
 
         _, inspection = self.helper("inspect")
-        self.assertEqual(inspection["rule_sources"]["gemini"], "existing")
-        self.assertEqual(inspection["rule_sources"]["google_mitm"], "existing")
-        self.assertEqual(inspection["rule_sources"]["iran_direct"], "existing")
+        self.assertEqual(inspection["rule_sources"]["vpn_overrides"], "existing")
+        self.assertEqual(inspection["rule_sources"]["mitm_services"], "existing")
+        self.assertEqual(inspection["rule_sources"]["regional_direct"], "existing")
         self.assertEqual(inspection["mitm_node"]["status"], "ready")
         self.assertEqual(inspection["mitm_node"]["source"], "existing")
         self.assertEqual(inspection["mitm_node"]["id"], "sdt8MGIZ")
         self.assertTrue(inspection["routing_state"]["iran_direct"])
-        self.assertTrue(inspection["routing_state"]["accounts_google"])
+        self.assertFalse(inspection["routing_state"]["accounts_google"])
         vpn_ids = [item["id"] for item in inspection["vpn_nodes"]]
         self.assertNotIn("sdt8MGIZ", vpn_ids)
         vpn = next(item for item in inspection["vpn_nodes"] if item["id"] == "2xExBSCp")
@@ -448,11 +504,13 @@ class PassWall2Fixture(unittest.TestCase):
         self.assertFalse(plan["no_change"])
         token = str(plan["token"])
         staged_dir = self.root / "tmp/xray-mitm-passwall2-plans" / f"{token}.stage/config"
-        self.assertEqual(self._uci_from_path(staged_dir, "get", "passwall2.v0iEAVtN.Gemini_VPN"), "2xExBSCp")
-        self.assertEqual(self._uci_from_path(staged_dir, "get", "passwall2.v0iEAVtN.Google_MITM"), "sdt8MGIZ")
+        self.assertEqual(self._uci_from_path(staged_dir, "get", "passwall2.v0iEAVtN.xray_mitm_vpn_overrides"), "2xExBSCp")
+        self.assertEqual(self._uci_from_path(staged_dir, "get", "passwall2.v0iEAVtN.xray_mitm_services"), "sdt8MGIZ")
+        self.assertEqual(self._uci_from_path(staged_dir, "get", "passwall2.v0iEAVtN.xray_mitm_regional_direct"), "_direct")
         self.assertIn("tanya.james-dean.net", self._uci_from_path(staged_dir, "get", "passwall2.IR_Direct.domain_list"))
         staged_text = (staged_dir / "passwall2").read_text(encoding="utf-8")
-        self.assertNotIn("config shunt_rules 'xray_mitm_", staged_text)
+        self.assertIn("config shunt_rules 'xray_mitm_vpn_overrides'", staged_text)
+        self.assertNotIn("option IR_Direct '_direct'", staged_text)
         self.assertEqual(self.config.read_bytes(), self.original)
 
         _, applied = self.helper("apply", token)
@@ -462,7 +520,7 @@ class PassWall2Fixture(unittest.TestCase):
         self.assertTrue(after["routing_state"]["google_mitm"])
         self.assertTrue(after["routing_state"]["iran_direct"])
         self.assertFalse(after["routing_state"]["accounts_google"])
-        self.assertNotIn("config shunt_rules 'xray_mitm_", self.config.read_text(encoding="utf-8"))
+        self.assertIn("config shunt_rules 'xray_mitm_vpn_overrides'", self.config.read_text(encoding="utf-8"))
         self.assertEqual(self.restart_count(), 1)
 
         _, rolled_back = self.helper("rollback", token)
@@ -513,7 +571,7 @@ class PassWall2Fixture(unittest.TestCase):
         self.config.chmod(0o600)
         interrupted = self.config.read_bytes()
         (tx_dir / f"{token}.meta").write_text(
-            "schema=passwall2-uci-v1\n"
+            "schema=passwall2-uci-v2\n"
             f"pre_hash={hashlib.sha256(self.original).hexdigest()}\n"
             f"post_hash={hashlib.sha256(self.config.read_bytes()).hexdigest()}\n",
             encoding="utf-8",

@@ -11,6 +11,21 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Documented the local branch, router test, pull request, and signed release workflow.
 - GitHub Releases now use the matching changelog section as their release notes.
+- Consolidated routing into three ordered rules: **VPN Overrides**,
+  **MITM-Compatible Services**, and **Regional Direct Access**. Checkboxes now
+  add domain bundles to these rules instead of creating separate rules.
+- Added optional Meta website and Fastly-backed website bundles, disabled by
+  default until they are tested on the target devices.
+- The first three-rule preview removes obsolete package-managed rules while
+  preserving recognized user-created legacy rule definitions.
+
+### Fixed
+
+- Saved routing choices are derived from aggregate rule contents and the VPN
+  selector prefers the active VPN Overrides assignment.
+- Google Account routing can be selected independently of the Gemini bundle.
+- Identical repeated previews no longer report a change only because of
+  PassWall2's one-shot flush marker.
 
 ## [0.2.3] - 2026-09-09
 

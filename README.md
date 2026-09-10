@@ -94,13 +94,13 @@ Skip this step if you only need the local SOCKS service.
 4. Review the local node, domains, destinations, and rule order.
 5. Select **Apply preview** only after the preview is correct.
 
-PassWall2 uses the first matching shunt rule. A higher rule can capture a domain before `Google_MITM` sees it. For the tested routing model:
+The assistant creates at most three package-managed rules, in this order:
 
-- `Google_MITM` points to the local SOCKS node at `127.0.0.1:10808`.
-- Remove `www.google.com` from a higher `Android_Check` rule if Google should use MITM.
-- Gemini and YouTube control domains may use the normal VPN route.
-- Keep `googlevideo.com` out of `YouTube_Control_VPN` if YouTube video traffic should stay on the faster MITM route.
-- Keep `localhost_proxy=0` to prevent the standalone Xray output from looping back into PassWall2.
+1. **VPN Overrides** sends selected Gemini, Android connectivity, YouTube control, and Google Account bundles to the chosen VPN. YouTube video delivery (`googlevideo.com`) is deliberately excluded.
+2. **MITM-Compatible Services** sends selected Google, Meta website, and Fastly-backed website bundles to the local SOCKS node at `127.0.0.1:10808`. Google is recommended; Meta and Fastly stay off until you test them on your devices.
+3. **Regional Direct Access** sends Iranian domains and IP ranges directly.
+
+The checkboxes add domain bundles to these three rules; they do not create one rule per checkbox. Applying the first three-rule preview migrates older package-managed rules. Recognized user-created legacy rules remain unchanged, but their assignments are removed from the selected shunt to prevent duplicate matches. Keep `localhost_proxy=0` to prevent the standalone Xray output from looping back into PassWall2.
 
 ### 4. Verify from a client
 

@@ -97,7 +97,7 @@ var callRecoverPassWall2 = rpc.declare({
 
 var routingParams = [
 	'shunt_node', 'vpn_node', 'lan_zone', 'gemini', 'android_check',
-	'youtube_control', 'google_mitm', 'iran_direct', 'accounts_google',
+	'youtube_control', 'google_mitm', 'meta_mitm', 'fastly_mitm', 'iran_direct', 'accounts_google',
 	'set_default_vpn', 'set_global_shunt', 'set_localhost_proxy_zero',
 	'block_quic'
 ];
@@ -318,37 +318,6 @@ function routeStatus(source, active) {
 	return { label: _('Will be created'), tone: 'warn' };
 }
 
-function routeChoice(id, title, description, checked, source, onChange) {
-	var status = routeStatus(source, checked);
-	var checkbox = E('input', {
-		id: id,
-		class: 'cbi-input-checkbox',
-		type: 'checkbox',
-		checked: checked ? '' : null,
-		style: 'position:static!important;float:none!important;width:auto!important;' +
-			'margin:.2rem 0 0!important;flex:0 0 auto',
-		change: onChange
-	});
-
-	return E('label', {
-		for: id,
-		style: 'display:flex;align-items:flex-start;gap:.8rem;padding:.85rem 1rem;' +
-			'margin:.55rem 0;border:1px solid var(--border-color-medium,#ccc);' +
-			'border-radius:.45rem;cursor:pointer'
-	}, [
-		E('span', {
-			style: 'display:flex;align-items:flex-start;justify-content:center;flex:0 0 1.5rem'
-		}, checkbox),
-		E('span', { style: 'display:block;flex:1;min-width:0' }, [
-			E('span', { style: 'display:flex;align-items:center;justify-content:space-between;gap:.75rem;flex-wrap:wrap' }, [
-				E('strong', {}, title),
-				statusPill(status.label, status.tone)
-			]),
-			E('small', { style: 'display:block;margin-top:.3rem;line-height:1.45;opacity:.82' }, description)
-		])
-	]);
-}
-
 function simpleCheck(id, label, description, checked, onChange) {
 	var checkbox = E('input', {
 		id: id,
@@ -371,6 +340,26 @@ function simpleCheck(id, label, description, checked, onChange) {
 			E('strong', {}, label),
 			description ? E('small', { style: 'display:block;margin-top:.2rem;opacity:.8' }, description) : ''
 		])
+	]);
+}
+
+function routingRuleCard(number, title, destination, description, choices, source) {
+	var active = choices.some(function(choice) { return choice.checked; });
+	var status = routeStatus(source, active);
+	return E('section', {
+		style: 'margin:.75rem 0;padding:1rem;border:1px solid var(--border-color-medium,#ccc);border-radius:.5rem'
+	}, [
+		E('div', { style: 'display:flex;align-items:flex-start;justify-content:space-between;gap:.75rem;flex-wrap:wrap' }, [
+			E('div', {}, [
+				E('strong', {}, number + '. ' + title),
+				E('small', { style: 'display:block;margin-top:.2rem;opacity:.8' }, destination)
+			]),
+			statusPill(status.label, status.tone)
+		]),
+		E('p', { style: 'margin:.65rem 0 .35rem;opacity:.85' }, description),
+		E('div', { style: 'display:grid;gap:.1rem' }, choices.map(function(choice) {
+			return simpleCheck(choice.id, choice.label, choice.description, choice.checked, choice.onChange);
+		}))
 	]);
 }
 
@@ -567,7 +556,7 @@ return view.extend({
 				E('h4', {}, _('Preview')),
 				operationList(plan),
 				mitmRequiredButStopped ? E('div', { class: 'alert-message danger' }, _(
-					'Start MITM Domain Fronting before applying this preview. Google routing would otherwise point to an unavailable local SOCKS listener.'
+					'Start MITM Domain Fronting before applying this preview. MITM-Compatible Services would otherwise point to an unavailable local SOCKS listener.'
 				)) : '',
 					plan.warning ? E('div', { class: 'alert-message warning' }, textNode(plan.warning)) : ''
 				]);
@@ -650,6 +639,8 @@ return view.extend({
 			android_check: false,
 			youtube_control: false,
 			google_mitm: true,
+			meta_mitm: false,
+			fastly_mitm: false,
 			iran_direct: true,
 			accounts_google: false,
 			set_default_vpn: false,
@@ -664,6 +655,8 @@ return view.extend({
 			android_check: state.android_check === true,
 			youtube_control: state.youtube_control === true,
 			google_mitm: state.google_mitm === true,
+			meta_mitm: state.meta_mitm === true,
+			fastly_mitm: state.fastly_mitm === true,
 			iran_direct: state.iran_direct === true,
 			accounts_google: state.accounts_google === true,
 			set_default_vpn: state.set_default_vpn === true,
@@ -693,7 +686,7 @@ return view.extend({
 				number: '3',
 				title: _('Start MITM'),
 				done: status.running === true,
-				description: status.running === true ? _('The local service is running.') : _('Start the service before enabling Google routing.')
+				description: status.running === true ? _('The local service is running.') : _('Start the service before enabling MITM-Compatible Services.')
 			},
 			{
 				number: '4',
@@ -735,10 +728,10 @@ return view.extend({
 		return E('div', { class: 'cbi-section' }, [
 			E('h3', {}, _('MITM service')),
 			E('p', {}, _(
-				'This local service handles websites assigned to “Google through MITM” in the routing assistant below.'
+				'This local service handles websites assigned to “MITM-Compatible Services” in the routing assistant below.'
 			)),
 			status.running === false ? E('div', { class: 'alert-message warning' }, _(
-				'The service is stopped. Existing Google MITM routes will not work until it is started.'
+				'The service is stopped. Existing MITM-Compatible Services routes will not work until it is started.'
 			)) : '',
 			E('table', { class: 'table' }, [
 				E('tr', { class: 'tr' }, [ E('td', { class: 'td left', width: '35%' }, _('State')), E('td', { class: 'td left' }, running) ]),
@@ -928,73 +921,35 @@ return view.extend({
 					E('button', { class: 'btn', click: ui.createHandlerFn(this, 'restoreCurrentRouting') }, _('Restore saved choices'))
 				]),
 				hasExistingRules ? E('div', { class: 'alert-message notice' }, _(
-					'Compatible rules were found. Their definitions will be preserved and reused.'
+					'Recognized older rules were found. Their definitions will be preserved while this assistant replaces their selected-shunt assignments with the three managed rules.'
 				)) : '',
 				!mitmRunning ? E('div', { class: 'alert-message warning' }, _(
-					'MITM Domain Fronting is stopped. You can review the setup, but Google through MITM cannot be applied until the service is running.'
+					'MITM Domain Fronting is stopped. You can review choices, but a preview containing MITM-Compatible Services cannot be applied until the service is running.'
 				)) : '',
-				routeChoice('xray-mitm-route-google-mitm', _('Google through MITM'), _(
-					'Google websites use the local MITM Domain Fronting service. The required localhost SOCKS node is reused or created automatically.'
-				), routingState.google_mitm === true, ruleSources.google_mitm, selectionChanged),
-				routeChoice('xray-mitm-route-gemini', _('Gemini app and API through VPN'), _(
-					'Gemini website and API traffic use the VPN connection selected above.'
-				), routingState.gemini === true, ruleSources.gemini, selectionChanged),
-				routeChoice('xray-mitm-route-iran-direct', _('Iranian websites connect directly'), _(
-					'Iranian domains and IP addresses bypass both the VPN and MITM service.'
-				), routingState.iran_direct === true, ruleSources.iran_direct, selectionChanged),
+				routingRuleCard('1', _('VPN Overrides'), _('Destination: selected VPN connection'), _(
+					'Put only services that need the normal VPN in this higher-priority rule.'
+				), [
+					{ id: 'xray-mitm-route-gemini', label: _('Gemini app and API'), description: 'gemini.google.com, generativelanguage.googleapis.com', checked: routingState.gemini === true, onChange: selectionChanged },
+					{ id: 'xray-mitm-route-android-check', label: _('Android internet checks'), description: 'connectivitycheck.gstatic.com, connectivitycheck.android.com, clients3.google.com', checked: routingState.android_check === true, onChange: selectionChanged },
+					{ id: 'xray-mitm-route-youtube-control', label: _('YouTube sign-in and controls'), description: _('YouTube UI/API domains; googlevideo.com is excluded so video delivery can use MITM.'), checked: routingState.youtube_control === true, onChange: selectionChanged },
+					{ id: 'xray-mitm-route-accounts-google', label: _('Google Account sign-in'), description: 'accounts.google.com', checked: routingState.accounts_google === true, onChange: selectionChanged }
+				], ruleSources.vpn_overrides),
+				routingRuleCard('2', _('MITM-Compatible Services'), _('Destination: local SOCKS 127.0.0.1:10808'), _(
+					'The assistant reuses or creates the localhost SOCKS node. Enable only service groups you have tested on your devices.'
+				), [
+					{ id: 'xray-mitm-route-google-mitm', label: _('Google services'), description: 'geosite:google', checked: routingState.google_mitm === true, onChange: selectionChanged },
+					{ id: 'xray-mitm-route-meta-mitm', label: _('Meta websites'), description: _('geosite:meta (optional; test before relying on native apps)'), checked: routingState.meta_mitm === true, onChange: selectionChanged },
+					{ id: 'xray-mitm-route-fastly-mitm', label: _('Fastly-backed websites'), description: _('Fastly, Reddit, CNN, and BuzzFeed groups from the packaged Patterniha configuration'), checked: routingState.fastly_mitm === true, onChange: selectionChanged }
+				], ruleSources.mitm_services),
+				routingRuleCard('3', _('Regional Direct Access'), _('Destination: direct connection'), _(
+					'Bypass VPN and MITM for selected local regions.'
+				), [
+					{ id: 'xray-mitm-route-iran-direct', label: _('Iranian websites and IP addresses'), description: 'geosite:ir, geoip:ir', checked: routingState.iran_direct === true, onChange: selectionChanged }
+				], ruleSources.regional_direct),
 				E('details', { style: 'margin:1rem 0;padding:.2rem 0' }, [
-					E('summary', { style: 'cursor:pointer;font-weight:600;padding:.6rem 0' }, _('Advanced routing options')),
-					simpleCheck('xray-mitm-route-android-check', _('Android connection checks through VPN'), _(
-						'Useful when Android incorrectly reports that Wi-Fi has no internet.'
-					), routingState.android_check === true, selectionChanged),
-					simpleCheck('xray-mitm-route-youtube-control', _('YouTube sign-in and controls through VPN'), _(
-						'Only account and control requests use VPN. Video delivery stays on the faster Google MITM route.'
-					), routingState.youtube_control === true, selectionChanged),
-					simpleCheck('xray-mitm-route-accounts-google', _('Google Account sign-in through VPN'), _(
-						'Adds accounts.google.com to the Gemini VPN exception. It affects Google sign-in beyond Gemini, so leave it disabled unless sign-in needs the VPN.'
-					), routingState.accounts_google === true, selectionChanged),
-					simpleCheck('xray-mitm-route-set-default-vpn', _('Make this VPN the fallback route'), _(
-						'Changes the shunt default for traffic that does not match a rule.'
-					), routingState.set_default_vpn === true, selectionChanged),
-					simpleCheck('xray-mitm-route-set-localhost-proxy-zero', _('Protect the local MITM connection from recapture'), _(
-						'Recommended. Sets localhost_proxy=0 so PassWall2 does not capture the local SOCKS connection again.'
-					), routingState.set_localhost_proxy_zero === true, selectionChanged),
-					E('details', { style: 'margin:1rem 0' }, [
-						E('summary', { style: 'cursor:pointer;font-weight:600;padding:.45rem 0' }, _('Domains used by these rules')),
-						E('table', { class: 'table', style: 'margin-top:.5rem' }, [
-							E('tr', { class: 'tr table-titles' }, [
-								E('th', { class: 'th left' }, _('Choice')),
-								E('th', { class: 'th left' }, _('Traffic matched'))
-							]),
-							E('tr', { class: 'tr' }, [
-								E('td', { class: 'td left' }, _('Gemini app and API')),
-								E('td', { class: 'td left' }, 'gemini.google.com, generativelanguage.googleapis.com')
-							]),
-							E('tr', { class: 'tr' }, [
-								E('td', { class: 'td left' }, _('Android internet check')),
-								E('td', { class: 'td left' }, 'connectivitycheck.gstatic.com, connectivitycheck.android.com, clients3.google.com')
-							]),
-							E('tr', { class: 'tr' }, [
-								E('td', { class: 'td left' }, _('YouTube sign-in and controls')),
-								E('td', { class: 'td left' }, 'www.youtube.com, youtubei.googleapis.com, youtube.googleapis.com, accounts.youtube.com')
-							]),
-							E('tr', { class: 'tr' }, [
-								E('td', { class: 'td left' }, _('Google Account sign-in')),
-								E('td', { class: 'td left' }, 'accounts.google.com')
-							]),
-							E('tr', { class: 'tr' }, [
-								E('td', { class: 'td left' }, _('Google through MITM')),
-								E('td', { class: 'td left' }, 'geosite:google')
-							]),
-							E('tr', { class: 'tr' }, [
-								E('td', { class: 'td left' }, _('Iranian websites direct')),
-								E('td', { class: 'td left' }, 'geosite:ir, geoip:ir')
-							])
-						]),
-						E('small', { style: 'display:block;line-height:1.45;opacity:.8' }, _(
-							'YouTube video delivery domains such as googlevideo.com are deliberately excluded from the VPN rule, so video can remain on the Google MITM route.'
-						))
-					])
+					E('summary', { style: 'cursor:pointer;font-weight:600;padding:.6rem 0' }, _('Advanced routing settings')),
+					simpleCheck('xray-mitm-route-set-default-vpn', _('Make this VPN the fallback route'), _('Changes the shunt default for traffic that does not match a rule.'), routingState.set_default_vpn === true, selectionChanged),
+					simpleCheck('xray-mitm-route-set-localhost-proxy-zero', _('Protect the local MITM connection from recapture'), _('Recommended. Sets localhost_proxy=0 so PassWall2 does not capture the local SOCKS connection again.'), routingState.set_localhost_proxy_zero === true, selectionChanged)
 				]),
 				E('h4', {}, _('3. Review and apply')),
 				E('p', { style: 'opacity:.82' }, _(
@@ -1020,7 +975,7 @@ return view.extend({
 		return E('div', {}, [
 			E('h2', {}, _('MITM Domain Fronting')),
 			E('p', {}, _(
-				'Set up Google MITM routing without manually creating PassWall2 nodes and rules.'
+				'Set up three clear PassWall2 rules without manually creating nodes or copying domain lists.'
 			)),
 				this.status.ok === false ? E('div', { class: 'alert-message danger' }, textNode(this.status.error, _('Unable to read service status.'))) : '',
 			this.renderSetupGuide(this.status, this.certificates, this.passwall),
