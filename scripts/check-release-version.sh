@@ -27,4 +27,6 @@ release="$(sed -n 's/^PKG_RELEASE:=//p' "$project_dir/xray-mitm/Makefile")"
 	exit 1
 }
 
+"$project_dir/scripts/release-notes.sh" "$project_dir" "$release_tag" >/dev/null
+
 printf 'Release version verified: %s (package release r%s)\n' "$release_tag" "$release"

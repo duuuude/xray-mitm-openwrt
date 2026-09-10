@@ -52,6 +52,8 @@ PRIVATE_KEY_MARKER = re.compile(
 )
 
 REQUIRED_PATHS = (
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
     ".github/workflows/build.yml",
     ".github/workflows/publish-feed.yml",
     ".gitignore",
@@ -66,6 +68,7 @@ REQUIRED_PATHS = (
     "install.sh",
     "keys/xray-mitm-feed-v1.pem",
     "scripts/check-release-version.sh",
+    "scripts/release-notes.sh",
     "tests/fakes/openwrt_cmd.py",
     "tests/test_certificates.py",
     "tests/test_installer.py",

@@ -125,6 +125,7 @@ function validPlanRequest(args) {
 
 	let flags = [
 		'gemini', 'android_check', 'youtube_control', 'google_mitm',
+		'meta_mitm', 'fastly_mitm',
 		'iran_direct', 'accounts_google', 'set_default_vpn',
 		'set_global_shunt', 'set_localhost_proxy_zero', 'block_quic'
 	];
@@ -312,6 +313,8 @@ const methods = {
 			android_check: false,
 			youtube_control: false,
 			google_mitm: true,
+			meta_mitm: false,
+			fastly_mitm: false,
 			iran_direct: true,
 			accounts_google: false,
 			set_default_vpn: false,

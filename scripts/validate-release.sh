@@ -22,6 +22,7 @@ for relative in \
 	xray-mitm/files/usr/sbin/xray-mitmctl \
 	install.sh \
 	scripts/check-release-version.sh \
+	scripts/release-notes.sh \
 	ci/test-init-enable.sh
 do
 	sh -n "$project_dir/$relative"

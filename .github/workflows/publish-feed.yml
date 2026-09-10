@@ -80,6 +80,8 @@ jobs:
 
           cp install.sh site/install.sh
           chmod 0755 site/install.sh
+          sh scripts/release-notes.sh "$GITHUB_WORKSPACE" "$GITHUB_REF_NAME" \
+            > site/RELEASE_NOTES.md
           printf '%s  %s\n' \
             '8af96edc133c01a7e9d0a8f4673b7225c47322d73874c05a9c4a0133f3058405' \
             'install.sh' > site/INSTALLER_SHA256
@@ -177,7 +179,7 @@ jobs:
               --repo "$GITHUB_REPOSITORY" \
               --verify-tag \
               --title "xray-mitm $GITHUB_REF_NAME" \
-              --notes "Authenticated OpenWrt APK feed release. Install or update with the checksum-pinned public installer at https://duuuude.github.io/xray-mitm-openwrt/install.sh; APK verifies the signed feed and packages."
+              --notes-file signed-site/RELEASE_NOTES.md
           fi
           gh release upload "$GITHUB_REF_NAME" "${assets[@]}" \
             --repo "$GITHUB_REPOSITORY" --clobber

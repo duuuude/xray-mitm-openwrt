@@ -35,14 +35,15 @@ The workflow derives a public key from the secret and compares it with the commi
 
 ## Publish a release
 
-1. Set `PKG_VERSION` in `xray-mitm/Makefile` and reset `PKG_RELEASE` to `1`.
-2. Update the LuCI version only when the LuCI package changed.
-3. Run `sh scripts/validate-release.sh`.
-4. Merge the reviewed change to `main` and wait for its build.
-5. Create and push a signed tag exactly matching `v${PKG_VERSION}`.
-6. Review and approve the `signed-feed` environment job.
-7. Confirm Pages and the GitHub Release contain both APKs, `packages.adb`, checksums, source commit, public key, and fingerprint.
-8. Complete [RELEASE_TESTING.md](RELEASE_TESTING.md).
+1. Move the release entries from `Unreleased` into a dated version section in `CHANGELOG.md`.
+2. Set `PKG_VERSION` in `xray-mitm/Makefile` and reset `PKG_RELEASE` to `1`.
+3. Update the LuCI version only when the LuCI package changed.
+4. Run `sh scripts/validate-release.sh`.
+5. Merge the reviewed change to `main` and wait for its build.
+6. Create and push a signed tag exactly matching `v${PKG_VERSION}`.
+7. Review and approve the `signed-feed` environment job.
+8. Confirm Pages and the GitHub Release contain both APKs, `packages.adb`, checksums, source commit, public key, and fingerprint. Confirm the GitHub Release notes match the version section in `CHANGELOG.md`.
+9. Complete [RELEASE_TESTING.md](RELEASE_TESTING.md).
 
 **MAC:**
 
@@ -66,7 +67,8 @@ git tag -v v0.2.2
 git push origin v0.2.2
 ```
 
-Replace `v0.2.2` with the reviewed version. The workflow rejects a mismatched tag or package release other than `r1`.
+Replace `v0.2.2` with the reviewed version. The workflow rejects a mismatched tag,
+a package release other than `r1`, or a version without changelog notes.
 
 ## Verify the published key
 

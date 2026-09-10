@@ -9,6 +9,7 @@
 .vscode/
 __pycache__/
 *.py[cod]
+/.pr-body.md
 
 # Local build trees and generated release artifacts
 /artifacts/
