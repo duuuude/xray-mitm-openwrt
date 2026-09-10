@@ -284,6 +284,7 @@ function optionList(items) {
 		var remarks = decodeRemarks(item);
 		return {
 			id: id,
+			group: item.group || '',
 			label: (remarks || _('Unnamed node') + ' [' + id + ']') + (details ? ' — ' + details : '')
 		};
 	}).filter(function(item) { return !!item.id; });
@@ -294,11 +295,24 @@ function selectControl(id, items, selected, onChange) {
 	if (onChange)
 		select.addEventListener('change', onChange);
 
+	var groups = {};
 	items.forEach(function(item) {
-		select.appendChild(E('option', {
-			value: item.id,
-			selected: item.id === selected ? '' : null
-		}, textNode(item.label)));
+		var group = item.group || '';
+		if (!groups[group])
+			groups[group] = [];
+		groups[group].push(item);
+	});
+
+	Object.keys(groups).forEach(function(group) {
+		var target = group ? E('optgroup', { label: group }) : select;
+		groups[group].forEach(function(item) {
+			target.appendChild(E('option', {
+				value: item.id,
+				selected: item.id === selected ? '' : null
+			}, textNode(item.label)));
+		});
+		if (target !== select)
+			select.appendChild(target);
 	});
 
 	return select;
@@ -544,9 +558,17 @@ return view.extend({
 		var vpn = vpnControl ? vpnControl.value : (this.passwall.selected_vpn || (vpns[0] && vpns[0].id));
 		var output = document.getElementById('xray-mitm-simple-routing-preview');
 		var button = ev.currentTarget;
-		var values = [ shunt, vpn, true, false, false, true, false, false, true, false, false, true ];
+		var values = state.recommendedChoices();
+		[ 'gemini', 'android_check', 'youtube_control', 'google_mitm', 'meta_mitm',
+			'fastly_mitm', 'iran_direct', 'accounts_google' ].forEach(function(name) {
+			var choice = document.getElementById('xray-mitm-simple-route-' + name.replace(/_/g, '-'));
+			if (choice)
+				values[name] = choice.checked;
+		});
+		values.shunt_node = shunt;
+		values.vpn_node = vpn;
 		setBusy(button, true);
-		callPlanPassWall2.apply(null, values).then(assertOk).then(L.bind(function(plan) {
+		callPlanPassWall2.apply(null, state.routingArguments(values)).then(assertOk).then(L.bind(function(plan) {
 			this.planToken = plan.no_change === true ? null : (plan.token || null);
 			var blocked = plan.requires_mitm_running === true && this.status.running !== true;
 			var children = [
@@ -700,10 +722,13 @@ return view.extend({
 
 			this.rollbackTransaction = result.transaction || null;
 			this.planToken = null;
-			document.getElementById('xray-mitm-routing-apply').disabled = true;
-			document.getElementById('xray-mitm-routing-rollback').disabled =
-				!this.rollbackTransaction ||
-				(this.passwall.capabilities && this.passwall.capabilities.rollback === false);
+			var apply = document.getElementById('xray-mitm-routing-apply');
+			var rollback = document.getElementById('xray-mitm-routing-rollback');
+			if (apply)
+				apply.disabled = true;
+			if (rollback)
+				rollback.disabled = !this.rollbackTransaction ||
+					(this.passwall.capabilities && this.passwall.capabilities.rollback === false);
 		}, this));
 	},
 
@@ -738,6 +763,12 @@ return view.extend({
 		if (output)
 			dom.content(output, E('p', { style: 'opacity:.8' }, _(
 				'Selections changed. Review the setup again before applying.'
+			)));
+
+		var simpleOutput = document.getElementById('xray-mitm-simple-routing-preview');
+		if (simpleOutput)
+			dom.content(simpleOutput, E('p', { style: 'opacity:.8' }, _(
+				'Selections changed. Review the routing rules again before applying.'
 			)));
 	},
 
@@ -780,6 +811,96 @@ return view.extend({
 		}, [ E('strong', {}, label), E('span', {}, '→ ' + destination) ]);
 	},
 
+	simpleStatusCard: function(label, value, tone, detail) {
+		return E('div', {
+			style: 'padding:.85rem 1rem;border:1px solid var(--border-color-medium,#ccc);' +
+				'border-radius:.45rem;background:rgba(128,128,128,.06)'
+		}, [
+			E('small', { style: 'display:block;opacity:.75;margin-bottom:.35rem' }, label),
+			statusPill(value, tone),
+			detail ? E('small', { style: 'display:block;margin-top:.4rem;opacity:.75' }, detail) : ''
+		]);
+	},
+
+	simpleNavigation: function() {
+		return E('nav', {
+			'aria-label': _('MITM Domain Fronting sections'),
+			style: 'display:flex;gap:.35rem;flex-wrap:wrap;margin:1rem 0'
+		}, [
+			[ 'xray-mitm-simple-basic', _('Basic settings') ],
+			[ 'xray-mitm-simple-certificate', _('Certificate') ],
+			[ 'xray-mitm-simple-routing', _('Routing rules') ],
+			[ 'xray-mitm-simple-status', _('Status') ]
+		].map(function(item) {
+			return E('a', {
+				href: '#' + item[0],
+				class: 'btn',
+				style: 'text-decoration:none'
+			}, item[1]);
+		}));
+	},
+
+	simpleRoutingTable: function(routing, passwall) {
+		routing = routing || {};
+		passwall = passwall || {};
+		var ruleSources = passwall.rule_sources || {};
+		var onChange = L.bind(this.routingSelectionChanged, this);
+		var rows = [
+			{ group: _('VPN overrides'), source: 'vpn_overrides', name: 'gemini', label: _('Gemini app and API'), domains: 'gemini.google.com, generativelanguage.googleapis.com', destination: _('Selected VPN') },
+			{ group: _('VPN overrides'), source: 'vpn_overrides', name: 'android_check', label: _('Android internet checks'), domains: 'connectivitycheck.gstatic.com, connectivitycheck.android.com, clients3.google.com', destination: _('Selected VPN') },
+			{ group: _('VPN overrides'), source: 'vpn_overrides', name: 'youtube_control', label: _('YouTube sign-in and controls'), domains: _('YouTube UI/API domains; video delivery is excluded'), destination: _('Selected VPN') },
+			{ group: _('VPN overrides'), source: 'vpn_overrides', name: 'accounts_google', label: _('Google Account sign-in'), domains: 'accounts.google.com', destination: _('Selected VPN') },
+			{ group: _('MITM-compatible services'), source: 'mitm_services', name: 'google_mitm', label: _('Google services'), domains: 'geosite:google', destination: _('Local SOCKS') },
+			{ group: _('MITM-compatible services'), source: 'mitm_services', name: 'meta_mitm', label: _('Meta websites'), domains: 'geosite:meta', destination: _('Local SOCKS') },
+			{ group: _('MITM-compatible services'), source: 'mitm_services', name: 'fastly_mitm', label: _('Fastly-backed websites'), domains: _('Fastly, Reddit, CNN, and BuzzFeed groups'), destination: _('Local SOCKS') },
+			{ group: _('Regional direct access'), source: 'regional_direct', name: 'iran_direct', label: _('Iranian websites and IP addresses'), domains: 'geosite:ir, geoip:ir', destination: _('Direct connection') }
+		];
+		var lastGroup = null;
+		var body = [];
+
+		rows.forEach(function(row) {
+			if (row.group !== lastGroup) {
+				body.push(E('tr', { class: 'tr table-titles' }, [
+					E('th', { class: 'th left', colspan: '5' }, row.group)
+				]));
+				lastGroup = row.group;
+			}
+
+			var checked = routing[row.name] === true;
+			var status = routeStatus(ruleSources[row.source], checked);
+			body.push(E('tr', { class: 'tr' }, [
+				E('td', { class: 'td', style: 'width:3rem;text-align:center' }, E('input', {
+					id: 'xray-mitm-simple-route-' + row.name.replace(/_/g, '-'),
+					class: 'cbi-input-checkbox',
+					type: 'checkbox',
+					checked: checked ? '' : null,
+					style: 'appearance:auto!important;-webkit-appearance:auto!important;' +
+						'width:1.15rem!important;height:1.15rem!important;margin:0;' +
+						'display:block;accent-color:#5e72e4;cursor:pointer',
+					change: onChange
+				})),
+				E('td', { class: 'td left' }, [
+					E('strong', {}, row.label),
+					E('small', { style: 'display:block;margin-top:.2rem;opacity:.75' }, row.domains)
+				]),
+				E('td', { class: 'td left' }, row.destination),
+				E('td', { class: 'td left' }, statusPill(status.label, status.tone)),
+				E('td', { class: 'td left' }, row.name)
+			]));
+		});
+
+		return E('div', { style: 'overflow:auto;margin:1rem 0' }, E('table', { class: 'table' }, [
+			E('thead', {}, E('tr', { class: 'tr table-titles' }, [
+				E('th', { class: 'th left' }, _('Use')),
+				E('th', { class: 'th left' }, _('Traffic group')),
+				E('th', { class: 'th left' }, _('Destination')),
+				E('th', { class: 'th left' }, _('Status')),
+				E('th', { class: 'th left' }, _('PassWall2 rule'))
+			])),
+			E('tbody', {}, body)
+		]));
+	},
+
 	renderSimple: function(setup, status, certificates, passwall) {
 		var current = slotData(certificates, 'current');
 		var certificateReady = setup.certificate && setup.certificate.ready === true;
@@ -796,8 +917,15 @@ return view.extend({
 		var setupComplete = setup.ready === true && setup.service && setup.service.boot_enabled === true;
 
 		return E('div', { id: 'xray-mitm-simple' }, [
-			E('div', { class: 'cbi-section' }, [
-				E('h3', {}, _('System')),
+			this.simpleNavigation(),
+			E('div', { id: 'xray-mitm-simple-basic', class: 'cbi-section' }, [
+				E('h3', {}, _('Basic settings')),
+				E('div', { style: 'display:grid;grid-template-columns:repeat(auto-fit,minmax(13rem,1fr));gap:.7rem;margin:1rem 0' }, [
+					this.simpleStatusCard(_('MITM service'), status.running === true ? _('Running') : _('Stopped'), status.running === true ? 'good' : 'warn', _('Local SOCKS: 127.0.0.1:10808')),
+					this.simpleStatusCard(_('PassWall2'), passwallState.installed === true ? _('Detected') : _('Not detected'), passwallState.installed === true ? 'good' : 'warn'),
+					this.simpleStatusCard(_('Routing profile'), passwallState.shunt_available === true ? _('Available') : _('Missing'), passwallState.shunt_available === true ? 'good' : 'warn'),
+					this.simpleStatusCard(_('Working VPN'), passwallState.vpn_available === true ? _('Available') : _('Missing'), passwallState.vpn_available === true ? 'good' : 'warn')
+				]),
 				this.simpleStateRow(_('MITM application'), _('Installed'), 'good', _('The router backend is connected.')),
 				this.simpleStateRow(_('PassWall2'), passwallState.installed === true ? _('Detected') : _('Not detected'),
 					passwallState.installed === true ? 'good' : 'warn'),
@@ -806,7 +934,7 @@ return view.extend({
 				this.simpleStateRow(_('VPN connection'), passwallState.vpn_available === true ? _('Available') : _('Missing'),
 					passwallState.vpn_available === true ? 'good' : 'warn')
 			]),
-			E('div', { class: 'cbi-section' }, [
+			E('div', { id: 'xray-mitm-simple-certificate', class: 'cbi-section' }, [
 				E('h3', {}, _('Setup')),
 				this.simpleStateRow(_('Router configuration'), setup.config && setup.config.present === true ? _('Ready') : _('Needed'),
 					setup.config && setup.config.present === true ? 'good' : 'warn'),
@@ -842,8 +970,9 @@ return view.extend({
 					])
 				])
 			]),
-			E('div', { class: 'cbi-section' }, [
-				E('h3', {}, _('Recommended routing')),
+			E('div', { id: 'xray-mitm-simple-routing', class: 'cbi-section' }, [
+				E('h3', {}, _('Routing rules')),
+				E('p', {}, _('Choose the service groups to use. The table shows the destination that will be assigned in PassWall2.')),
 				passwallState.installed !== true ? E('div', { class: 'alert-message warning' }, _(
 					'PassWall2 was not detected. MITM can still run, but automatic routing requires PassWall2.'
 				)) : '',
@@ -854,22 +983,18 @@ return view.extend({
 					'No usable VPN connection was found. Add and test a VPN node in PassWall2, then return here.'
 				)) : '',
 				canReviewRouting ? E('div', {}, [
-					E('div', { style: 'display:grid;gap:.25rem;margin:.75rem 0 1rem' }, [
-						this.simpleRouteRow(_('Google services'), _('MITM')),
-						this.simpleRouteRow(_('Gemini'), _('VPN')),
-						this.simpleRouteRow(_('Iranian services'), _('Direct'))
-					]),
+					this.simpleRoutingTable(routingState, passwall),
 					E('label', { for: 'xray-mitm-simple-vpn', style: 'display:block;font-weight:600;margin-bottom:.35rem' }, _('VPN for Gemini')),
 					selectControl('xray-mitm-simple-vpn', vpns, selectedVpn, function() {
 						dom.content(document.getElementById('xray-mitm-simple-routing-preview'), '');
 					}),
 					E('p', {}, E('button', {
 						class: 'btn cbi-button-action', click: ui.createHandlerFn(this, 'reviewRecommendedRouting')
-					}, routingState.recommended_matches_current === true ? _('Review current routing') : _('Review recommended routing'))),
+					}, _('Review selected routing'))),
 					E('div', { id: 'xray-mitm-simple-routing-preview', 'aria-live': 'polite' })
 				]) : ''
 			]),
-			E('div', { class: 'cbi-section' }, [
+			E('div', { id: 'xray-mitm-simple-status', class: 'cbi-section' }, [
 				E('h3', {}, _('Status')),
 				this.simpleStateRow(_('MITM'), status.running === true ? _('Running') : _('Stopped'), status.running === true ? 'good' : 'warn'),
 				this.simpleStateRow(_('Routing'), routingState.recommended_matches_current === true ? _('Recommended') :
