@@ -17,6 +17,11 @@ VERSION_CHECK = ROOT / "scripts/check-release-version.sh"
 RELEASE_NOTES = ROOT / "scripts/release-notes.sh"
 EXPECTED_KEY_SHA256 = "3e0dc07ffef69d1512500b6add486381d8c261a8ec3fcce54fa403b35320df8a"
 EXPECTED_INSTALLER_SHA256 = "8af96edc133c01a7e9d0a8f4673b7225c47322d73874c05a9c4a0133f3058405"
+PACKAGE_VERSION = next(
+    line.split(":=", 1)[1].strip()
+    for line in (ROOT / "xray-mitm/Makefile").read_text(encoding="utf-8").splitlines()
+    if line.startswith("PKG_VERSION:=")
+)
 
 
 class SignedFeedTests(unittest.TestCase):
@@ -87,13 +92,13 @@ class SignedFeedTests(unittest.TestCase):
 
     def test_release_tag_must_match_package_version(self) -> None:
         good = subprocess.run(
-            ["sh", str(VERSION_CHECK), str(ROOT), "v0.3.0"],
+            ["sh", str(VERSION_CHECK), str(ROOT), f"v{PACKAGE_VERSION}"],
             text=True,
             capture_output=True,
             check=False,
         )
         bad = subprocess.run(
-            ["sh", str(VERSION_CHECK), str(ROOT), "v0.3.1"],
+            ["sh", str(VERSION_CHECK), str(ROOT), f"v{PACKAGE_VERSION}-invalid"],
             text=True,
             capture_output=True,
             check=False,
