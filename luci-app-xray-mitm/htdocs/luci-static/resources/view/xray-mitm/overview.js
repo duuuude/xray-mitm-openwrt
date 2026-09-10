@@ -332,27 +332,29 @@ function routeStatus(source, active) {
 function simpleCheck(id, label, description, checked, onChange) {
 	var checkbox = E('input', {
 		id: id,
-		class: 'cbi-input-checkbox',
+		class: 'cbi-input-checkbox xray-mitm-choice-input',
 		type: 'checkbox',
 		checked: checked ? '' : null,
 		style: 'appearance:auto!important;-webkit-appearance:auto!important;' +
 			'position:static!important;float:none!important;display:block!important;' +
-			'width:1.15rem!important;height:1.15rem!important;' +
-			'margin:.05rem 0 0!important;flex:0 0 auto;accent-color:#5e72e4;cursor:pointer',
+			'width:1.25rem!important;height:1.25rem!important;' +
+			'margin:0!important;padding:0!important;flex:0 0 1.25rem;' +
+			'accent-color:#5e72e4;cursor:pointer',
 		change: onChange
 	});
 
 	return E('label', {
+		class: 'xray-mitm-choice-row',
 		for: id,
-		style: 'display:flex;align-items:flex-start;gap:.7rem;margin:.35rem 0;padding:.55rem .65rem;' +
-			'border:1px solid transparent;border-radius:.35rem;cursor:pointer;min-height:2.4rem'
+		style: 'display:grid;grid-template-columns:2rem minmax(0,1fr);align-items:start;' +
+			'column-gap:.65rem;margin:0;padding:.7rem .75rem;' +
+			'border-top:1px solid var(--border-color-low,#ddd);cursor:pointer;' +
+			'background:rgba(255,255,255,.015);min-height:3.2rem;box-sizing:border-box'
 	}, [
-		E('span', {
-			style: 'display:flex;align-items:flex-start;justify-content:center;flex:0 0 1.5rem;min-height:1.15rem'
-		}, checkbox),
-		E('span', { style: 'display:block;flex:1;min-width:0' }, [
+		E('span', { style: 'display:flex;align-items:flex-start;justify-content:center;padding-top:.05rem' }, checkbox),
+		E('span', { style: 'display:block;min-width:0;line-height:1.35' }, [
 			E('strong', {}, label),
-			description ? E('small', { style: 'display:block;margin-top:.2rem;opacity:.8' }, description) : ''
+			description ? E('small', { style: 'display:block;margin-top:.25rem;opacity:.78;line-height:1.35' }, description) : ''
 		])
 	]);
 }
@@ -361,17 +363,27 @@ function routingRuleCard(number, title, destination, description, choices, sourc
 	var active = choices.some(function(choice) { return choice.checked; });
 	var status = routeStatus(source, active);
 	return E('section', {
-		style: 'margin:.75rem 0;padding:1rem;border:1px solid var(--border-color-medium,#ccc);border-radius:.5rem'
+		style: 'margin:1rem 0;border:1px solid var(--border-color-medium,#ccc);' +
+			'border-radius:.45rem;overflow:hidden;background:rgba(0,0,0,.08)'
 	}, [
-		E('div', { style: 'display:flex;align-items:flex-start;justify-content:space-between;gap:.75rem;flex-wrap:wrap' }, [
-			E('div', {}, [
-				E('strong', {}, number + '. ' + title),
-				E('small', { style: 'display:block;margin-top:.2rem;opacity:.8' }, destination)
+		E('div', { style: 'display:flex;align-items:center;justify-content:space-between;gap:1rem;' +
+			'padding:.85rem 1rem;background:rgba(128,128,128,.14);border-bottom:1px solid var(--border-color-low,#ddd)' }, [
+			E('div', { style: 'display:flex;align-items:center;gap:.65rem;min-width:0' }, [
+				E('span', { style: 'display:inline-flex;align-items:center;justify-content:center;' +
+					'width:1.65rem;height:1.65rem;border-radius:50%;font-weight:700;' +
+					'background:#5e72e4;color:#fff;flex:0 0 auto' }, number),
+				E('div', { style: 'min-width:0' }, [
+					E('strong', { style: 'display:block' }, title),
+					E('small', { style: 'display:block;margin-top:.2rem;opacity:.8' }, destination)
+				])
 			]),
 			statusPill(status.label, status.tone)
 		]),
-		E('p', { style: 'margin:.65rem 0 .35rem;opacity:.85' }, description),
-		E('div', { style: 'display:grid;gap:.1rem' }, choices.map(function(choice) {
+		E('div', { style: 'padding:.75rem 1rem .35rem' }, [
+			E('p', { style: 'margin:0;opacity:.85;line-height:1.45' }, description),
+			E('small', { style: 'display:block;margin-top:.45rem;opacity:.7' }, _('Choose the rows to include in this PassWall2 rule.'))
+		]),
+		E('div', { style: 'margin:0 .35rem .35rem;border:1px solid var(--border-color-low,#ddd);border-radius:.3rem;overflow:hidden' }, choices.map(function(choice) {
 			return simpleCheck(choice.id, choice.label, choice.description, choice.checked, choice.onChange);
 		}))
 	]);
@@ -1108,10 +1120,20 @@ return view.extend({
 		var selectionChanged = L.bind(this.routingSelectionChanged, this);
 
 		return E('div', { class: 'cbi-section' }, [
-			E('h3', {}, _('Easy PassWall2 setup')),
+			E('h3', {}, _('PassWall2 routing')),
 			E('p', {}, _(
-				'Choose where each group of websites should connect. The assistant can reuse compatible rules or create the missing rules and local SOCKS node for you.'
+				'Use the familiar PassWall2 rule style: choose a destination for each service group, review the exact changes, then apply them together.'
 			)),
+			E('div', { style: 'display:flex;align-items:center;justify-content:space-between;gap:1rem;' +
+				'padding:.85rem 1rem;margin:1rem 0;border:1px solid var(--border-color-medium,#ccc);' +
+				'border-radius:.45rem;background:rgba(94,114,228,.08);flex-wrap:wrap' }, [
+				E('div', {}, [
+					E('strong', { style: 'display:block' }, _('Rule assignment')),
+					E('small', { style: 'display:block;margin-top:.2rem;opacity:.78' }, _('Changes remain staged until you apply the reviewed preview.'))
+				]),
+				statusPill(recoveryPending ? _('Recovery required') : (canPlan ? _('Ready to review') : _('Needs attention')),
+					recoveryPending ? 'warn' : (canPlan ? 'good' : 'warn'))
+			]),
 			E('div', { style: 'display:grid;grid-template-columns:repeat(auto-fit,minmax(13rem,1fr));gap:.7rem;margin:1rem 0' }, [
 				E('div', { style: 'padding:.85rem 1rem;border:1px solid var(--border-color-medium,#ccc);border-radius:.45rem' }, [
 					E('small', { style: 'display:block;opacity:.75;margin-bottom:.3rem' }, _('PassWall2')), statusPill(
