@@ -7,6 +7,7 @@ project_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
 PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/ci/validate_release.py" "$project_dir"
 PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_passwall2.py"
 PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_certificates.py"
+PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_ctl.py"
 PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_installer.py"
 PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_signed_feed.py"
 PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_startup.py"

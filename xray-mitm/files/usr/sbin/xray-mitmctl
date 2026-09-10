@@ -9,6 +9,8 @@ XRAY_MITM_LIBEXEC="${XRAY_MITM_LIBEXEC:-${XRAY_MITM_TEST_ROOT:-}/usr/libexec/xra
 CERT_HELPER="$XRAY_MITM_LIBEXEC/cert"
 CHECK_HELPER="$XRAY_MITM_LIBEXEC/check"
 CONFIG_HELPER="$XRAY_MITM_LIBEXEC/config"
+PASSWALL_HELPER="$XRAY_MITM_LIBEXEC/passwall2"
+SETUP_LOCK="${XRAY_MITM_ROOT}/var/lock/xray-mitm-setup.lock"
 
 capture_file=""
 capture_output=""
@@ -45,6 +47,178 @@ json_success_message() {
 	printf '{"ok":true,"message":'
 	xray_mitm_json_string "$1"
 	printf '}\n'
+}
+
+setup_result() {
+	local ok ready error message
+	ok="$1"; ready="$2"; error="$3"; message="$4"
+	printf '{"ok":%s,"ready":%s,"changed":%s,"config_created":%s,"certificate_created":%s,"certificate_activated":%s,"service_started":%s,"boot_enabled":%s' \
+		"$ok" "$ready" "$setup_changed" "$setup_config_created" "$setup_certificate_created" \
+		"$setup_certificate_activated" "$setup_service_started" "$setup_boot_enabled"
+	if [ -n "$error" ]; then
+		printf ',"error":'; xray_mitm_json_string "$error"
+	fi
+	if [ -n "$message" ]; then
+		printf ',"message":'; xray_mitm_json_string "$message"
+	fi
+	printf '}\n'
+}
+
+setup_fail() {
+	setup_result false false "$1" "$2"
+	return 1
+}
+
+certificate_state() {
+	local output
+	capture_command "$CERT_HELPER" status-json
+	[ "$capture_status" -eq 0 ] || return 1
+	output="$capture_output"
+	setup_current_present="$(jsonfilter -s "$output" -e '@.slots.current.present' 2>/dev/null || true)"
+	setup_candidate_present="$(jsonfilter -s "$output" -e '@.slots.candidate.present' 2>/dev/null || true)"
+	setup_legacy_present="$(jsonfilter -s "$output" -e '@.legacy_pair' 2>/dev/null || true)"
+	setup_invalid_pair="$(jsonfilter -s "$output" -e '@.invalid_pair' 2>/dev/null || true)"
+	case "$setup_current_present" in true|1) setup_current_present=true ;; *) setup_current_present=false ;; esac
+	case "$setup_candidate_present" in true|1) setup_candidate_present=true ;; *) setup_candidate_present=false ;; esac
+	case "$setup_legacy_present" in true|1) setup_legacy_present=true ;; *) setup_legacy_present=false ;; esac
+	case "$setup_invalid_pair" in true|1) setup_invalid_pair=true ;; *) setup_invalid_pair=false ;; esac
+	setup_active_valid=false
+	if [ "$setup_current_present" = true ] || [ "$setup_legacy_present" = true ]; then
+		capture_command "$CERT_HELPER" validate-active
+		[ "$capture_status" -eq 0 ] && setup_active_valid=true
+	fi
+	return 0
+}
+
+json_boolean() {
+	case "$1" in true|1) printf true ;; *) printf false ;; esac
+}
+
+passwall2_state() {
+	local output
+	setup_passwall_available=false; setup_passwall_compatible=false
+	setup_shunt_available=false; setup_vpn_available=false
+	setup_routing_recovery=false; setup_routing_configured=false
+	setup_routing_recommended=false
+	[ -x "$PASSWALL_HELPER" ] || return 0
+	capture_command "$PASSWALL_HELPER" inspect
+	[ "$capture_status" -eq 0 ] || return 0
+	output="$capture_output"
+	setup_passwall_available="$(json_boolean "$(jsonfilter -s "$output" -e '@.available' 2>/dev/null || true)")"
+	setup_passwall_compatible="$(json_boolean "$(jsonfilter -s "$output" -e '@.compatible' 2>/dev/null || true)")"
+	setup_shunt_available="$(json_boolean "$(jsonfilter -s "$output" -e '@.shunt_available' 2>/dev/null || true)")"
+	setup_vpn_available="$(json_boolean "$(jsonfilter -s "$output" -e '@.vpn_available' 2>/dev/null || true)")"
+	setup_routing_recovery="$(json_boolean "$(jsonfilter -s "$output" -e '@.recovery_pending' 2>/dev/null || true)")"
+	setup_route_gemini="$(json_boolean "$(jsonfilter -s "$output" -e '@.routing_state.gemini' 2>/dev/null || true)")"
+	setup_route_android="$(json_boolean "$(jsonfilter -s "$output" -e '@.routing_state.android_check' 2>/dev/null || true)")"
+	setup_route_youtube="$(json_boolean "$(jsonfilter -s "$output" -e '@.routing_state.youtube_control' 2>/dev/null || true)")"
+	setup_route_google="$(json_boolean "$(jsonfilter -s "$output" -e '@.routing_state.google_mitm' 2>/dev/null || true)")"
+	setup_route_meta="$(json_boolean "$(jsonfilter -s "$output" -e '@.routing_state.meta_mitm' 2>/dev/null || true)")"
+	setup_route_fastly="$(json_boolean "$(jsonfilter -s "$output" -e '@.routing_state.fastly_mitm' 2>/dev/null || true)")"
+	setup_route_iran="$(json_boolean "$(jsonfilter -s "$output" -e '@.routing_state.iran_direct' 2>/dev/null || true)")"
+	setup_route_accounts="$(json_boolean "$(jsonfilter -s "$output" -e '@.routing_state.accounts_google' 2>/dev/null || true)")"
+	setup_route_localhost="$(json_boolean "$(jsonfilter -s "$output" -e '@.routing_state.set_localhost_proxy_zero' 2>/dev/null || true)")"
+	if [ "$setup_route_gemini" = true ] && [ "$setup_route_google" = true ] &&
+		[ "$setup_route_iran" = true ] && [ "$setup_route_localhost" = true ]; then
+		setup_routing_configured=true
+	fi
+	if [ "$setup_routing_configured" = true ] && [ "$setup_route_android" = false ] &&
+		[ "$setup_route_youtube" = false ] && [ "$setup_route_meta" = false ] &&
+		[ "$setup_route_fastly" = false ] && [ "$setup_route_accounts" = false ]; then
+		setup_routing_recommended=true
+	fi
+}
+
+setup_status() {
+	local setup_state config_present certificate_ready candidate_attention running boot_enabled ready certificate_fingerprint certificate_expiry
+	config_present=false; certificate_ready=false; candidate_attention=false
+	running=false; boot_enabled=false; ready=false; certificate_fingerprint=''; certificate_expiry=''
+	[ -s "$XRAY_MITM_CONFIG" ] && config_present=true
+	certificate_state || { json_error "certificate status is unavailable"; return 1; }
+	if [ "$setup_active_valid" = true ]; then
+		certificate_ready=true
+	elif [ "$setup_candidate_present" = true ]; then
+		candidate_attention=true
+	fi
+	if [ "$certificate_ready" = true ] && [ -s "$XRAY_MITM_CERT" ]; then
+		certificate_fingerprint="$(xray_mitm_cert_fingerprint "$XRAY_MITM_CERT" 2>/dev/null || true)"
+		certificate_expiry="$(openssl x509 -in "$XRAY_MITM_CERT" -noout -enddate 2>/dev/null | sed 's/^notAfter=//' | cut -c 1-128)"
+	fi
+	xray_mitm_service_running && running=true
+	xray_mitm_boot_enabled && boot_enabled=true
+	passwall2_state
+	if [ "$config_present" = false ]; then setup_state=needs_config
+	elif [ "$candidate_attention" = true ]; then setup_state=candidate_requires_attention
+	elif [ "$certificate_ready" = false ]; then setup_state=needs_certificate
+	elif [ "$running" = false ]; then setup_state=needs_start
+	else setup_state=ready; ready=true
+	fi
+	printf '{"ok":true,"setup":'; xray_mitm_json_string "$setup_state"
+	printf ',"ready":%s,"config":{"present":%s},"certificate":{"ready":%s,"candidate_requires_attention":%s,"requires_attention":%s,"fingerprint":' \
+		"$ready" "$config_present" "$certificate_ready" "$candidate_attention" "$setup_invalid_pair"
+	if [ -n "$certificate_fingerprint" ]; then xray_mitm_json_string "$certificate_fingerprint"; else printf null; fi
+	printf ',"expiry":'
+	if [ -n "$certificate_expiry" ]; then xray_mitm_json_string "$certificate_expiry"; else printf null; fi
+	printf '},"service":{"running":%s,"boot_enabled":%s},' "$running" "$boot_enabled"
+	printf '"passwall2":{"installed":%s,"compatible":%s,"shunt_available":%s,"vpn_available":%s},' \
+		"$setup_passwall_available" "$setup_passwall_compatible" "$setup_shunt_available" "$setup_vpn_available"
+	printf '"routing":{"configured":%s,"recommended_matches_current":%s,"recovery_pending":%s},"health":{"healthy":null}}\n' \
+		"$setup_routing_configured" "$setup_routing_recommended" "$setup_routing_recovery"
+}
+
+setup_recommended() {
+	local fingerprint
+	setup_changed=false; setup_config_created=false; setup_certificate_created=false
+	setup_certificate_activated=false; setup_service_started=false; setup_boot_enabled=false
+	mkdir -p "${SETUP_LOCK%/*}" || { setup_fail setup_lock_failed "Unable to create the setup lock directory."; return 1; }
+	: >"$SETUP_LOCK" || { setup_fail setup_lock_failed "Unable to create the setup lock."; return 1; }
+	chmod 0600 "$SETUP_LOCK" || { setup_fail setup_lock_failed "Unable to secure the setup lock."; return 1; }
+	exec 8>"$SETUP_LOCK"
+	flock -x 8 || { setup_fail setup_lock_failed "Unable to lock automatic setup."; return 1; }
+
+	capture_command "$CERT_HELPER" recover
+	[ "$capture_status" -eq 0 ] || { setup_fail certificate_recovery_failed "An interrupted certificate transaction could not be recovered."; return 1; }
+
+	if [ ! -e "$XRAY_MITM_CONFIG" ] && [ ! -L "$XRAY_MITM_CONFIG" ]; then
+		capture_command "$CONFIG_HELPER" install-default
+		[ "$capture_status" -eq 0 ] || { setup_fail config_install_failed "The packaged default configuration could not be installed."; return 1; }
+		setup_changed=true; setup_config_created=true
+	elif [ ! -s "$XRAY_MITM_CONFIG" ] || [ -L "$XRAY_MITM_CONFIG" ]; then
+		setup_fail config_requires_attention "The existing configuration is empty or unsafe. Review it in Advanced settings."
+		return 1
+	fi
+
+	certificate_state || { setup_fail certificate_status_failed "Certificate status is unavailable."; return 1; }
+	if { [ "$setup_current_present" = true ] || [ "$setup_legacy_present" = true ] || [ "$setup_invalid_pair" = true ]; } &&
+		[ "$setup_active_valid" = false ]; then
+		setup_fail certificate_requires_attention "The existing certificate files are not a valid active CA pair. Review them in Advanced settings."
+		return 1
+	fi
+	if [ "$setup_active_valid" = false ]; then
+		if [ "$setup_candidate_present" = true ]; then
+			setup_fail candidate_requires_attention "A certificate candidate already exists. Review it in Advanced settings."
+			return 1
+		fi
+		capture_command "$CERT_HELPER" generate MITM-DomainFronting 3650
+		[ "$capture_status" -eq 0 ] || { setup_fail certificate_generation_failed "The default certificate could not be generated."; return 1; }
+		fingerprint="$(printf '%s\n' "$capture_output" | tail -n 1 | tr 'A-F' 'a-f')"
+		xray_mitm_valid_fingerprint "$fingerprint" || { setup_fail certificate_generation_failed "Certificate generation returned an invalid fingerprint."; return 1; }
+		setup_changed=true; setup_certificate_created=true
+		capture_command "$CERT_HELPER" activate "$fingerprint"
+		[ "$capture_status" -eq 0 ] || { setup_fail certificate_activation_failed "The generated certificate could not be activated."; return 1; }
+		setup_certificate_activated=true
+	fi
+
+	if ! xray_mitm_service_running; then
+		service_action start >/dev/null || { setup_fail service_start_failed "MITM Domain Fronting could not be started."; return 1; }
+		setup_changed=true; setup_service_started=true
+	fi
+	if ! xray_mitm_boot_enabled; then
+		service_action enable >/dev/null || { setup_fail boot_enable_failed "MITM is running, but automatic startup could not be enabled."; return 1; }
+		setup_changed=true
+	fi
+	setup_boot_enabled=true
+	setup_result true true '' 'Automatic setup completed.'
 }
 
 run_json_passthrough() {
@@ -202,6 +376,14 @@ case "${1:-}" in
 		printf '{"ok":true,"running":%s,"enabled":%s,"configured":%s,"master_enabled":%s,"recovery_pending":%s}\n' \
 			"$running" "$enabled" "$configured" "$master_enabled" "$recovery_pending"
 		;;
+	setup-status-json)
+		[ "$#" -eq 1 ] || { json_error "setup-status-json takes no arguments"; exit 1; }
+		setup_status
+		;;
+	setup-recommended)
+		[ "$#" -eq 1 ] || { json_error "setup-recommended takes no arguments"; exit 1; }
+		setup_recommended
+		;;
 	health-json)
 		capture_command "$CHECK_HELPER"
 		if [ "$capture_status" -eq 0 ]; then
@@ -258,8 +440,22 @@ case "${1:-}" in
 		[ "$#" -eq 1 ] || { json_error "cert-adopt-legacy takes no arguments"; exit 1; }
 		run_certificate_mutation "existing certificate pair adopted" "$CERT_HELPER" adopt-legacy
 		;;
+	passwall2)
+		case "${2:-}" in
+			inspect|recover) [ "$#" -eq 2 ] ;;
+			plan) [ "$#" -eq 3 ] && [ -f "$3" ] ;;
+			apply|rollback) [ "$#" -eq 3 ] && xray_mitm_valid_fingerprint "$3" ;;
+			*) false ;;
+		esac || { json_error "invalid passwall2 command or arguments"; exit 1; }
+		[ -x "$PASSWALL_HELPER" ] || { json_error "PassWall2 integration is unavailable"; exit 1; }
+		if [ "$#" -eq 2 ]; then
+			run_json_passthrough "$PASSWALL_HELPER" "$2"
+		else
+			run_json_passthrough "$PASSWALL_HELPER" "$2" "$3"
+		fi
+		;;
 	*)
-		json_error "usage: xray-mitmctl {status-json|health-json|service|config-install-default|cert-*}"
+		json_error "usage: xray-mitmctl {status-json|setup-status-json|setup-recommended|health-json|service|config-install-default|cert-*|passwall2}"
 		exit 1
 		;;
 esac

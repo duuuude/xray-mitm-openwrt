@@ -331,6 +331,20 @@ status_json() {
 	printf '}}\n'
 }
 
+validate_active() {
+	local current path
+	if [ "$(compat_state 2>/dev/null || true)" = managed ]; then
+		current="$(link_target "$CURRENT_LINK")" || xray_mitm_die "no active managed CA exists"
+		path="$(slot_path "$current")" || xray_mitm_die "active managed CA slot is invalid"
+		validate_pair "$path/mycert.crt" "$path/mycert.key"
+	elif [ -f "$XRAY_MITM_CERT" ] && [ ! -L "$XRAY_MITM_CERT" ] &&
+		[ -f "$XRAY_MITM_KEY" ] && [ ! -L "$XRAY_MITM_KEY" ]; then
+		validate_pair "$XRAY_MITM_CERT" "$XRAY_MITM_KEY"
+	else
+		xray_mitm_die "no active certificate pair exists"
+	fi
+}
+
 normalize_pair_into_slot() {
 	local input_cert input_key slot cert_tmp key_tmp
 	input_cert="$1"; input_key="$2"; slot="$3"
@@ -636,6 +650,10 @@ case "${1:-}" in
 		[ "$#" -eq 1 ] || xray_mitm_die "validate-current takes no arguments"; acquire_lock
 		recover_transaction || xray_mitm_die "interrupted certificate transaction could not be recovered"
 		current="$(link_target "$CURRENT_LINK")" || xray_mitm_die "no active managed CA exists"; validate_slot_for_switch "$current" ;;
+	validate-active)
+		[ "$#" -eq 1 ] || xray_mitm_die "validate-active takes no arguments"; acquire_lock
+		recover_transaction || xray_mitm_die "interrupted certificate transaction could not be recovered"
+		validate_active ;;
 	recover)
 		[ "$#" -eq 1 ] || xray_mitm_die "recover takes no arguments"; acquire_lock
 		recover_transaction || xray_mitm_die "interrupted certificate transaction could not be recovered" ;;
@@ -657,5 +675,5 @@ case "${1:-}" in
 	adopt-legacy)
 		[ "$#" -eq 1 ] || xray_mitm_die "adopt-legacy takes no arguments"; acquire_lock
 		recover_transaction || xray_mitm_die "interrupted certificate transaction could not be recovered"; adopt_legacy ;;
-	*) xray_mitm_die "usage: cert {status-json|export|validate-current|recover|generate|prepare-import|activate|discard|rollback|adopt-legacy}" ;;
+	*) xray_mitm_die "usage: cert {status-json|export|validate-current|validate-active|recover|generate|prepare-import|activate|discard|rollback|adopt-legacy}" ;;
 esac

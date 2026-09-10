@@ -5,6 +5,7 @@
 			"ubus": {
 				"luci.xray-mitm": [
 					"getStatus",
+					"getSetupStatus",
 					"getCertificateStatus",
 					"exportCertificate",
 					"inspectPassWall2"
@@ -15,6 +16,7 @@
 			"ubus": {
 				"luci.xray-mitm": [
 					"runHealthCheck",
+					"setupRecommended",
 					"serviceAction",
 					"installDefaultConfig",
 					"generateCandidate",
