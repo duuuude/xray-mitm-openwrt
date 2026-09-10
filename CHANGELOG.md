@@ -9,6 +9,8 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Added a small frontend state model with Node-based tests for PassWall2
+  selection, routing presets, route status, and setup progress.
 - Added an idempotent Quick Setup backend that preserves existing configuration
   and certificate state, recovers interrupted certificate work first, starts the
   service, and enables automatic startup.

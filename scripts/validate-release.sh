@@ -33,6 +33,8 @@ sh "$project_dir/ci/test-init-enable.sh"
 
 if command -v node >/dev/null 2>&1; then
 	node --check "$project_dir/luci-app-xray-mitm/htdocs/luci-static/resources/view/xray-mitm/overview.js"
+	node --check "$project_dir/luci-app-xray-mitm/htdocs/luci-static/resources/xray-mitm/state.js"
+	node "$project_dir/tests/test_frontend_state.js"
 	printf '%s\n' 'Shell and LuCI JavaScript syntax checks passed.'
 else
 	printf '%s\n' 'Shell syntax checks passed; LuCI JavaScript syntax check skipped (Node.js not installed).'

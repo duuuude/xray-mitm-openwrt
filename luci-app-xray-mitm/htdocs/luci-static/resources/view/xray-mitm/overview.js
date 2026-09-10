@@ -3,6 +3,7 @@
 'require rpc';
 'require ui';
 'require dom';
+'require xray-mitm.state';
 
 var callGetStatus = rpc.declare({
 	object: 'luci.xray-mitm',
@@ -307,14 +308,15 @@ function statusPill(label, tone) {
 }
 
 function routeStatus(source, active) {
-	if (active)
-		return { label: _('Active now'), tone: 'good' };
-	if (source === 'existing')
-		return { label: _('Existing rule found'), tone: 'info' };
-	if (source === 'managed')
-		return { label: _('Ready but disabled'), tone: 'muted' };
+	var result = state.routeStatus(source, active);
+	var labels = {
+		active: _('Active now'),
+		existing: _('Existing rule found'),
+		managed: _('Ready but disabled'),
+		new: _('Will be created')
+	};
 
-	return { label: _('Will be created'), tone: 'warn' };
+	return { label: labels[result.kind] || labels.new, tone: result.tone };
 }
 
 function simpleCheck(id, label, description, checked, onChange) {
@@ -534,19 +536,17 @@ return view.extend({
 	},
 
 	planRouting: function(ev) {
-		var values = routingParams.map(function(name) {
+		var values = {};
+		routingParams.forEach(function(name) {
 			var element = document.getElementById('xray-mitm-route-' + name.replace(/_/g, '-'));
-
-			if (!element)
-				return false;
-
-			return element.type === 'checkbox' ? element.checked : element.value;
+			values[name] = element && element.type === 'checkbox' ? element.checked :
+				(element ? element.value : false);
 		});
 		var button = ev.currentTarget;
 		var output = document.getElementById('xray-mitm-routing-preview');
 		setBusy(button, true);
 
-		callPlanPassWall2.apply(null, values).then(assertOk).then(L.bind(function(plan) {
+		callPlanPassWall2.apply(null, state.routingArguments(values)).then(assertOk).then(L.bind(function(plan) {
 			this.planToken = plan.no_change === true ? null : (plan.token || null);
 			this.lastPlan = plan;
 			var mitmRequiredButStopped = plan.requires_mitm_running === true &&
@@ -633,41 +633,20 @@ return view.extend({
 	},
 
 	useRecommendedRouting: function() {
-		this.setRoutingChoices({
-			gemini: true,
-			android_check: false,
-			youtube_control: false,
-			google_mitm: true,
-			meta_mitm: false,
-			fastly_mitm: false,
-			iran_direct: true,
-			accounts_google: false,
-			set_default_vpn: false,
-			set_localhost_proxy_zero: true
-		});
+		this.setRoutingChoices(state.recommendedChoices());
 	},
 
 	restoreCurrentRouting: function() {
-		var state = (this.passwall && this.passwall.routing_state) || {};
-		this.setRoutingChoices({
-			gemini: state.gemini === true,
-			android_check: state.android_check === true,
-			youtube_control: state.youtube_control === true,
-			google_mitm: state.google_mitm === true,
-			meta_mitm: state.meta_mitm === true,
-			fastly_mitm: state.fastly_mitm === true,
-			iran_direct: state.iran_direct === true,
-			accounts_google: state.accounts_google === true,
-			set_default_vpn: state.set_default_vpn === true,
-			set_localhost_proxy_zero: state.set_localhost_proxy_zero === true
-		});
+		var routingState = (this.passwall && this.passwall.routing_state) || {};
+		this.setRoutingChoices(state.routingChoices(routingState));
 	},
 
 	renderSetupGuide: function(status, certificates, passwall) {
 		var current = slotData(certificates, 'current');
 		var routing = (passwall && passwall.routing_state) || {};
-		var routingReady = routing.google_mitm === true || routing.gemini === true || routing.iran_direct === true;
-		var firstTime = status.configured !== true || !slotPresent(current);
+		var progress = state.setupProgress(status, certificates, { routing_state: routing });
+		var routingReady = progress.routingReady;
+		var firstTime = progress.firstTime;
 		var steps = [
 			{
 				number: '1',
@@ -851,13 +830,14 @@ return view.extend({
 	renderRouting: function(inspect) {
 		var shunts = optionList(inspect.shunt_nodes || inspect.shunts);
 		var vpns = optionList(inspect.vpn_nodes || inspect.vpns);
+		var selection = state.passwallSelection(inspect);
 		var capabilities = inspect.capabilities || {};
 		var recoveryPending = inspect.recovery_pending === true;
-		var compatible = !!(inspect.available !== false && inspect.compatible === true && shunts.length && vpns.length);
+		var compatible = selection.compatible;
 		var canPlan = !recoveryPending && compatible && inspect.writable === true && capabilities.plan !== false;
 		var canRollback = !recoveryPending && capabilities.rollback !== false && !!this.rollbackTransaction;
-		var selectedShunt = inspect.selected_shunt || inspect.current_shunt || (shunts[0] && shunts[0].id);
-		var selectedVpn = inspect.selected_vpn || (vpns[0] && vpns[0].id);
+		var selectedShunt = selection.selectedShunt;
+		var selectedVpn = selection.selectedVpn;
 		var routingState = inspect.routing_state || {};
 		var ruleSources = inspect.rule_sources || {};
 		var mitmNode = inspect.mitm_node || {};
