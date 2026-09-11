@@ -6,7 +6,7 @@
 'require xray-mitm.state as state';
 
 /* Keep this fallback synchronized with xray-mitm/Makefile PKG_VERSION. */
-var PROJECT_VERSION = '0.4.2';
+var PROJECT_VERSION = '0.4.3';
 
 var callGetStatus = rpc.declare({
 	object: 'luci.xray-mitm',

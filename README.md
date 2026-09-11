@@ -1,6 +1,6 @@
 # Xray MITM Domain Fronting for OpenWrt
 
-**Version:** `v0.4.2` · **Instructions:** English | [فارسی](README.fa.md) · **Project:** [Changelog](CHANGELOG.md) | [Contributing](CONTRIBUTING.md)
+**Version:** `v0.4.3` · **Instructions:** English | [فارسی](README.fa.md) · **Project:** [Changelog](CHANGELOG.md) | [Contributing](CONTRIBUTING.md)
 
 This project adds a standalone Xray MITM-DomainFronting service, a LuCI dashboard, and optional PassWall2 routing to official OpenWrt 25.12 APK-based routers.
 
