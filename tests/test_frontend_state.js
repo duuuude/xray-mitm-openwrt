@@ -125,9 +125,10 @@ function testOverviewLoadsAndRendersWithLuCIStateDependency() {
 	const fakeDocument = { createTextNode: function(value) { return value; } };
 	const fakeLuCI = { bind: function(fn, context) { return fn.bind(context); } };
 	const overview = Function(
-		'require', 'E', '_', 'document', 'L',
+		'require', 'view', 'rpc', 'ui', 'dom', 'E', '_', 'document', 'L',
 		fs.readFileSync(overviewPath, 'utf8')
-	)(fakeRequire, fakeElement, function(value) { return value; }, fakeDocument, fakeLuCI);
+	)(fakeRequire, fakeView, fakeRpc, fakeUi, fakeDom, fakeElement,
+		function(value) { return value; }, fakeDocument, fakeLuCI);
 
 	assert.doesNotThrow(function() {
 		overview.renderSetupGuide({ configured: false, running: false }, {}, {});
