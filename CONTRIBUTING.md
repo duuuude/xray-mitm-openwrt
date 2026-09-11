@@ -76,6 +76,11 @@ a real local-browser test against the lab router before it is pushed:
 Static validation and GitHub Actions do not replace this browser test. Do not push,
 merge, tag, or publish a LuCI change when the real page has not passed it.
 
+After the browser test passes, show the exact tested UI candidate to the project
+owner and obtain explicit visual approval. Do not push, merge, tag, or publish a
+UI-affecting change until that approval is recorded; passing tests or silence do
+not count as approval.
+
 Verify the affected behavior, update from the prior signed version, rollback when
 relevant, and reboot when startup persistence is in scope. Follow
 `docs/RELEASE_TESTING.md` for a public release.

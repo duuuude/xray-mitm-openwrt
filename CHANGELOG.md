@@ -7,6 +7,16 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- Replace the long Basic and Advanced dashboards with PassWall2-style tabs.
+  Switching tabs is immediate and shows only the selected section without
+  reloading the LuCI page.
+- Add a shared PassWall2-style status strip to both Basic and Advanced Overview,
+  showing MITM, PassWall2 routing, and certificate readiness at a glance.
+- Show the application version beside the dashboard title for easier support and
+  update checks.
+
 ### Fixed
 
 - Load the dashboard state helper through LuCI's dependency-injection directive
