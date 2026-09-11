@@ -60,6 +60,14 @@ else
 	ROOT=''
 fi
 
+log_event() {
+	# The fixture runs on the development host. Keep diagnostics on the router
+	# and do not emit test activity into the host's system log.
+	[ -n "$TEST_ROOT" ] && return 0
+	command -v logger >/dev/null 2>&1 || return 0
+	logger -t "$PROGRAM" "$*" 2>/dev/null || true
+}
+
 CONFIG_DIR="$ROOT/etc/config"
 PW_CONFIG="$CONFIG_DIR/passwall2"
 PW_APP="$ROOT/usr/share/passwall2/app.sh"
@@ -1003,15 +1011,20 @@ transaction_abort() {
 	status=${1:-70}
 	trap - EXIT HUP INT TERM
 	if [ "${RECOVERY_ACTIVE:-0}" = 1 ]; then
+		log_event "routing recovery started kind=$RECOVERY_KIND reason=interrupted status=$status"
 		if restore_config_checked "$RECOVERY_FILE" "$RECOVERY_TOKEN" "$RECOVERY_HASH"; then
+			log_event "routing recovery restored prior configuration kind=$RECOVERY_KIND"
 			if restart_if_enabled &&
 				cleanup_interrupted_metadata "$RECOVERY_KIND" "$RECOVERY_TOKEN" "$RECOVERY_FILE" "${RECOVERY_PREVIOUS:-}" &&
 				rm -f "$RECOVERY_MARKER"; then
 				rm -f "$RECOVERY_FILE" || true
+				log_event "routing recovery completed kind=$RECOVERY_KIND"
 			else
+				log_event "routing recovery restart or cleanup failed kind=$RECOVERY_KIND"
 				status=70
 			fi
 		else
+			log_event "routing recovery could not restore prior configuration kind=$RECOVERY_KIND"
 			[ "$ERROR_EMITTED" -eq 1 ] ||
 				json_error restore_failed 'An interrupted routing transaction could not restore the prior PassWall2 file exactly.'
 			status=70
@@ -1103,11 +1116,14 @@ recover_interrupted() {
 	esac
 	[ -f "$source" ] && [ ! -L "$source" ] || return 1
 	[ "$(file_hash "$source")" = "$restore_hash" ] || return 1
+	log_event "routing recovery started kind=$kind reason=marker"
 	restore_config_checked "$source" "$token" "$restore_hash" || return 1
+	log_event "routing recovery restored prior configuration kind=$kind"
 	restart_if_enabled || return 1
 	cleanup_interrupted_metadata "$kind" "$token" "$source" "$previous" || return 1
 	rm -f "$RECOVERY_MARKER" || return 1
 	rm -f "$source" || true
+	log_event "routing recovery completed kind=$kind"
 	return 0
 }
 
@@ -1132,6 +1148,19 @@ child_pids() {
 	done
 }
 
+log_restart_tree() {
+	local pid status_file name parent child
+	pid=$1
+	status_file="/proc/$pid/status"
+	[ -r "$status_file" ] || return 0
+	name=$(sed -n 's/^Name:[[:space:]]*//p' "$status_file" 2>/dev/null || true)
+	parent=$(sed -n 's/^PPid:[[:space:]]*//p' "$status_file" 2>/dev/null || true)
+	log_event "passwall restart process pid=$pid ppid=${parent:-unknown} name=${name:-unknown}"
+	for child in $(child_pids "$pid"); do
+		log_restart_tree "$child"
+	done
+}
+
 terminate_tree() {
 	local pid signal child
 	pid=$1
@@ -1143,26 +1172,37 @@ terminate_tree() {
 }
 
 run_passwall_restart() {
-	local restart_pid elapsed
+	local restart_pid elapsed status
 	# PassWall2 starts long-lived proxy processes. Do not let them inherit the
 	# transaction lock descriptor and keep every later operation busy.
 	"$PW_INIT" restart 9>&- >/dev/null 2>&1 &
 	restart_pid=$!
+	log_event "passwall restart started pid=$restart_pid timeout=${PASSWALL_RESTART_TIMEOUT}s"
 	elapsed=0
 	while kill -0 "$restart_pid" 2>/dev/null; do
 		if [ "$elapsed" -ge "$PASSWALL_RESTART_TIMEOUT" ]; then
 			# A stuck app.sh or ACL child can otherwise leave both PassWall2 and
 			# the LuCI RPC request waiting forever. Kill only this restart tree.
+			log_event "passwall restart timed out after ${elapsed}s pid=$restart_pid"
+			log_restart_tree "$restart_pid"
 			terminate_tree "$restart_pid" TERM
 			sleep 1
 			terminate_tree "$restart_pid" KILL
 			wait "$restart_pid" 2>/dev/null || true
+			log_event "passwall restart terminated timed-out process tree pid=$restart_pid"
 			return 124
 		fi
 		sleep 1
 		elapsed=$((elapsed + 1))
 	done
-	wait "$restart_pid"
+	if wait "$restart_pid"; then
+		log_event "passwall restart completed pid=$restart_pid status=0"
+		return 0
+	else
+		status=$?
+		log_event "passwall restart failed pid=$restart_pid status=$status"
+		return "$status"
+	fi
 }
 
 restart_if_enabled() {
