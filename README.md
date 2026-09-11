@@ -55,17 +55,32 @@ The same command handles first installation and later updates. It:
 
 The installer never uses `--allow-untrusted`, never upgrades every package on the router, and does not create a CA, start the service, or change PassWall2 routing.
 
-### 2. Complete the first setup in LuCI
+### 2. Complete first-time setup in LuCI
 
 Open LuCI over **HTTPS**, then go to **Services → MITM Domain Fronting**.
 
-1. Select **Install packaged default configuration**.
-2. Select **Generate candidate**, or import a certificate and matching private key that you control.
-3. Select **Activate candidate**.
-4. Download only `mycert.crt`.
-5. Install `mycert.crt` as a trusted root on each client that should use MITM.
-6. Select **Start**, then run **Health check** and confirm it passes.
-7. Select **Enable at boot** if the service should start after a router reboot.
+This section is for a new installation. If you are updating an existing
+installation, skip it: updates preserve the configuration, active CA, service
+state, and PassWall2 routing. The setup guide will show **System overview**
+and only ask you to complete items that are not ready.
+
+For the beginner path, stay in **Simple** view and select **Set up
+automatically**. It installs the packaged configuration when needed,
+generates and activates a CA when needed, starts MITM, and enables automatic
+startup. It does not replace an existing valid configuration or CA.
+
+After automatic setup:
+
+1. Download only `mycert.crt`.
+2. Install `mycert.crt` as a trusted root on each client that should use MITM.
+3. Run the health check and confirm it passes.
+4. Continue to PassWall2 routing below if you need selective routing.
+
+If you choose **Advanced settings** instead, the equivalent manual sequence
+is: install the packaged default configuration, generate or import a matching
+certificate and private key as a candidate, activate the candidate, start the
+service, run the health check, and enable automatic startup. Never copy
+`mycert.key` to a client.
 
 Trust the downloaded public CA for your current user:
 
@@ -90,9 +105,12 @@ Skip this step if you only need the local SOCKS service.
 
 1. Open the PassWall2 section on the project’s LuCI page.
 2. Choose the existing shunt node and VPN node.
-3. Select **Preview changes**.
-4. Review the local node, domains, destinations, and rule order.
-5. Select **Apply preview** only after the preview is correct.
+3. If you select any MITM-compatible service, confirm that the MITM service
+   is running. The assistant will not allow a preview that would send traffic
+   to a stopped local SOCKS listener.
+4. Select **Review selected routing** or **Preview changes**.
+5. Review the local node, domains, destinations, and rule order.
+6. Select **Apply preview** only after the preview is correct.
 
 The assistant creates at most three package-managed rules, in this order:
 
@@ -158,6 +176,10 @@ apk upgrade xray-mitm luci-app-xray-mitm
 This upgrades only these two explicitly selected packages and required dependencies. Do not use an unrestricted `apk upgrade` as a replacement for a planned OpenWrt firmware upgrade.
 
 Updates preserve `/etc/config/xray-mitm`, `/etc/xray-mitm/`, the active CA, service settings, and existing PassWall2 configuration. The installer creates `/root/xray-mitm-before-install-YYYYMMDD-HHMMSS.tar.gz` with mode `0600` before changing feed or package state.
+
+After an update, reload LuCI and review the status cards. Do not generate a
+new CA or run first-time setup again unless the page reports that configuration
+or certificate state is missing or needs attention.
 
 ## How authentication works
 
