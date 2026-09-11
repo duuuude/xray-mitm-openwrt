@@ -21,7 +21,28 @@ wsl.exe sh -lc 'cd /path/to/xray-mitm-openwrt && sh scripts/validate-release.sh'
 
 These checks are offline and do not connect to a router.
 
-## 2. Signed publishing checks
+## 2. Local LuCI browser gate
+
+This gate is required for every change that can affect a LuCI page, including its
+JavaScript, templates, styles, RPC data, and ACL access.
+
+1. Install or stage the exact release candidate on the lab router.
+2. Open each affected page in a local desktop browser and reload it directly to
+   bypass stale LuCI JavaScript.
+3. Confirm the full page renders without an error notification or blank view.
+4. Exercise all affected controls and state transitions. For routing changes,
+   verify selection persistence, review/preview, apply, and return-to-page state.
+5. Inspect the browser console after loading and interacting; confirm no new
+   JavaScript errors were recorded.
+6. Confirm the CA, standalone service state, boot state, and PassWall2 routing were
+   preserved unless the release intentionally changes them.
+7. Save the tested commit, candidate version, page, control results, console result,
+   and any screenshot in the release or pull-request evidence.
+
+A syntax check, mocked frontend test, successful APK build, or green GitHub Actions
+run is insufficient by itself. Do not merge or publish until this gate passes.
+
+## 3. Signed publishing checks
 
 Before the tag:
 
@@ -39,7 +60,7 @@ After approving the tagged workflow:
 4. Confirm Pages serves the key and `feed/25.12/all/packages.adb` over HTTPS.
 5. Independently verify key SHA-256 `3e0dc07ffef69d1512500b6add486381d8c261a8ec3fcce54fa403b35320df8a`.
 
-## 3. Clean-router installation
+## 4. Clean-router installation
 
 Use a disposable or lab router:
 
@@ -56,7 +77,7 @@ Use a disposable or lab router:
 11. Confirm a MITM domain shows `CN=MITM-DomainFronting` while a control domain shows its public issuer.
 12. Reboot and repeat service, routing, health, and client checks.
 
-## 4. Existing-router update
+## 5. Existing-router update
 
 1. Start with a working prior version, active CA, boot setting, and known PassWall2 routing.
 2. Run the same one-command installer.

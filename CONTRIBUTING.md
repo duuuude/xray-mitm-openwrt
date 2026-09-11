@@ -59,6 +59,23 @@ For changes that affect packages, services, certificates, LuCI, installation, or
 PassWall2, build the APKs and test them on the lab router. Preserve the active CA,
 service state, and routing unless the change explicitly targets them.
 
+Every LuCI JavaScript, template, style, RPC-response, or ACL change must also pass
+a real local-browser test against the lab router before it is pushed:
+
+1. Install or stage the exact candidate files on the router.
+2. Open the affected LuCI page from a local desktop browser and reload it directly
+   so cached JavaScript is not reused.
+3. Confirm the complete page renders without an error notification or blank view.
+4. Exercise every affected control and state transition, including preview/apply
+   behavior when routing code changed.
+5. Inspect the browser console after the reload and interactions; there must be no
+   new JavaScript errors.
+6. Record the tested commit, router package or staged-file version, page, controls,
+   and result in the pull request.
+
+Static validation and GitHub Actions do not replace this browser test. Do not push,
+merge, tag, or publish a LuCI change when the real page has not passed it.
+
 Verify the affected behavior, update from the prior signed version, rollback when
 relevant, and reboot when startup persistence is in scope. Follow
 `docs/RELEASE_TESTING.md` for a public release.
