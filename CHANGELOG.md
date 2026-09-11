@@ -7,6 +7,13 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Load the dashboard state helper through LuCI's dependency-injection directive
+  instead of the unavailable CommonJS `require()` function.
+- Make the overview smoke test emulate LuCI dependency injection and reject
+  runtime `require()` calls before a package is built or released.
+
 ## [0.4.2] - 2026-09-11
 
 ### Fixed

@@ -3,8 +3,7 @@
 'require rpc';
 'require ui';
 'require dom';
-
-var state = require('xray-mitm.state');
+'require xray-mitm.state as state';
 
 var callGetStatus = rpc.declare({
 	object: 'luci.xray-mitm',
