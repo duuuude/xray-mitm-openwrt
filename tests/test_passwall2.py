@@ -10,6 +10,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -376,6 +377,34 @@ class PassWall2Fixture(unittest.TestCase):
 
         self.assertTrue(applied["ok"])
         self.assertEqual(self.restart_count(), 1)
+
+    def test_hung_candidate_restart_is_bounded_and_restores_previous_config(self) -> None:
+        init = self.root / "etc/init.d/passwall2"
+        init.write_text(
+            "#!/bin/sh\n"
+            "[ \"${1:-}\" = restart ] || exit 64\n"
+            "if grep -q xray_mitm_vpn_overrides \"$XRAY_MITM_TEST_ROOT/etc/config/passwall2\"; then\n"
+            "    sleep 10\n"
+            "fi\n"
+            "printf 'restart\\n' >>\"$XRAY_MITM_TEST_ROOT/tmp/restarts\"\n",
+            encoding="utf-8",
+        )
+        init.chmod(0o755)
+        self.env["XRAY_MITM_PASSWALL_RESTART_TIMEOUT"] = "1"
+
+        plan = self.plan_all()
+        started = time.monotonic()
+        _, payload = self.helper("apply", str(plan["token"]), expected_status=70)
+        elapsed = time.monotonic() - started
+
+        self.assertLess(elapsed, 6)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["error"], "service_restart_failed")
+        self.assertEqual(self.config.read_bytes(), self.original)
+        self.assertEqual(self.restart_count(), 1)
+        state = self.root / "etc/xray-mitm/passwall2-routing"
+        self.assertFalse((state / "recovery").exists())
+        self.assertFalse((state / "backups" / f"{plan['token']}.passwall2").exists())
 
     def test_meta_and_fastly_bundles_require_mitm_and_use_one_rule(self) -> None:
         _, plan = self.helper("plan", str(self.request_file({
