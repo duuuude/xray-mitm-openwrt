@@ -1,4 +1,5 @@
 'use strict';
+'require baseclass';
 
 function arrayValue(value) {
 	return Array.isArray(value) ? value : [];
@@ -164,15 +165,15 @@ function setupProgress(status, certificates, passwall) {
 	};
 }
 
-return {
-		certificateSlot: certificateSlot,
-		deriveSimpleState: deriveSimpleState,
-		nodeItems: nodeItems,
-		passwallSelection: passwallSelection,
-		recommendedChoices: recommendedChoices,
-		routeStatus: routeStatus,
-		routingArguments: routingArguments,
-		routingChoices: routingChoices,
-		setupProgress: setupProgress,
-		slotPresent: slotPresent
-};
+return baseclass.extend({
+	certificateSlot: certificateSlot,
+	deriveSimpleState: deriveSimpleState,
+	nodeItems: nodeItems,
+	passwallSelection: passwallSelection,
+	recommendedChoices: recommendedChoices,
+	routeStatus: routeStatus,
+	routingArguments: routingArguments,
+	routingChoices: routingChoices,
+	setupProgress: setupProgress,
+	slotPresent: slotPresent
+});

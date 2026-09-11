@@ -6,7 +6,15 @@ const path = require('path');
 
 const modulePath = path.join(__dirname, '..', 'luci-app-xray-mitm', 'htdocs',
 	'luci-static', 'resources', 'xray-mitm', 'state.js');
-const state = Function(fs.readFileSync(modulePath, 'utf8'))();
+const baseclass = {
+	extend: function(methods) {
+		function State() {}
+		State.prototype = methods;
+		return State;
+	}
+};
+const State = Function('baseclass', fs.readFileSync(modulePath, 'utf8'))(baseclass);
+const state = new State();
 
 function testPasswallSelection() {
 	const selection = state.passwallSelection({
