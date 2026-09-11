@@ -8,6 +8,30 @@ const modulePath = path.join(__dirname, '..', 'luci-app-xray-mitm', 'htdocs',
 	'luci-static', 'resources', 'xray-mitm', 'state.js');
 const overviewPath = path.join(__dirname, '..', 'luci-app-xray-mitm', 'htdocs',
 	'luci-static', 'resources', 'view', 'xray-mitm', 'overview.js');
+
+function loadLuciModule(moduleSource, modules, globals) {
+	const dependencies = [];
+	const directivePattern = /^\s*'require\s+([^\s']+)(?:\s+as\s+([A-Za-z_$][\w$]*))?';\s*$/gm;
+	let match;
+
+	while ((match = directivePattern.exec(moduleSource)) !== null) {
+		const moduleName = match[1];
+		const binding = match[2] || moduleName.split('.').pop();
+
+		assert.ok(Object.prototype.hasOwnProperty.call(modules, moduleName),
+			'LuCI dependency is available: ' + moduleName);
+		dependencies.push({ binding: binding, value: modules[moduleName] });
+	}
+
+	const globalNames = Object.keys(globals || {});
+	const parameterNames = dependencies.map(item => item.binding).concat(globalNames);
+	const parameterValues = dependencies.map(item => item.value)
+		.concat(globalNames.map(name => globals[name]));
+
+	return Function.apply(null, parameterNames.concat(moduleSource))
+		.apply(null, parameterValues);
+}
+
 const baseclass = {
 	extend: function(methods) {
 		function State() {}
@@ -118,17 +142,22 @@ function testOverviewLoadsAndRendersWithLuCIStateDependency() {
 		dom: fakeDom,
 		'xray-mitm.state': fakeState
 	};
-	const fakeRequire = function(name) { return modules[name]; };
 	const fakeElement = function(tag, attributes, children) {
 		return { tag: tag, attributes: attributes, children: children };
 	};
 	const fakeDocument = { createTextNode: function(value) { return value; } };
 	const fakeLuCI = { bind: function(fn, context) { return fn.bind(context); } };
-	const overview = Function(
-		'require', 'view', 'rpc', 'ui', 'dom', 'E', '_', 'document', 'L',
-		fs.readFileSync(overviewPath, 'utf8')
-	)(fakeRequire, fakeView, fakeRpc, fakeUi, fakeDom, fakeElement,
-		function(value) { return value; }, fakeDocument, fakeLuCI);
+	const overviewSource = fs.readFileSync(overviewPath, 'utf8');
+
+	assert.doesNotMatch(overviewSource, /\brequire\s*\(/,
+		'LuCI modules must use loader directives instead of CommonJS require()');
+
+	const overview = loadLuciModule(overviewSource, modules, {
+		E: fakeElement,
+		_: function(value) { return value; },
+		document: fakeDocument,
+		L: fakeLuCI
+	});
 
 	assert.doesNotThrow(function() {
 		overview.renderSetupGuide({ configured: false, running: false }, {}, {});
