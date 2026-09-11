@@ -160,6 +160,16 @@ function testOverviewLoadsAndRendersWithLuCIStateDependency() {
 		'LuCI dashboard keeps the current project version fallback');
 	assert.match(overviewSource, /xray-mitm-version-badge/,
 		'LuCI dashboard renders a visible application version badge');
+	assert.doesNotMatch(overviewSource, /Recommended routing is already configured/,
+		'Basic routing preview does not describe unchecked selections as recommended');
+	assert.match(overviewSource, /Selected routing is already active/,
+		'Basic routing preview reports the actual selected state');
+	assert.match(overviewSource, /Apply selected routing/,
+		'Basic routing preview applies the selected choices');
+	assert.match(overviewSource, /Saved rule found \(inactive\)/,
+		'Inactive existing rules are distinguishable from active assignments');
+	assert.match(overviewSource, /Automatic setup prepares the MITM service only/,
+		'Basic routing explains why automatic setup leaves assignments clear');
 
 	const overview = loadLuciModule(overviewSource, modules, {
 		E: fakeElement,
