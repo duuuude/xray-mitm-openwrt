@@ -1,21 +1,36 @@
 # Xray MITM Domain Fronting for OpenWrt
 
-**Instructions:** English | [فارسی](README.fa.md)
+**Version:** `v0.4.2` · **Instructions:** English | [فارسی](README.fa.md) · **Project:** [Changelog](CHANGELOG.md) | [Contributing](CONTRIBUTING.md)
 
-**Project:** [Changelog](CHANGELOG.md) | [Contributing](CONTRIBUTING.md)
+This project adds a standalone Xray MITM-DomainFronting service, a LuCI dashboard, and optional PassWall2 routing to official OpenWrt 25.12 APK-based routers.
 
-This project packages a standalone Xray MITM-DomainFronting service, a LuCI management page, and optional PassWall2 routing for official OpenWrt 25.12 APK-based routers.
+For most users:
+
+1. Install or update with one command.
+2. Open LuCI and go to **Services → MITM Domain Fronting**.
+3. In **Basic**, select **Set up automatically**.
+4. Download and trust the public certificate.
+5. Choose your existing VPN and review the recommended routing.
+6. Apply the routing and select **Run check**.
 
 > [!CAUTION]
-> A trusted MITM certificate authority can decrypt HTTPS traffic from devices that trust it. Use it only on networks and devices you own or are authorized to manage. Install only `mycert.crt` on clients. Keep `mycert.key` on the router and in protected backups.
+> MITM software can decrypt HTTPS traffic from devices that trust its certificate. Use it only on networks and devices you own or are authorized to manage. Install only `mycert.crt` on clients. Keep `mycert.key` on the router and in protected backups.
 
-## Start here
+## Requirements
 
-The supported public feed currently targets official OpenWrt **25.12.5 and later 25.12 maintenance releases**. The router must use the `apk` package manager and have internet access to GitHub and GitHub Pages.
+- Official OpenWrt 25.12.5 or a later 25.12 maintenance release, with `apk` and LuCI.
+- Internet access from the router to GitHub and GitHub Pages.
+- PassWall2 for automatic routing. It is not required for the MITM service itself.
+- A working PassWall2 shunt profile and VPN node for VPN-routed services.
 
-### 1. Install or update with one command
+## Compatibility
 
-Replace `192.168.1.1` if your router uses another address. Enter the router password when asked.
+- Official OpenWrt 25.12.x using APK packages: `xray-mitm` and `luci-app-xray-mitm`.
+- Tested hardware: ASUS TUF-AX4200. Other hardware may work, but is not on the tested list.
+
+## Install or update
+
+The same command is used for a first installation and later updates. Replace `192.168.1.1` if your router uses another address.
 
 **MAC:**
 
@@ -29,256 +44,96 @@ ssh root@192.168.1.1 'wget -qO /tmp/install-xray-mitm.sh https://duuuude.github.
 ssh.exe root@192.168.1.1 'wget -qO /tmp/install-xray-mitm.sh https://duuuude.github.io/xray-mitm-openwrt/install.sh && printf "%s  %s\n" "8af96edc133c01a7e9d0a8f4673b7225c47322d73874c05a9c4a0133f3058405" "/tmp/install-xray-mitm.sh" | sha256sum -c - && sh /tmp/install-xray-mitm.sh'
 ```
 
-If you are already connected through SSH:
-
-**ROUTER:**
+**ROUTER** if you are already connected through SSH:
 
 ```sh
 wget -qO /tmp/install-xray-mitm.sh https://duuuude.github.io/xray-mitm-openwrt/install.sh && printf '%s  %s\n' '8af96edc133c01a7e9d0a8f4673b7225c47322d73874c05a9c4a0133f3058405' '/tmp/install-xray-mitm.sh' | sha256sum -c - && sh /tmp/install-xray-mitm.sh
 ```
 
-The command verifies the public installer before running it. Its pinned SHA-256 is `8af96edc133c01a7e9d0a8f4673b7225c47322d73874c05a9c4a0133f3058405`.
+The installer checks the OpenWrt release, verifies the installer checksum and signed feed, creates a protected backup, and updates only the project packages. It does not install PassWall2, create a certificate, start MITM, or change routing.
 
-The same command handles first installation and later updates. It:
+The pinned installer SHA-256 is `8af96edc133c01a7e9d0a8f4673b7225c47322d73874c05a9c4a0133f3058405`.
 
-1. Checks the OpenWrt release and package manager.
-2. Downloads the project feed public key over HTTPS.
-3. Requires this exact SHA-256 fingerprint before trusting the key:
+When it finishes, open LuCI over **HTTPS** at **Services → MITM Domain Fronting**.
 
-   ```text
-   3e0dc07ffef69d1512500b6add486381d8c261a8ec3fcce54fa403b35320df8a
-   ```
+## First-time setup
 
-4. Adds the signed feed to APK and preserves the feed configuration across firmware upgrades.
-5. Makes a protected backup under `/root/`.
-6. Lets APK verify and install or update `xray-mitm` and `luci-app-xray-mitm` by package name.
+This flow is for a fresh installation. Updates preserve the configuration, active certificate, service state, and PassWall2 routing; repeat setup only if LuCI reports that something is missing.
 
-The installer never uses `--allow-untrusted`, never upgrades every package on the router, and does not create a CA, start the service, or change PassWall2 routing.
+### 1. Set up the router
 
-### 2. Complete first-time setup in LuCI
+In **Basic → Setup**, select **Set up automatically**.
 
-Open LuCI over **HTTPS**, then go to **Services → MITM Domain Fronting**.
+This prepares the default configuration when needed, creates and activates a certificate when needed, starts MITM, and enables startup after reboot. It preserves a valid existing configuration and certificate and does not install PassWall2.
 
-This section is for a new installation. If you are updating an existing
-installation, skip it: updates preserve the configuration, active CA, service
-state, and PassWall2 routing. The setup guide will show **System overview**
-and only ask you to complete items that are not ready.
+### 2. Download and trust the public certificate
 
-For the beginner path, stay in **Simple** view and select **Set up
-automatically**. It installs the packaged configuration when needed,
-generates and activates a CA when needed, starts MITM, and enables automatic
-startup. It does not replace an existing valid configuration or CA.
+In **Basic → Setup**, select **Download public certificate**. Install only `mycert.crt` on devices that should use MITM; the private key stays on the router.
 
-After automatic setup:
+- **macOS:** open it, add it to Keychain Access, and set it to **Always Trust**.
+- **Windows:** open it, select **Install Certificate**, and place it in **Trusted Root Certification Authorities**.
+- **Android:** open Security settings, choose **Install a certificate**, and install it as a CA certificate.
 
-1. Download only `mycert.crt`.
-2. Install `mycert.crt` as a trusted root on each client that should use MITM.
-3. Run the health check and confirm it passes.
-4. Continue to PassWall2 routing below if you need selective routing.
+Menu names can vary by operating-system version. Firefox may use a separate certificate store. Some native applications ignore user-installed certificates or use certificate pinning; test a browser first.
 
-If you choose **Advanced settings** instead, the equivalent manual sequence
-is: install the packaged default configuration, generate or import a matching
-certificate and private key as a candidate, activate the candidate, start the
-service, run the health check, and enable automatic startup. Never copy
-`mycert.key` to a client.
+### 3. Configure recommended routing
 
-Trust the downloaded public CA for your current user:
+If you do not need PassWall2 routing, skip this step. Otherwise open **Basic → Routing** and choose:
 
-**MAC:**
+- **Main routing profile** — the shunt profile already active in PassWall2.
+- **Working VPN connection** — an existing VPN node that already works.
 
-```sh
-security add-trusted-cert -r trustRoot \
-  -k "$HOME/Library/Keychains/login.keychain-db" ./mycert.crt
-```
+Select **Review selected routing**, inspect the destinations, and then select **Apply recommended routing**. MITM-compatible routes require the service to be running; start it in **Advanced → Service** if necessary. The assistant validates the preview and preserves unrelated PassWall2 rules.
 
-**WINDOWS PC (PowerShell):**
+### 4. Check that it works
 
-```powershell
-certutil.exe -user -addstore -f Root .\mycert.crt
-```
+Open **Basic → Status** and select **Run check**. This verifies the router-side MITM service. It does not prove that every client trusts `mycert.crt`.
 
-Firefox may use its own certificate store. If it does, import `mycert.crt` inside Firefox too. Never copy `mycert.key` to a client.
+After it passes, test the intended websites from a client browser. A site using MITM should show `MITM-DomainFronting` as its certificate issuer; a VPN-routed or direct site should show its normal public certificate authority.
 
-### 3. Route selected domains through PassWall2
+## Recommended routing
 
-Skip this step if you only need the local SOCKS service.
+The default model is based on traffic purpose:
 
-1. Open the PassWall2 section on the project’s LuCI page.
-2. Choose the existing shunt node and VPN node.
-3. If you select any MITM-compatible service, confirm that the MITM service
-   is running. The assistant will not allow a preview that would send traffic
-   to a stopped local SOCKS listener.
-4. Select **Review selected routing** or **Preview changes**.
-5. Review the local node, domains, destinations, and rule order.
-6. Select **Apply preview** only after the preview is correct.
+| Traffic | Destination | Purpose |
+| --- | --- | --- |
+| Google services | MITM | Use the local MITM service for the selected Google bundle. |
+| Gemini app and API | Selected VPN | Send Gemini traffic through the working VPN. |
+| Iranian websites and IP addresses | Direct | Avoid the VPN and MITM for selected local traffic. |
 
-The assistant creates at most three package-managed rules, in this order:
+Optional service groups are available in **Basic → Routing**:
 
-1. **VPN Overrides** sends selected Gemini, Android connectivity, YouTube control, and Google Account bundles to the chosen VPN. YouTube video delivery (`googlevideo.com`) is deliberately excluded.
-2. **MITM-Compatible Services** sends selected Google, Meta website, and Fastly-backed website bundles to the local SOCKS node at `127.0.0.1:10808`. Google is recommended; Meta and Fastly stay off until you test them on your devices.
-3. **Regional Direct Access** sends Iranian domains and IP ranges directly.
+- **VPN Overrides** can include Android connectivity checks, YouTube sign-in and controls, and Google Account sign-in. `googlevideo.com` is excluded so high-speed YouTube video delivery can use MITM.
+- **MITM-Compatible Services** can include Google, Meta, and Fastly-backed website groups. Google is the recommended starting point; test Meta and Fastly before relying on native applications.
+- **Regional Direct Access** uses the packaged Iranian domain and IP groups.
 
-The checkboxes add domain bundles to these three rules; they do not create one rule per checkbox. Applying the first three-rule preview migrates older package-managed rules. Recognized user-created legacy rules remain unchanged, but their assignments are removed from the selected shunt to prevent duplicate matches. Keep `localhost_proxy=0` to prevent the standalone Xray output from looping back into PassWall2.
+Each checkbox enables a service group inside one of these assignments; it does not create a separate rule. Most users can keep the recommended choices unchanged.
 
-### 4. Verify from a client
+## Updating
 
-**MAC:**
+Run the same installation command again. It preserves the configuration, active certificate, service state, and PassWall2 routing. Reload LuCI and review the status cards; do not generate a new certificate or repeat setup unless LuCI asks you to.
 
-```sh
-for url in \
-  https://www.google.com \
-  https://www.youtube.com \
-  https://www.cloudflare.com \
-  https://gemini.google.com
-do
-  printf '\n%s\n' "$url"
-  curl -Iv --max-time 20 "$url" 2>&1 |
-    grep -E 'issuer:|^HTTP/'
-done
-```
+## Common problems
 
-**WINDOWS PC (PowerShell):**
+- **PassWall2 is not detected:** MITM can still run, but automatic routing requires PassWall2. Install and enable it, then reload LuCI.
+- **No VPN or routing profile:** add and test a VPN node or shunt profile in PassWall2, then return to **Basic → Routing**.
+- **MITM routes do not work:** in **Advanced → Service**, confirm that MITM is running and the client trusts `mycert.crt`.
+- **Certificate error:** install only the current `mycert.crt`. Never copy `mycert.key`; review certificate state in **Advanced → Certificates**.
+- **Native app fails:** some apps ignore user-installed CAs, use certificate pinning, or use traffic outside the selected group. Confirm the browser path first.
 
-```powershell
-$urls = @(
-  'https://www.google.com',
-  'https://www.youtube.com',
-  'https://www.cloudflare.com',
-  'https://gemini.google.com'
-)
+## Advanced
 
-foreach ($url in $urls) {
-  Write-Host "`n$url"
-  curl.exe -Iv --max-time 20 $url 2>&1 |
-    Select-String -Pattern 'issuer:', 'HTTP/'
-}
-```
+Most users do not need the technical reference. It covers certificate lifecycle, manual service controls, custom routing, rollback, recovery, local SOCKS details, and CLI commands:
 
-A domain using MITM should show:
+- [Advanced usage](docs/ADVANCED.md)
+- [Security](SECURITY.md)
+- [Signed feed operations](docs/SIGNED_FEED.md)
+- [Release testing](docs/RELEASE_TESTING.md)
+- [Contributing and development workflow](CONTRIBUTING.md)
 
-```text
-issuer: CN=MITM-DomainFronting
-```
+## Remove
 
-A domain using VPN or direct routing should show its normal public certificate authority. All expected requests should return a successful HTTP response.
-
-## Updating later
-
-The easiest update is to run the same one-command installer again. After the feed is configured, you can also update directly:
-
-**ROUTER:**
-
-```sh
-apk update
-apk upgrade xray-mitm luci-app-xray-mitm
-```
-
-This upgrades only these two explicitly selected packages and required dependencies. Do not use an unrestricted `apk upgrade` as a replacement for a planned OpenWrt firmware upgrade.
-
-Updates preserve `/etc/config/xray-mitm`, `/etc/xray-mitm/`, the active CA, service settings, and existing PassWall2 configuration. The installer creates `/root/xray-mitm-before-install-YYYYMMDD-HHMMSS.tar.gz` with mode `0600` before changing feed or package state.
-
-After an update, reload LuCI and review the status cards. Do not generate a
-new CA or run first-time setup again unless the page reports that configuration
-or certificate state is missing or needs attention.
-
-## How authentication works
-
-The first one-command run downloads the installer from GitHub over HTTPS. That installer pins the reviewed feed public-key fingerprint shown above. APK then uses the installed public key to authenticate the feed index and every package. Later updates use the same stored key and signed feed.
-
-Production publishing is separate from ordinary pull-request builds:
-
-- Pull requests run offline validation and development artifacts without the production signing key or secrets.
-- A version tag must match the package version exactly.
-- The signing job runs only behind the protected `signed-feed` GitHub environment.
-- The job proves that the protected private key matches the public key committed in `keys/xray-mitm-feed-v1.pem`.
-- OpenWrt’s SDK creates the native signed `packages.adb` index and signed APKs.
-- The workflow publishes the feed through GitHub Pages and keeps the signed files with the matching GitHub Release.
-
-The production private key is never stored in this repository or included in packages. See [Signed feed operations](docs/SIGNED_FEED.md) for publishing, recovery, and key-rotation procedures.
-
-## Requirements and package behavior
-
-The packages are architecture-independent (`all`) but currently require the official OpenWrt 25.12 APK package ecosystem. Dependencies include `xray-core`, `curl`, `openssl-util`, `uci`, `jsonfilter`, `coreutils-stat`, `v2ray-geoip`, and `v2ray-geosite`; LuCI also requires `luci-base`, `rpcd-mod-ucode`, and `ucode-mod-fs`.
-
-The default installation is intentionally inactive. Installing or updating packages does not generate a CA, enable boot startup, start Xray, alter firewall or DNS state, or apply PassWall2 changes. The three Xray listeners remain on localhost:
-
-| Purpose | Address |
-| --- | --- |
-| Local mixed/SOCKS entry | `127.0.0.1:10808` |
-| HTTP/1.1 TLS decrypt tunnel | `127.0.0.1:11666` |
-| HTTP/2 TLS decrypt tunnel | `127.0.0.1:11777` |
-
-## Manual authenticated installation
-
-Use this only when the router cannot reach GitHub Pages. Download the two APKs, `xray-mitm-feed-v1.pem`, `PUBLIC_KEY_SHA256`, and `SHA256SUMS` from the same signed GitHub Release on a Mac or Windows PC.
-
-**ROUTER:**
-
-```sh
-mkdir -p -m 0700 /tmp/xray-mitm-install
-```
-
-**MAC:**
-
-```sh
-cd "/path/to/downloaded/release-files"
-scp -O xray-mitm-*.apk luci-app-xray-mitm-*.apk \
-  xray-mitm-feed-v1.pem PUBLIC_KEY_SHA256 SHA256SUMS \
-  root@192.168.1.1:/tmp/xray-mitm-install/
-```
-
-**WINDOWS PC (PowerShell):**
-
-```powershell
-Set-Location "C:\path\to\downloaded\release-files"
-scp.exe -O .\xray-mitm-*.apk .\luci-app-xray-mitm-*.apk `
-  .\xray-mitm-feed-v1.pem .\PUBLIC_KEY_SHA256 .\SHA256SUMS `
-  root@192.168.1.1:/tmp/xray-mitm-install/
-```
-
-Verify the public-key fingerprint before installing it. Stop if it differs from the fingerprint in this README.
-
-**ROUTER:**
-
-```sh
-cd /tmp/xray-mitm-install
-printf '%s  %s\n' \
-  '3e0dc07ffef69d1512500b6add486381d8c261a8ec3fcce54fa403b35320df8a' \
-  'xray-mitm-feed-v1.pem' | sha256sum -c -
-awk '$2 ~ /[.]apk$/' SHA256SUMS | sha256sum -c -
-mkdir -p /etc/apk/keys
-cp xray-mitm-feed-v1.pem /etc/apk/keys/xray-mitm-feed-v1.pem
-chmod 0644 /etc/apk/keys/xray-mitm-feed-v1.pem
-apk add ./xray-mitm-*.apk ./luci-app-xray-mitm-*.apk
-```
-
-CI development APKs are intentionally outside this production trust path. Do not present them to new users as signed releases.
-
-## Development and release testing
-
-See [Contributing](CONTRIBUTING.md) for the local branch and pull request workflow,
-and [Changelog](CHANGELOG.md) for user-facing release history.
-
-Run all offline safety, installer, routing, certificate, workflow, and syntax checks:
-
-**MAC:**
-
-```sh
-cd "/path/to/xray-mitm-openwrt"
-sh scripts/validate-release.sh
-```
-
-**WINDOWS PC (PowerShell with WSL):**
-
-```powershell
-wsl.exe sh -lc 'cd /path/to/xray-mitm-openwrt && sh scripts/validate-release.sh'
-```
-
-See [Release testing](docs/RELEASE_TESTING.md) before publishing a tag.
-
-## Removal
-
-Before removing the packages, stop the service, disable boot startup, and use the LuCI PassWall2 rollback if routing was applied. Then remove the packages:
+If routing was applied, roll it back in LuCI first. Then stop and remove the packages on the router:
 
 **ROUTER:**
 
@@ -288,8 +143,8 @@ Before removing the packages, stop the service, disable boot startup, and use th
 apk del luci-app-xray-mitm xray-mitm
 ```
 
-Remove `mycert.crt` from every client trust store when interception is no longer intended. Treat any remaining router backup and `mycert.key` as secret material.
+Remove `mycert.crt` from client trust stores when interception is no longer intended. Treat remaining backups and `mycert.key` as secret material.
 
 ## Attribution
 
-The domain-fronting configuration is derived from [patterniha/MITM-DomainFronting v23](https://github.com/patterniha/MITM-DomainFronting/tree/v23), licensed under GPL-3.0. Xray-core, OpenWrt, LuCI, and PassWall2 remain separate upstream projects. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+The packaged domain-fronting configuration is derived from [patterniha/MITM-DomainFronting v23](https://github.com/patterniha/MITM-DomainFronting/tree/v23), licensed under GPL-3.0. Xray-core, OpenWrt, LuCI, and PassWall2 remain separate upstream projects. See [third-party notices](THIRD_PARTY_NOTICES.md).

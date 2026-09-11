@@ -9,6 +9,8 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Rewrite the English and Persian README files as concise beginner-first guides,
+  and add separate advanced-usage and security references.
 - Replace the long Basic and Advanced dashboards with PassWall2-style tabs.
   Switching tabs is immediate and shows only the selected section without
   reloading the LuCI page.
