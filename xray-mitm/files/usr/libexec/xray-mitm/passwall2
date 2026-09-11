@@ -34,6 +34,7 @@ MAX_REQUEST_BYTES=4096
 MAX_INSPECT_NODES=128
 REQUEST_BASENAME='request.json'
 ERROR_EMITTED=0
+RECOVERY_RESTART_ATTEMPTED=0
 # LuCI’s ubus RPC request window is 20 seconds. Keep enough time for a
 # candidate restart and a restored-config restart to both complete on failure.
 PASSWALL_RESTART_TIMEOUT=7
@@ -1011,23 +1012,31 @@ transaction_abort() {
 	status=${1:-70}
 	trap - EXIT HUP INT TERM
 	if [ "${RECOVERY_ACTIVE:-0}" = 1 ]; then
-		log_event "routing recovery started kind=$RECOVERY_KIND reason=interrupted status=$status"
-		if restore_config_checked "$RECOVERY_FILE" "$RECOVERY_TOKEN" "$RECOVERY_HASH"; then
-			log_event "routing recovery restored prior configuration kind=$RECOVERY_KIND"
-			if restart_if_enabled &&
-				cleanup_interrupted_metadata "$RECOVERY_KIND" "$RECOVERY_TOKEN" "$RECOVERY_FILE" "${RECOVERY_PREVIOUS:-}" &&
-				rm -f "$RECOVERY_MARKER"; then
-				rm -f "$RECOVERY_FILE" || true
-				log_event "routing recovery completed kind=$RECOVERY_KIND"
+		if [ "${RECOVERY_RESTART_ATTEMPTED:-0}" = 1 ]; then
+			# A controlled failure already restored the exact UCI file and tried
+			# its one bounded restart. Do not spend another timeout in this EXIT
+			# trap; leave the recovery marker for an explicit later recovery.
+			log_event "routing recovery restart already attempted kind=$RECOVERY_KIND; leaving recovery marker"
+			status=70
+		else
+			log_event "routing recovery started kind=$RECOVERY_KIND reason=interrupted status=$status"
+			if restore_config_checked "$RECOVERY_FILE" "$RECOVERY_TOKEN" "$RECOVERY_HASH"; then
+				log_event "routing recovery restored prior configuration kind=$RECOVERY_KIND"
+				if restart_restored_config &&
+					cleanup_interrupted_metadata "$RECOVERY_KIND" "$RECOVERY_TOKEN" "$RECOVERY_FILE" "${RECOVERY_PREVIOUS:-}" &&
+					rm -f "$RECOVERY_MARKER"; then
+					rm -f "$RECOVERY_FILE" || true
+					log_event "routing recovery completed kind=$RECOVERY_KIND"
+				else
+					log_event "routing recovery restart or cleanup failed kind=$RECOVERY_KIND"
+					status=70
+				fi
 			else
-				log_event "routing recovery restart or cleanup failed kind=$RECOVERY_KIND"
+				log_event "routing recovery could not restore prior configuration kind=$RECOVERY_KIND"
+				[ "$ERROR_EMITTED" -eq 1 ] ||
+					json_error restore_failed 'An interrupted routing transaction could not restore the prior PassWall2 file exactly.'
 				status=70
 			fi
-		else
-			log_event "routing recovery could not restore prior configuration kind=$RECOVERY_KIND"
-			[ "$ERROR_EMITTED" -eq 1 ] ||
-				json_error restore_failed 'An interrupted routing transaction could not restore the prior PassWall2 file exactly.'
-			status=70
 		fi
 	fi
 	if [ "$status" -eq 70 ] && [ "$ERROR_EMITTED" -eq 0 ]; then
@@ -1173,9 +1182,15 @@ terminate_tree() {
 
 run_passwall_restart() {
 	local restart_pid elapsed status
-	# PassWall2 starts long-lived proxy processes. Do not let them inherit the
-	# transaction lock descriptor and keep every later operation busy.
-	"$PW_INIT" restart 9>&- >/dev/null 2>&1 &
+	# PassWall2 26.9.2's init wrapper holds fd 999 while it invokes app.sh.
+	# app.sh starts long-lived proxy processes, which can retain that descriptor
+	# and make later `init.d/passwall2 restart` calls exit without reloading.
+	# Run the same stop/start lifecycle directly under our private transaction
+	# lock, and close that lock before child processes are created.
+	(
+		"$PW_APP" stop &&
+		"$PW_APP" start
+	) 9>&- >/dev/null 2>&1 &
 	restart_pid=$!
 	log_event "passwall restart started pid=$restart_pid timeout=${PASSWALL_RESTART_TIMEOUT}s"
 	elapsed=0
@@ -1214,6 +1229,15 @@ restart_if_enabled() {
 		return "$status"
 	fi
 	return 0
+}
+
+restart_restored_config() {
+	# If this bounded restart also fails, the EXIT trap must not retry it a
+	# third time and outlast LuCI's RPC window. The recovery marker remains so
+	# the exact restored file can be recovered explicitly later.
+	RECOVERY_RESTART_ATTEMPTED=1
+	log_event 'routing recovery restarting restored PassWall2 configuration'
+	restart_if_enabled
 }
 
 install_config() {
@@ -1424,7 +1448,7 @@ apply_plan() {
 		if ! restore_config_checked "$backup" "$token" "$META_SOURCE_HASH"; then
 			die restore_failed 'PassWall2 verification failed and the prior file could not be restored exactly.' 70
 		fi
-		restart_if_enabled || die restore_restart_failed 'The prior PassWall2 file was restored, but its service could not be restarted; recovery remains armed.' 70
+		restart_restored_config || die restore_restart_failed 'The prior PassWall2 file was restored, but its service could not be restarted; recovery remains armed.' 70
 		disarm_recovery || die recovery_marker_failed 'The prior file was restored but the recovery marker could not be cleared.' 70
 		rm -f "$backup"
 		release_lock
@@ -1435,7 +1459,7 @@ apply_plan() {
 		if ! restore_config_checked "$backup" "$token" "$META_SOURCE_HASH"; then
 			die restore_failed 'PassWall2 restart failed and the prior file could not be restored exactly.' 70
 		fi
-		restart_if_enabled || die restore_restart_failed 'The prior PassWall2 file was restored, but its service could not be restarted; recovery remains armed.' 70
+		restart_restored_config || die restore_restart_failed 'The prior PassWall2 file was restored, but its service could not be restarted; recovery remains armed.' 70
 		disarm_recovery || die recovery_marker_failed 'The prior file was restored but the recovery marker could not be cleared.' 70
 		rm -f "$backup"
 		release_lock
@@ -1445,7 +1469,7 @@ apply_plan() {
 		if ! restore_config_checked "$backup" "$token" "$META_SOURCE_HASH"; then
 			die restore_failed 'PassWall2 changed during activation and the prior file could not be restored exactly.' 70
 		fi
-		restart_if_enabled || die restore_restart_failed 'The prior PassWall2 file was restored, but its service could not be restarted; recovery remains armed.' 70
+		restart_restored_config || die restore_restart_failed 'The prior PassWall2 file was restored, but its service could not be restarted; recovery remains armed.' 70
 		disarm_recovery || die recovery_marker_failed 'The prior file was restored but the recovery marker could not be cleared.' 70
 		rm -f "$backup"
 		release_lock
@@ -1505,7 +1529,7 @@ rollback() {
 	if ! restart_if_enabled; then
 		restore_config_checked "$current" "$token" "$META_POST_HASH" ||
 			die restore_failed 'Rollback restart failed and the applied file could not be restored exactly.' 70
-		restart_if_enabled || die restore_restart_failed 'The applied PassWall2 file was restored, but its service could not be restarted; recovery remains armed.' 70
+		restart_restored_config || die restore_restart_failed 'The applied PassWall2 file was restored, but its service could not be restarted; recovery remains armed.' 70
 		disarm_recovery || die recovery_marker_failed 'The applied file was restored but the recovery marker could not be cleared.' 70
 		rm -f "$current"
 		release_lock
@@ -1517,7 +1541,7 @@ rollback() {
 		# an exact rollback.
 		restore_config_checked "$current" "$token" "$META_POST_HASH" ||
 			die restore_failed 'Rollback verification failed and the applied file could not be restored exactly.' 70
-		restart_if_enabled || die restore_restart_failed 'The applied PassWall2 file was restored, but its service could not be restarted; recovery remains armed.' 70
+		restart_restored_config || die restore_restart_failed 'The applied PassWall2 file was restored, but its service could not be restarted; recovery remains armed.' 70
 		disarm_recovery || die recovery_marker_failed 'The applied file was restored but the recovery marker could not be cleared.' 70
 		rm -f "$current"
 		release_lock

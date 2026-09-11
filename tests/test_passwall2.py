@@ -145,14 +145,23 @@ class PassWall2Fixture(unittest.TestCase):
         self.original = self.config.read_bytes()
 
         app = self.root / "usr/share/passwall2/app.sh"
-        app.write_text("# fixture presence marker\n", encoding="utf-8")
+        app.write_text(
+            "#!/bin/sh\n"
+            "[ ! -e /dev/fd/9 ] || exit 70\n"
+            "case \"${1:-}\" in\n"
+            "  stop) exit 0 ;;\n"
+            "  start) printf 'restart\\n' >>\"$XRAY_MITM_TEST_ROOT/tmp/restarts\" ;;\n"
+            "  *) exit 64 ;;\n"
+            "esac\n",
+            encoding="utf-8",
+        )
+        app.chmod(0o755)
 
         init = self.root / "etc/init.d/passwall2"
         init.write_text(
             "#!/bin/sh\n"
-            "[ \"${1:-}\" = restart ] || exit 64\n"
-            "[ ! -e /dev/fd/9 ] || exit 70\n"
-            "printf 'restart\\n' >>\"$XRAY_MITM_TEST_ROOT/tmp/restarts\"\n",
+            "touch \"$XRAY_MITM_TEST_ROOT/tmp/init-called\"\n"
+            "exit 70\n",
             encoding="utf-8",
         )
         init.chmod(0o755)
@@ -239,6 +248,10 @@ class PassWall2Fixture(unittest.TestCase):
         path = self.root / "tmp/restarts"
         return len(path.read_text(encoding="utf-8").splitlines()) if path.exists() else 0
 
+    def restart_attempt_count(self) -> int:
+        path = self.root / "tmp/restart-attempts"
+        return len(path.read_text(encoding="utf-8").splitlines()) if path.exists() else 0
+
     def plan_all(self) -> dict[str, object]:
         _, payload = self.helper("plan", str(self.request_file()))
         self.assertTrue(payload["ok"])
@@ -312,6 +325,7 @@ class PassWall2Fixture(unittest.TestCase):
         self.assertEqual(applied["transaction"], token)
         self.assertTrue(applied["rollback_available"])
         self.assertEqual(self.restart_count(), 1)
+        self.assertFalse((self.root / "tmp/init-called").exists())
         self.assertEqual(self.uci("get", "passwall2.@global[0].localhost_proxy"), "0")
         self.assertEqual(self.uci("get", "passwall2.xray_mitm_socks.address"), "127.0.0.1")
         self.assertEqual(self.uci("get", "passwall2.xray_mitm_socks.port"), "10808")
@@ -379,17 +393,24 @@ class PassWall2Fixture(unittest.TestCase):
         self.assertEqual(self.restart_count(), 1)
 
     def test_hung_candidate_restart_is_bounded_and_restores_previous_config(self) -> None:
-        init = self.root / "etc/init.d/passwall2"
-        init.write_text(
+        app = self.root / "usr/share/passwall2/app.sh"
+        app.write_text(
             "#!/bin/sh\n"
-            "[ \"${1:-}\" = restart ] || exit 64\n"
-            "if grep -q xray_mitm_vpn_overrides \"$XRAY_MITM_TEST_ROOT/etc/config/passwall2\"; then\n"
-            "    sleep 10\n"
-            "fi\n"
-            "printf 'restart\\n' >>\"$XRAY_MITM_TEST_ROOT/tmp/restarts\"\n",
+            "[ ! -e /dev/fd/9 ] || exit 70\n"
+            "case \"${1:-}\" in\n"
+            "  stop) exit 0 ;;\n"
+            "  start)\n"
+            "    printf 'attempt\\n' >>\"$XRAY_MITM_TEST_ROOT/tmp/restart-attempts\"\n"
+            "    if grep -q xray_mitm_vpn_overrides \"$XRAY_MITM_TEST_ROOT/etc/config/passwall2\"; then\n"
+            "      sleep 10\n"
+            "    fi\n"
+            "    printf 'restart\\n' >>\"$XRAY_MITM_TEST_ROOT/tmp/restarts\"\n"
+            "    ;;\n"
+            "  *) exit 64 ;;\n"
+            "esac\n",
             encoding="utf-8",
         )
-        init.chmod(0o755)
+        app.chmod(0o755)
         self.env["XRAY_MITM_PASSWALL_RESTART_TIMEOUT"] = "1"
 
         plan = self.plan_all()
@@ -402,9 +423,42 @@ class PassWall2Fixture(unittest.TestCase):
         self.assertEqual(payload["error"], "service_restart_failed")
         self.assertEqual(self.config.read_bytes(), self.original)
         self.assertEqual(self.restart_count(), 1)
+        self.assertEqual(self.restart_attempt_count(), 2)
         state = self.root / "etc/xray-mitm/passwall2-routing"
         self.assertFalse((state / "recovery").exists())
         self.assertFalse((state / "backups" / f"{plan['token']}.passwall2").exists())
+
+    def test_second_hung_restart_is_not_retried_by_exit_recovery(self) -> None:
+        app = self.root / "usr/share/passwall2/app.sh"
+        app.write_text(
+            "#!/bin/sh\n"
+            "[ ! -e /dev/fd/9 ] || exit 70\n"
+            "case \"${1:-}\" in\n"
+            "  stop) exit 0 ;;\n"
+            "  start)\n"
+            "    printf 'attempt\\n' >>\"$XRAY_MITM_TEST_ROOT/tmp/restart-attempts\"\n"
+            "    sleep 10\n"
+            "    ;;\n"
+            "  *) exit 64 ;;\n"
+            "esac\n",
+            encoding="utf-8",
+        )
+        app.chmod(0o755)
+        self.env["XRAY_MITM_PASSWALL_RESTART_TIMEOUT"] = "1"
+
+        plan = self.plan_all()
+        started = time.monotonic()
+        _, payload = self.helper("apply", str(plan["token"]), expected_status=70)
+        elapsed = time.monotonic() - started
+
+        self.assertLess(elapsed, 8)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["error"], "restore_restart_failed")
+        self.assertEqual(self.config.read_bytes(), self.original)
+        self.assertEqual(self.restart_attempt_count(), 2)
+        state = self.root / "etc/xray-mitm/passwall2-routing"
+        self.assertTrue((state / "recovery").exists())
+        self.assertTrue((state / "backups" / f"{plan['token']}.passwall2").exists())
 
     def test_meta_and_fastly_bundles_require_mitm_and_use_one_rule(self) -> None:
         _, plan = self.helper("plan", str(self.request_file({
