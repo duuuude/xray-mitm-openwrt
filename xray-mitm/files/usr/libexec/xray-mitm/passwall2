@@ -34,7 +34,9 @@ MAX_REQUEST_BYTES=4096
 MAX_INSPECT_NODES=128
 REQUEST_BASENAME='request.json'
 ERROR_EMITTED=0
-PASSWALL_RESTART_TIMEOUT=45
+# LuCI’s ubus RPC request window is 20 seconds. Keep enough time for a
+# candidate restart and a restored-config restart to both complete on failure.
+PASSWALL_RESTART_TIMEOUT=7
 
 case "${XRAY_MITM_PASSWALL_RESTART_TIMEOUT:-}" in
 	''|*[!0-9]*) ;;
