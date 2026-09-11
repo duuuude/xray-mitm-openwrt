@@ -601,7 +601,7 @@ return view.extend({
 		});
 	},
 
-	reviewRecommendedRouting: function(ev) {
+		reviewRecommendedRouting: function(ev) {
 		var shunts = optionList(this.passwall.shunt_nodes || this.passwall.shunts);
 		var vpns = optionList(this.passwall.vpn_nodes || this.passwall.vpns);
 		var shunt = this.passwall.selected_shunt || (shunts[0] && shunts[0].id);
@@ -655,6 +655,20 @@ return view.extend({
 		}, this)).catch(function(error) {
 			dom.content(output, E('div', { class: 'alert-message danger' }, textNode(error.message)));
 		}).then(function() { setBusy(button, false); });
+	},
+
+	setSimpleRoutingChoices: function(values) {
+		Object.keys(values).forEach(function(name) {
+			var element = document.getElementById('xray-mitm-simple-route-' + name.replace(/_/g, '-'));
+			if (element && element.type === 'checkbox')
+				element.checked = values[name] === true;
+		});
+
+		this.routingSelectionChanged();
+	},
+
+	useSimpleRecommendedRouting: function() {
+		this.setSimpleRoutingChoices(state.recommendedChoices());
 	},
 
 	generateCandidate: function(ev) {
@@ -1095,6 +1109,10 @@ return view.extend({
 					E('div', { class: 'alert-message notice' }, _(
 						'Automatic setup prepares the MITM service only. These checkboxes show PassWall2 assignments and change only when you apply a routing preview.'
 					)),
+					E('p', {}, _('New to PassWall2? Start with the recommended choices, review the preview, then apply it.')),
+					E('p', {}, E('button', {
+						class: 'btn cbi-button-action', click: ui.createHandlerFn(this, 'useSimpleRecommendedRouting')
+					}, _('Use recommended setup'))),
 					this.simpleRoutingTable(routingState, passwall),
 					E('label', { for: 'xray-mitm-simple-vpn', style: 'display:block;font-weight:600;margin-bottom:.35rem' }, _('VPN destination for selected overrides')),
 					selectControl('xray-mitm-simple-vpn', vpns, selectedVpn, function() {

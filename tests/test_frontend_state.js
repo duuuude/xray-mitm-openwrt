@@ -170,6 +170,10 @@ function testOverviewLoadsAndRendersWithLuCIStateDependency() {
 		'Inactive existing rules are distinguishable from active assignments');
 	assert.match(overviewSource, /Automatic setup prepares the MITM service only/,
 		'Basic routing explains why automatic setup leaves assignments clear');
+	assert.match(overviewSource, /useSimpleRecommendedRouting/,
+		'Basic routing provides a recommended setup action');
+	assert.match(overviewSource, /New to PassWall2\? Start with the recommended choices/,
+		'Basic routing explains the new-user setup flow');
 
 	const overview = loadLuciModule(overviewSource, modules, {
 		E: fakeElement,
