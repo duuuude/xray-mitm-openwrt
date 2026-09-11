@@ -2,12 +2,57 @@
 	"admin/services/xray-mitm": {
 		"title": "MITM Domain Fronting",
 		"order": 91,
-		"action": {
-			"type": "view",
-			"path": "xray-mitm/overview"
-		},
-		"depends": {
-			"acl": [ "luci-app-xray-mitm" ]
-		}
+		"action": { "type": "firstchild" },
+		"depends": { "acl": [ "luci-app-xray-mitm" ] }
+	},
+	"admin/services/xray-mitm/basic": {
+		"title": "Basic",
+		"order": 10,
+		"action": { "type": "firstchild" }
+	},
+	"admin/services/xray-mitm/basic/overview": {
+		"title": "Overview",
+		"order": 10,
+		"action": { "type": "view", "path": "xray-mitm/overview" }
+	},
+	"admin/services/xray-mitm/basic/setup": {
+		"title": "Setup",
+		"order": 20,
+		"action": { "type": "view", "path": "xray-mitm/overview" }
+	},
+	"admin/services/xray-mitm/basic/routing": {
+		"title": "Routing",
+		"order": 30,
+		"action": { "type": "view", "path": "xray-mitm/overview" }
+	},
+	"admin/services/xray-mitm/basic/status": {
+		"title": "Status",
+		"order": 40,
+		"action": { "type": "view", "path": "xray-mitm/overview" }
+	},
+	"admin/services/xray-mitm/advanced": {
+		"title": "Advanced",
+		"order": 20,
+		"action": { "type": "firstchild" }
+	},
+	"admin/services/xray-mitm/advanced/overview": {
+		"title": "Overview",
+		"order": 10,
+		"action": { "type": "view", "path": "xray-mitm/overview" }
+	},
+	"admin/services/xray-mitm/advanced/service": {
+		"title": "Service",
+		"order": 20,
+		"action": { "type": "view", "path": "xray-mitm/overview" }
+	},
+	"admin/services/xray-mitm/advanced/certificates": {
+		"title": "Certificates",
+		"order": 30,
+		"action": { "type": "view", "path": "xray-mitm/overview" }
+	},
+	"admin/services/xray-mitm/advanced/routing": {
+		"title": "Routing",
+		"order": 40,
+		"action": { "type": "view", "path": "xray-mitm/overview" }
 	}
 }

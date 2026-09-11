@@ -7,6 +7,11 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- Replace the long Basic and Advanced dashboards with native LuCI routed tabs.
+  Each tab now has its own URL and renders only its relevant section.
+
 ### Fixed
 
 - Load the dashboard state helper through LuCI's dependency-injection directive

@@ -529,25 +529,57 @@ return view.extend({
 			dom.content(target, statusPill(label, tone));
 	},
 
+	routeContext: function() {
+		var path = (L.env && L.env.dispatchpath) || [];
+		var mode = path[3] === 'advanced' ? 'advanced' : 'basic';
+		var allowed = mode === 'advanced' ?
+			[ 'overview', 'service', 'certificates', 'routing' ] :
+			[ 'overview', 'setup', 'routing', 'status' ];
+		var page = path[4] || 'overview';
+
+		return {
+			mode: mode,
+			page: allowed.indexOf(page) > -1 ? page : 'overview'
+		};
+	},
+
+	pageNavigation: function(route) {
+		var groups = [
+			{ name: 'basic', label: _('Basic') },
+			{ name: 'advanced', label: _('Advanced') }
+		];
+		var pages = route.mode === 'advanced' ? [
+			{ name: 'overview', label: _('Overview') },
+			{ name: 'service', label: _('Service') },
+			{ name: 'certificates', label: _('Certificates') },
+			{ name: 'routing', label: _('Routing') }
+		] : [
+			{ name: 'overview', label: _('Overview') },
+			{ name: 'setup', label: _('Setup') },
+			{ name: 'routing', label: _('Routing') },
+			{ name: 'status', label: _('Status') }
+		];
+		var tabRow = function(items, active, href) {
+			return E('ul', { class: 'tabs', style: 'margin-bottom:.5rem' }, items.map(function(item) {
+				return E('li', { class: item.name === active ? 'active' : '' }, E('a', {
+					href: href(item.name)
+				}, item.label));
+			}));
+		};
+
+		return E('nav', { 'aria-label': _('MITM Domain Fronting pages') }, [
+			tabRow(groups, route.mode, function(mode) {
+				return L.url('admin/services/xray-mitm/' + mode + '/overview');
+			}),
+			tabRow(pages, route.page, function(page) {
+				return L.url('admin/services/xray-mitm/' + route.mode + '/' + page);
+			})
+		]);
+	},
+
 	switchMode: function(mode) {
-		var simple = document.getElementById('xray-mitm-simple');
-		var advanced = document.getElementById('xray-mitm-advanced');
-		var simpleButton = document.getElementById('xray-mitm-mode-simple');
-		var advancedButton = document.getElementById('xray-mitm-mode-advanced');
-		var showAdvanced = mode === 'advanced';
-		if (simple)
-			simple.style.display = showAdvanced ? 'none' : '';
-		if (advanced)
-			advanced.style.display = showAdvanced ? '' : 'none';
-		if (simpleButton)
-			simpleButton.className = showAdvanced ? 'btn' : 'btn cbi-button-action';
-		if (simpleButton)
-			simpleButton.setAttribute('aria-pressed', showAdvanced ? 'false' : 'true');
-		if (advancedButton)
-			advancedButton.className = showAdvanced ? 'btn cbi-button-action' : 'btn';
-		if (advancedButton)
-			advancedButton.setAttribute('aria-pressed', showAdvanced ? 'true' : 'false');
-		window.scrollTo({ top: 0, behavior: 'smooth' });
+		window.location.href = L.url('admin/services/xray-mitm/' +
+			(mode === 'advanced' ? 'advanced' : 'basic') + '/overview');
 	},
 
 	reviewRecommendedRouting: function(ev) {
@@ -822,24 +854,6 @@ return view.extend({
 		]);
 	},
 
-	simpleNavigation: function() {
-		return E('nav', {
-			'aria-label': _('MITM Domain Fronting sections'),
-			style: 'display:flex;gap:.35rem;flex-wrap:wrap;margin:1rem 0'
-		}, [
-			[ 'xray-mitm-simple-basic', _('Basic settings') ],
-			[ 'xray-mitm-simple-certificate', _('Certificate') ],
-			[ 'xray-mitm-simple-routing', _('Routing rules') ],
-			[ 'xray-mitm-simple-status', _('Status') ]
-		].map(function(item) {
-			return E('a', {
-				href: '#' + item[0],
-				class: 'btn',
-				style: 'text-decoration:none'
-			}, item[1]);
-		}));
-	},
-
 	simpleRoutingTable: function(routing, passwall) {
 		routing = routing || {};
 		passwall = passwall || {};
@@ -901,7 +915,7 @@ return view.extend({
 		]));
 	},
 
-	renderSimple: function(setup, status, certificates, passwall) {
+	renderSimple: function(setup, status, certificates, passwall, page) {
 		var current = slotData(certificates, 'current');
 		var certificateReady = setup.certificate && setup.certificate.ready === true;
 		var candidateAttention = setup.certificate && setup.certificate.candidate_requires_attention === true;
@@ -915,10 +929,10 @@ return view.extend({
 			routingState.recovery_pending !== true && shunts.length > 0 && vpns.length > 0;
 		var setupBlocked = candidateAttention || certificateAttention;
 		var setupComplete = setup.ready === true && setup.service && setup.service.boot_enabled === true;
+		var pageStyle = function(name) { return page === name ? '' : 'display:none'; };
 
 		return E('div', { id: 'xray-mitm-simple' }, [
-			this.simpleNavigation(),
-			E('div', { id: 'xray-mitm-simple-basic', class: 'cbi-section' }, [
+			E('div', { id: 'xray-mitm-simple-basic', class: 'cbi-section', style: pageStyle('overview') }, [
 				E('h3', {}, _('Basic settings')),
 				E('div', { style: 'display:grid;grid-template-columns:repeat(auto-fit,minmax(13rem,1fr));gap:.7rem;margin:1rem 0' }, [
 					this.simpleStatusCard(_('MITM service'), status.running === true ? _('Running') : _('Stopped'), status.running === true ? 'good' : 'warn', _('Local SOCKS: 127.0.0.1:10808')),
@@ -934,7 +948,7 @@ return view.extend({
 				this.simpleStateRow(_('VPN connection'), passwallState.vpn_available === true ? _('Available') : _('Missing'),
 					passwallState.vpn_available === true ? 'good' : 'warn')
 			]),
-			E('div', { id: 'xray-mitm-simple-certificate', class: 'cbi-section' }, [
+			E('div', { id: 'xray-mitm-simple-certificate', class: 'cbi-section', style: pageStyle('setup') }, [
 				E('h3', {}, _('Setup')),
 				this.simpleStateRow(_('Router configuration'), setup.config && setup.config.present === true ? _('Ready') : _('Needed'),
 					setup.config && setup.config.present === true ? 'good' : 'warn'),
@@ -951,7 +965,7 @@ return view.extend({
 					click: ui.createHandlerFn(this, 'setupRecommended')
 				}, setupComplete ? _('Setup complete') : _('Set up automatically')))
 			]),
-			E('div', { class: 'cbi-section' }, [
+			E('div', { class: 'cbi-section', style: pageStyle('setup') }, [
 				E('h3', {}, _('Certificate for your device')),
 				E('p', {}, _('Devices using MITM websites must trust this public certificate. The private key stays on the router.')),
 				certificateReady && slotPresent(current) ? E('p', {}, E('button', {
@@ -970,7 +984,7 @@ return view.extend({
 					])
 				])
 			]),
-			E('div', { id: 'xray-mitm-simple-routing', class: 'cbi-section' }, [
+			E('div', { id: 'xray-mitm-simple-routing', class: 'cbi-section', style: pageStyle('routing') }, [
 				E('h3', {}, _('Routing rules')),
 				E('p', {}, _('Choose the service groups to use. The table shows the destination that will be assigned in PassWall2.')),
 				passwallState.installed !== true ? E('div', { class: 'alert-message warning' }, _(
@@ -994,7 +1008,7 @@ return view.extend({
 					E('div', { id: 'xray-mitm-simple-routing-preview', 'aria-live': 'polite' })
 				]) : ''
 			]),
-			E('div', { id: 'xray-mitm-simple-status', class: 'cbi-section' }, [
+			E('div', { id: 'xray-mitm-simple-status', class: 'cbi-section', style: pageStyle('status') }, [
 				E('h3', {}, _('Status')),
 				this.simpleStateRow(_('MITM'), status.running === true ? _('Running') : _('Stopped'), status.running === true ? 'good' : 'warn'),
 				this.simpleStateRow(_('Routing'), routingState.recommended_matches_current === true ? _('Recommended') :
@@ -1010,10 +1024,7 @@ return view.extend({
 					class: 'btn cbi-button-action', disabled: status.running === true ? null : '',
 					click: ui.createHandlerFn(this, 'runHealth')
 				}, _('Run check')))
-			]),
-			E('p', {}, E('button', {
-				class: 'btn', click: ui.createHandlerFn(this, 'switchMode', 'advanced')
-			}, _('Advanced settings →')))
+			])
 		]);
 	},
 
@@ -1337,34 +1348,31 @@ return view.extend({
 		this.passwall = data[3] || {};
 		this.planToken = null;
 		this.rollbackTransaction = this.passwall.rollback_transaction || null;
+		var route = this.routeContext();
+		var advancedPages = {
+			overview: this.renderSetupGuide(this.status, this.certificates, this.passwall),
+			service: this.renderService(this.status),
+			certificates: this.renderCertificates(this.certificates),
+			routing: this.renderRouting(this.passwall)
+		};
 
 		return E('div', {}, [
 			E('h2', {}, _('MITM Domain Fronting')),
 			E('p', {}, _(
 				'Prepare the MITM service, download the public certificate, and configure safe PassWall2 routing.'
 			)),
-			E('div', { style: 'display:flex;gap:.5rem;margin:1rem 0' }, [
-				E('button', {
-					id: 'xray-mitm-mode-simple', class: 'btn cbi-button-action', 'aria-pressed': 'true',
-					click: ui.createHandlerFn(this, 'switchMode', 'simple')
-				}, _('Simple')),
-				E('button', {
-					id: 'xray-mitm-mode-advanced', class: 'btn', 'aria-pressed': 'false',
-					click: ui.createHandlerFn(this, 'switchMode', 'advanced')
-				}, _('Advanced'))
-			]),
+			this.pageNavigation(route),
 			this.setup.ok === false ? E('div', { class: 'alert-message danger' }, textNode(this.setup.error, _('Unable to read setup status.'))) : '',
-			this.renderSimple(this.setup, this.status, this.certificates, this.passwall),
-			E('div', { id: 'xray-mitm-advanced', style: 'display:none' }, [
+			route.mode === 'basic' ? this.renderSimple(
+				this.setup, this.status, this.certificates, this.passwall, route.page
+			) : '',
+			route.mode === 'advanced' ? E('div', { id: 'xray-mitm-advanced' }, [
 				E('div', { class: 'alert-message notice' }, _(
 					'Advanced settings expose manual service, certificate, transaction, and routing controls.'
 				)),
-				this.status.ok === false ? E('div', { class: 'alert-message danger' }, textNode(this.status.error, _('Unable to read service status.'))) : '',
-				this.renderSetupGuide(this.status, this.certificates, this.passwall),
-				this.renderService(this.status),
-				this.renderCertificates(this.certificates),
-				this.renderRouting(this.passwall)
-			]),
+				route.page === 'service' && this.status.ok === false ? E('div', { class: 'alert-message danger' }, textNode(this.status.error, _('Unable to read service status.'))) : '',
+				advancedPages[route.page]
+			]) : '',
 			E('div', { class: 'alert-message warning' }, _(
 				'Trust the public CA only on devices you control. Never copy, publish, or download the router private CA key.'
 			))

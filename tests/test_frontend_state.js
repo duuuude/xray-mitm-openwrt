@@ -8,6 +8,8 @@ const modulePath = path.join(__dirname, '..', 'luci-app-xray-mitm', 'htdocs',
 	'luci-static', 'resources', 'xray-mitm', 'state.js');
 const overviewPath = path.join(__dirname, '..', 'luci-app-xray-mitm', 'htdocs',
 	'luci-static', 'resources', 'view', 'xray-mitm', 'overview.js');
+const menuPath = path.join(__dirname, '..', 'luci-app-xray-mitm', 'root',
+	'usr', 'share', 'luci', 'menu.d', 'luci-app-xray-mitm.json');
 
 function loadLuciModule(moduleSource, modules, globals) {
 	const dependencies = [];
@@ -146,7 +148,11 @@ function testOverviewLoadsAndRendersWithLuCIStateDependency() {
 		return { tag: tag, attributes: attributes, children: children };
 	};
 	const fakeDocument = { createTextNode: function(value) { return value; } };
-	const fakeLuCI = { bind: function(fn, context) { return fn.bind(context); } };
+	const fakeLuCI = {
+		bind: function(fn, context) { return fn.bind(context); },
+		env: { dispatchpath: [ 'admin', 'services', 'xray-mitm', 'basic', 'overview' ] },
+		url: function(value) { return '/' + value; }
+	};
 	const overviewSource = fs.readFileSync(overviewPath, 'utf8');
 
 	assert.doesNotMatch(overviewSource, /\brequire\s*\(/,
@@ -162,6 +168,28 @@ function testOverviewLoadsAndRendersWithLuCIStateDependency() {
 	assert.doesNotThrow(function() {
 		overview.renderSetupGuide({ configured: false, running: false }, {}, {});
 	});
+	assert.deepStrictEqual(overview.routeContext(), { mode: 'basic', page: 'overview' });
+	fakeLuCI.env.dispatchpath = [ 'admin', 'services', 'xray-mitm', 'advanced', 'certificates' ];
+	assert.deepStrictEqual(overview.routeContext(), { mode: 'advanced', page: 'certificates' });
+	fakeLuCI.env.dispatchpath = [ 'admin', 'services', 'xray-mitm', 'advanced', 'unknown' ];
+	assert.deepStrictEqual(overview.routeContext(), { mode: 'advanced', page: 'overview' });
+}
+
+function testRoutedPageMenu() {
+	const menu = JSON.parse(fs.readFileSync(menuPath, 'utf8'));
+	const root = 'admin/services/xray-mitm';
+	const pages = [
+		'basic/overview', 'basic/setup', 'basic/routing', 'basic/status',
+		'advanced/overview', 'advanced/service', 'advanced/certificates', 'advanced/routing'
+	];
+
+	assert.strictEqual(menu[root].action.type, 'firstchild');
+	assert.strictEqual(menu[root + '/basic'].action.type, 'firstchild');
+	assert.strictEqual(menu[root + '/advanced'].action.type, 'firstchild');
+	pages.forEach(function(page) {
+		assert.strictEqual(menu[root + '/' + page].action.type, 'view');
+		assert.strictEqual(menu[root + '/' + page].action.path, 'xray-mitm/overview');
+	});
 }
 
 testPasswallSelection();
@@ -169,4 +197,5 @@ testSimpleState();
 testRoutingArguments();
 testRouteStatusAndProgress();
 testOverviewLoadsAndRendersWithLuCIStateDependency();
+testRoutedPageMenu();
 console.log('Frontend state tests passed.');
