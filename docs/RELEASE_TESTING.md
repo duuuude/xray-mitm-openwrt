@@ -38,9 +38,12 @@ JavaScript, templates, styles, RPC data, and ACL access.
    preserved unless the release intentionally changes them.
 7. Save the tested commit, candidate version, page, control results, console result,
    and any screenshot in the release or pull-request evidence.
+8. Present the exact tested UI candidate to the project owner and record explicit
+   visual approval before pushing, merging, tagging, or publishing it.
 
 A syntax check, mocked frontend test, successful APK build, or green GitHub Actions
-run is insufficient by itself. Do not merge or publish until this gate passes.
+run is insufficient by itself. The owner's silence is not UI approval. Do not push,
+merge, tag, or publish until both the browser test and visual approval pass.
 
 ## 3. Signed publishing checks
 

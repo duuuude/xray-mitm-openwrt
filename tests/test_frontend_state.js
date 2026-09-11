@@ -150,13 +150,16 @@ function testOverviewLoadsAndRendersWithLuCIStateDependency() {
 	const fakeDocument = { createTextNode: function(value) { return value; } };
 	const fakeLuCI = {
 		bind: function(fn, context) { return fn.bind(context); },
-		env: { dispatchpath: [ 'admin', 'services', 'xray-mitm', 'basic', 'overview' ] },
 		url: function(value) { return '/' + value; }
 	};
 	const overviewSource = fs.readFileSync(overviewPath, 'utf8');
 
 	assert.doesNotMatch(overviewSource, /\brequire\s*\(/,
 		'LuCI modules must use loader directives instead of CommonJS require()');
+	assert.match(overviewSource, /var PROJECT_VERSION = '0\.4\.2';/,
+		'LuCI dashboard keeps the current project version fallback');
+	assert.match(overviewSource, /xray-mitm-version-badge/,
+		'LuCI dashboard renders a visible application version badge');
 
 	const overview = loadLuciModule(overviewSource, modules, {
 		E: fakeElement,
@@ -168,28 +171,84 @@ function testOverviewLoadsAndRendersWithLuCIStateDependency() {
 	assert.doesNotThrow(function() {
 		overview.renderSetupGuide({ configured: false, running: false }, {}, {});
 	});
-	assert.deepStrictEqual(overview.routeContext(), { mode: 'basic', page: 'overview' });
-	fakeLuCI.env.dispatchpath = [ 'admin', 'services', 'xray-mitm', 'advanced', 'certificates' ];
-	assert.deepStrictEqual(overview.routeContext(), { mode: 'advanced', page: 'certificates' });
-	fakeLuCI.env.dispatchpath = [ 'admin', 'services', 'xray-mitm', 'advanced', 'unknown' ];
-	assert.deepStrictEqual(overview.routeContext(), { mode: 'advanced', page: 'overview' });
+	assert.strictEqual(typeof overview.switchDashboardPage, 'function');
 }
 
-function testRoutedPageMenu() {
+function testSingleViewMenu() {
 	const menu = JSON.parse(fs.readFileSync(menuPath, 'utf8'));
 	const root = 'admin/services/xray-mitm';
-	const pages = [
-		'basic/overview', 'basic/setup', 'basic/routing', 'basic/status',
-		'advanced/overview', 'advanced/service', 'advanced/certificates', 'advanced/routing'
-	];
 
-	assert.strictEqual(menu[root].action.type, 'firstchild');
-	assert.strictEqual(menu[root + '/basic'].action.type, 'firstchild');
-	assert.strictEqual(menu[root + '/advanced'].action.type, 'firstchild');
-	pages.forEach(function(page) {
-		assert.strictEqual(menu[root + '/' + page].action.type, 'view');
-		assert.strictEqual(menu[root + '/' + page].action.path, 'xray-mitm/overview');
+	assert.deepStrictEqual(Object.keys(menu), [ root ]);
+	assert.strictEqual(menu[root].action.type, 'view');
+	assert.strictEqual(menu[root].action.path, 'xray-mitm/overview');
+}
+
+function testClientSideDashboardTabs() {
+	function node(attributes) {
+		return {
+			attributes: attributes || {},
+			style: {},
+			className: '',
+			getAttribute: function(name) { return this.attributes[name]; }
+		};
+	}
+
+	const simple = node();
+	const advanced = node();
+	const panels = [
+		node({ 'data-dashboard-panel-mode': 'basic', 'data-dashboard-panel-page': 'overview' }),
+		node({ 'data-dashboard-panel-mode': 'basic', 'data-dashboard-panel-page': 'routing' }),
+		node({ 'data-dashboard-panel-mode': 'advanced', 'data-dashboard-panel-page': 'overview' }),
+		node({ 'data-dashboard-panel-mode': 'advanced', 'data-dashboard-panel-page': 'service' })
+	];
+	const rows = [
+		node({ 'data-dashboard-tabs': 'mode' }),
+		node({ 'data-dashboard-tabs': 'basic' }),
+		node({ 'data-dashboard-tabs': 'advanced' })
+	];
+	const tabs = [
+		node({ 'data-dashboard-tab-mode': 'mode', 'data-dashboard-tab-page': 'basic' }),
+		node({ 'data-dashboard-tab-mode': 'mode', 'data-dashboard-tab-page': 'advanced' }),
+		node({ 'data-dashboard-tab-mode': 'basic', 'data-dashboard-tab-page': 'overview' }),
+		node({ 'data-dashboard-tab-mode': 'advanced', 'data-dashboard-tab-page': 'service' })
+	];
+	const fakeDocument = {
+		createTextNode: function(value) { return value; },
+		getElementById: function(id) {
+			return id === 'xray-mitm-simple' ? simple :
+				(id === 'xray-mitm-advanced' ? advanced : null);
+		},
+		querySelectorAll: function(selector) {
+			return selector === '[data-dashboard-panel-mode]' ? panels :
+				(selector === '[data-dashboard-tabs]' ? rows : tabs);
+		}
+	};
+	const overviewSource = fs.readFileSync(overviewPath, 'utf8');
+	const overview = loadLuciModule(overviewSource, {
+		view: { extend: function(methods) { return methods; } },
+		rpc: { declare: function() { return function() {}; } },
+		ui: { addNotification: function() {}, createHandlerFn: function() { return function() {}; } },
+		dom: { content: function() {} },
+		'xray-mitm.state': {}
+	}, {
+		E: function() {},
+		_: function(value) { return value; },
+		document: fakeDocument,
+		L: { bind: function(fn, context) { return fn.bind(context); } }
 	});
+
+	overview.switchDashboardPage('mode', 'advanced');
+	assert.strictEqual(simple.style.display, 'none');
+	assert.strictEqual(advanced.style.display, '');
+	assert.strictEqual(rows[1].style.display, 'none');
+	assert.strictEqual(rows[2].style.display, '');
+	assert.strictEqual(panels[2].style.display, '');
+	assert.strictEqual(tabs[1].className, 'cbi-tab');
+
+	overview.switchDashboardPage('advanced', 'service');
+	assert.strictEqual(panels[2].style.display, 'none');
+	assert.strictEqual(panels[3].style.display, '');
+	assert.strictEqual(tabs[3].className, 'cbi-tab');
 }
 
 testPasswallSelection();
@@ -197,5 +256,6 @@ testSimpleState();
 testRoutingArguments();
 testRouteStatusAndProgress();
 testOverviewLoadsAndRendersWithLuCIStateDependency();
-testRoutedPageMenu();
+testSingleViewMenu();
+testClientSideDashboardTabs();
 console.log('Frontend state tests passed.');

@@ -5,6 +5,9 @@
 'require dom';
 'require xray-mitm.state as state';
 
+/* Keep this fallback synchronized with xray-mitm/Makefile PKG_VERSION. */
+var PROJECT_VERSION = '0.4.2';
+
 var callGetStatus = rpc.declare({
 	object: 'luci.xray-mitm',
 	method: 'getStatus',
@@ -529,57 +532,73 @@ return view.extend({
 			dom.content(target, statusPill(label, tone));
 	},
 
-	routeContext: function() {
-		var path = (L.env && L.env.dispatchpath) || [];
-		var mode = path[3] === 'advanced' ? 'advanced' : 'basic';
-		var allowed = mode === 'advanced' ?
-			[ 'overview', 'service', 'certificates', 'routing' ] :
-			[ 'overview', 'setup', 'routing', 'status' ];
-		var page = path[4] || 'overview';
-
-		return {
-			mode: mode,
-			page: allowed.indexOf(page) > -1 ? page : 'overview'
-		};
-	},
-
-	pageNavigation: function(route) {
+	pageNavigation: function() {
 		var groups = [
 			{ name: 'basic', label: _('Basic') },
 			{ name: 'advanced', label: _('Advanced') }
 		];
-		var pages = route.mode === 'advanced' ? [
+		var advancedPages = [
 			{ name: 'overview', label: _('Overview') },
 			{ name: 'service', label: _('Service') },
 			{ name: 'certificates', label: _('Certificates') },
 			{ name: 'routing', label: _('Routing') }
-		] : [
+		];
+		var basicPages = [
 			{ name: 'overview', label: _('Overview') },
 			{ name: 'setup', label: _('Setup') },
 			{ name: 'routing', label: _('Routing') },
 			{ name: 'status', label: _('Status') }
 		];
-		var tabRow = function(items, active, href) {
-			return E('ul', { class: 'tabs', style: 'margin-bottom:.5rem' }, items.map(function(item) {
-				return E('li', { class: item.name === active ? 'active' : '' }, E('a', {
-					href: href(item.name)
+		var tabRow = function(items, mode, active, style) {
+			return E('ul', {
+				class: 'cbi-tabmenu',
+				'data-dashboard-tabs': mode,
+				style: style || ''
+			}, items.map(function(item) {
+				return E('li', {
+					class: item.name === active ? 'cbi-tab' : 'cbi-tab-disabled',
+					'data-dashboard-tab-mode': mode,
+					'data-dashboard-tab-page': item.name
+				}, E('a', {
+					href: '#',
+					click: ui.createHandlerFn(this, 'switchDashboardPage', mode, item.name)
 				}, item.label));
-			}));
-		};
+			}, this));
+		}.bind(this);
 
 		return E('nav', { 'aria-label': _('MITM Domain Fronting pages') }, [
-			tabRow(groups, route.mode, function(mode) {
-				return L.url('admin/services/xray-mitm/' + mode + '/overview');
-			}),
-			tabRow(pages, route.page, function(page) {
-				return L.url('admin/services/xray-mitm/' + route.mode + '/' + page);
-			})
+			tabRow(groups, 'mode', 'basic'),
+			tabRow(basicPages, 'basic', 'overview'),
+			tabRow(advancedPages, 'advanced', '', 'display:none')
 		]);
 	},
 
-	switchMode: function(mode) {
-		window.location.href = L.url('admin/services/xray-mitm/' +
-			(mode === 'advanced' ? 'advanced' : 'basic') + '/overview');
+	switchDashboardPage: function(mode, page) {
+		var targetPage = mode === 'mode' ? 'overview' : page;
+		var targetMode = mode === 'mode' ? page : mode;
+		var simple = document.getElementById('xray-mitm-simple');
+		var advanced = document.getElementById('xray-mitm-advanced');
+
+		if (simple)
+			simple.style.display = targetMode === 'basic' ? '' : 'none';
+		if (advanced)
+			advanced.style.display = targetMode === 'advanced' ? '' : 'none';
+
+		document.querySelectorAll('[data-dashboard-panel-mode]').forEach(function(panel) {
+			panel.style.display = panel.getAttribute('data-dashboard-panel-mode') === targetMode &&
+				panel.getAttribute('data-dashboard-panel-page') === targetPage ? '' : 'none';
+		});
+		document.querySelectorAll('[data-dashboard-tabs]').forEach(function(row) {
+			var name = row.getAttribute('data-dashboard-tabs');
+			row.style.display = name === 'mode' || name === targetMode ? '' : 'none';
+		});
+		document.querySelectorAll('[data-dashboard-tab-mode]').forEach(function(tab) {
+			var tabMode = tab.getAttribute('data-dashboard-tab-mode');
+			var tabPage = tab.getAttribute('data-dashboard-tab-page');
+			var active = tabMode === 'mode' ? tabPage === targetMode :
+				tabMode === targetMode && tabPage === targetPage;
+			tab.className = active ? 'cbi-tab' : 'cbi-tab-disabled';
+		});
 	},
 
 	reviewRecommendedRouting: function(ev) {
@@ -854,6 +873,68 @@ return view.extend({
 		]);
 	},
 
+	overviewStatusStrip: function(status, certificates, passwall) {
+		var passwallState = (this.setup && this.setup.passwall2) || {};
+		var routingState = (passwall && passwall.routing_state) || {};
+		var current = slotData(certificates, 'current');
+		var cards = [
+			{
+				icon: '◆', label: _('MITM service'),
+				value: status.running === true ? _('Running') : _('Stopped'),
+				tone: status.running === true ? 'good' : 'warn', detail: '127.0.0.1:10808'
+			},
+			{
+				icon: '◉', label: _('PassWall2'),
+				value: passwallState.installed === true ? _('Ready') : _('Not detected'),
+				tone: passwallState.installed === true ? 'good' : 'warn', detail: _('Routing integration')
+			},
+			{
+				icon: '↔', label: _('PassWall2 routing'),
+				value: passwallState.shunt_available === true && passwallState.vpn_available === true ?
+					_('Ready') : _('Needs attention'),
+				tone: passwallState.shunt_available === true && passwallState.vpn_available === true ? 'good' : 'warn',
+				detail: routingState.configured === true ? _('Rules configured') : _('Choose your rules')
+			},
+			{
+				icon: '✓', label: _('Public certificate'),
+				value: slotPresent(current) ? _('Ready') : _('Needed'),
+				tone: slotPresent(current) ? 'good' : 'warn', detail: _('Private key stays on router')
+			}
+		];
+		var toneColors = { good: '#2f7d32', warn: '#a15c00' };
+
+		return E('div', {}, [
+			E('style', {}, '@media(max-width:900px){.xray-mitm-status-strip,.xray-mitm-step-strip{grid-template-columns:repeat(2,minmax(0,1fr))!important}}' +
+				'@media(max-width:520px){.xray-mitm-status-strip,.xray-mitm-step-strip{grid-template-columns:1fr!important}}'),
+			E('div', {
+				class: 'xray-mitm-status-strip',
+				style: 'display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr))!important;' +
+					'align-items:stretch;gap:.7rem;width:100%;box-sizing:border-box;' +
+					'padding:.75rem;margin:1rem 0;border:1px solid var(--border-color-medium,#ccc);' +
+					'border-radius:.35rem;background:rgba(128,128,128,.12)'
+			}, cards.map(function(card) {
+			return E('div', {
+				class: 'xray-mitm-status-card',
+				style: 'display:flex;align-items:center;gap:.8rem;width:100%;min-height:5.25rem;' +
+					'padding:.75rem .9rem;border:1px solid var(--border-color-medium,#ccc);' +
+					'border-radius:.35rem;background:rgba(0,0,0,.12);box-sizing:border-box'
+			}, [
+				E('span', {
+					'aria-hidden': 'true',
+					style: 'display:inline-flex;align-items:center;justify-content:center;width:2.35rem;height:2.35rem;' +
+						'flex:0 0 2.35rem;border-radius:50%;background:rgba(94,114,228,.16);' +
+						'color:#5e72e4;font-size:1.35rem;font-weight:700'
+				}, card.icon),
+				E('div', { style: 'min-width:0' }, [
+					E('strong', { style: 'display:block;line-height:1.2' }, card.label),
+					E('span', { style: 'display:block;margin-top:.2rem;font-weight:700;color:' + toneColors[card.tone] }, card.value),
+					E('small', { style: 'display:block;margin-top:.15rem;opacity:.72;white-space:nowrap;overflow:hidden;text-overflow:ellipsis' }, card.detail)
+				])
+			]);
+			}))
+		]);
+	},
+
 	simpleRoutingTable: function(routing, passwall) {
 		routing = routing || {};
 		passwall = passwall || {};
@@ -932,14 +1013,10 @@ return view.extend({
 		var pageStyle = function(name) { return page === name ? '' : 'display:none'; };
 
 		return E('div', { id: 'xray-mitm-simple' }, [
-			E('div', { id: 'xray-mitm-simple-basic', class: 'cbi-section', style: pageStyle('overview') }, [
+			E('div', { id: 'xray-mitm-simple-basic', class: 'cbi-section cbi-tabcontainer',
+				'data-dashboard-panel-mode': 'basic', 'data-dashboard-panel-page': 'overview', style: pageStyle('overview') }, [
 				E('h3', {}, _('Basic settings')),
-				E('div', { style: 'display:grid;grid-template-columns:repeat(auto-fit,minmax(13rem,1fr));gap:.7rem;margin:1rem 0' }, [
-					this.simpleStatusCard(_('MITM service'), status.running === true ? _('Running') : _('Stopped'), status.running === true ? 'good' : 'warn', _('Local SOCKS: 127.0.0.1:10808')),
-					this.simpleStatusCard(_('PassWall2'), passwallState.installed === true ? _('Detected') : _('Not detected'), passwallState.installed === true ? 'good' : 'warn'),
-					this.simpleStatusCard(_('Routing profile'), passwallState.shunt_available === true ? _('Available') : _('Missing'), passwallState.shunt_available === true ? 'good' : 'warn'),
-					this.simpleStatusCard(_('Working VPN'), passwallState.vpn_available === true ? _('Available') : _('Missing'), passwallState.vpn_available === true ? 'good' : 'warn')
-				]),
+				this.overviewStatusStrip(status, certificates, passwall),
 				this.simpleStateRow(_('MITM application'), _('Installed'), 'good', _('The router backend is connected.')),
 				this.simpleStateRow(_('PassWall2'), passwallState.installed === true ? _('Detected') : _('Not detected'),
 					passwallState.installed === true ? 'good' : 'warn'),
@@ -948,7 +1025,8 @@ return view.extend({
 				this.simpleStateRow(_('VPN connection'), passwallState.vpn_available === true ? _('Available') : _('Missing'),
 					passwallState.vpn_available === true ? 'good' : 'warn')
 			]),
-			E('div', { id: 'xray-mitm-simple-certificate', class: 'cbi-section', style: pageStyle('setup') }, [
+			E('div', { id: 'xray-mitm-simple-certificate', class: 'cbi-section cbi-tabcontainer',
+				'data-dashboard-panel-mode': 'basic', 'data-dashboard-panel-page': 'setup', style: pageStyle('setup') }, [
 				E('h3', {}, _('Setup')),
 				this.simpleStateRow(_('Router configuration'), setup.config && setup.config.present === true ? _('Ready') : _('Needed'),
 					setup.config && setup.config.present === true ? 'good' : 'warn'),
@@ -965,7 +1043,8 @@ return view.extend({
 					click: ui.createHandlerFn(this, 'setupRecommended')
 				}, setupComplete ? _('Setup complete') : _('Set up automatically')))
 			]),
-			E('div', { class: 'cbi-section', style: pageStyle('setup') }, [
+			E('div', { class: 'cbi-section cbi-tabcontainer',
+				'data-dashboard-panel-mode': 'basic', 'data-dashboard-panel-page': 'setup', style: pageStyle('setup') }, [
 				E('h3', {}, _('Certificate for your device')),
 				E('p', {}, _('Devices using MITM websites must trust this public certificate. The private key stays on the router.')),
 				certificateReady && slotPresent(current) ? E('p', {}, E('button', {
@@ -984,7 +1063,8 @@ return view.extend({
 					])
 				])
 			]),
-			E('div', { id: 'xray-mitm-simple-routing', class: 'cbi-section', style: pageStyle('routing') }, [
+			E('div', { id: 'xray-mitm-simple-routing', class: 'cbi-section cbi-tabcontainer',
+				'data-dashboard-panel-mode': 'basic', 'data-dashboard-panel-page': 'routing', style: pageStyle('routing') }, [
 				E('h3', {}, _('Routing rules')),
 				E('p', {}, _('Choose the service groups to use. The table shows the destination that will be assigned in PassWall2.')),
 				passwallState.installed !== true ? E('div', { class: 'alert-message warning' }, _(
@@ -1008,7 +1088,8 @@ return view.extend({
 					E('div', { id: 'xray-mitm-simple-routing-preview', 'aria-live': 'polite' })
 				]) : ''
 			]),
-			E('div', { id: 'xray-mitm-simple-status', class: 'cbi-section', style: pageStyle('status') }, [
+			E('div', { id: 'xray-mitm-simple-status', class: 'cbi-section cbi-tabcontainer',
+				'data-dashboard-panel-mode': 'basic', 'data-dashboard-panel-page': 'status', style: pageStyle('status') }, [
 				E('h3', {}, _('Status')),
 				this.simpleStateRow(_('MITM'), status.running === true ? _('Running') : _('Stopped'), status.running === true ? 'good' : 'warn'),
 				this.simpleStateRow(_('Routing'), routingState.recommended_matches_current === true ? _('Recommended') :
@@ -1066,10 +1147,18 @@ return view.extend({
 			E('p', {}, firstTime ?
 				_('Complete these steps once, in order. Green items are already ready.') :
 				_('Updates preserve your configuration and certificate. These cards show the current state; complete only items that are not ready.')),
-			E('div', { style: 'display:grid;grid-template-columns:repeat(auto-fit,minmax(14rem,1fr));gap:.75rem' },
-				steps.map(function(step) {
+			this.overviewStatusStrip(status, certificates, passwall),
+			E('div', {
+				class: 'xray-mitm-step-strip',
+				style: 'display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr))!important;' +
+					'align-items:stretch;gap:.7rem;width:100%;box-sizing:border-box;' +
+					'padding:.75rem;margin:1rem 0;border:1px solid var(--border-color-medium,#ccc);' +
+					'border-radius:.35rem;background:rgba(128,128,128,.12)'
+			}, steps.map(function(step) {
 					return E('div', {
-						style: 'padding:1rem;border:1px solid var(--border-color-medium,#ccc);border-radius:.45rem'
+						style: 'display:flex;flex-direction:column;justify-content:center;width:100%;min-height:5.25rem;' +
+							'padding:.75rem .9rem;border:1px solid var(--border-color-medium,#ccc);' +
+							'border-radius:.35rem;background:rgba(0,0,0,.12);box-sizing:border-box'
 					}, [
 						E('div', { style: 'display:flex;align-items:center;gap:.55rem;margin-bottom:.45rem' }, [
 							statusPill(step.done ? '✓' : (firstTime ? step.number : '!'), step.done ? 'good' : 'warn'),
@@ -1346,33 +1435,46 @@ return view.extend({
 		this.status = data[1] || {};
 		this.certificates = data[2] || {};
 		this.passwall = data[3] || {};
+		this.appVersion = text(this.setup.app_version || this.setup.version, PROJECT_VERSION)
+			.replace(/^v/i, '');
 		this.planToken = null;
 		this.rollbackTransaction = this.passwall.rollback_transaction || null;
-		var route = this.routeContext();
-		var advancedPages = {
-			overview: this.renderSetupGuide(this.status, this.certificates, this.passwall),
-			service: this.renderService(this.status),
-			certificates: this.renderCertificates(this.certificates),
-			routing: this.renderRouting(this.passwall)
-		};
 
 		return E('div', {}, [
-			E('h2', {}, _('MITM Domain Fronting')),
+			E('h2', { style: 'display:flex;align-items:center;gap:.65rem;flex-wrap:wrap' }, [
+				_('MITM Domain Fronting'),
+				E('span', {
+					class: 'xray-mitm-version-badge',
+					title: _('Application version'),
+					style: 'display:inline-block;padding:.18rem .55rem;border:1px solid var(--border-color-medium,#ccc);' +
+						'border-radius:999px;font-size:.55em;font-weight:600;line-height:1.2;opacity:.82'
+				}, 'v' + this.appVersion)
+			]),
 			E('p', {}, _(
 				'Prepare the MITM service, download the public certificate, and configure safe PassWall2 routing.'
 			)),
-			this.pageNavigation(route),
+			this.pageNavigation(),
 			this.setup.ok === false ? E('div', { class: 'alert-message danger' }, textNode(this.setup.error, _('Unable to read setup status.'))) : '',
-			route.mode === 'basic' ? this.renderSimple(
-				this.setup, this.status, this.certificates, this.passwall, route.page
-			) : '',
-			route.mode === 'advanced' ? E('div', { id: 'xray-mitm-advanced' }, [
+			this.renderSimple(this.setup, this.status, this.certificates, this.passwall, 'overview'),
+			E('div', { id: 'xray-mitm-advanced', style: 'display:none' }, [
 				E('div', { class: 'alert-message notice' }, _(
 					'Advanced settings expose manual service, certificate, transaction, and routing controls.'
 				)),
-				route.page === 'service' && this.status.ok === false ? E('div', { class: 'alert-message danger' }, textNode(this.status.error, _('Unable to read service status.'))) : '',
-				advancedPages[route.page]
-			]) : '',
+				E('div', { class: 'cbi-tabcontainer', 'data-dashboard-panel-mode': 'advanced',
+					'data-dashboard-panel-page': 'overview', style: 'display:none' },
+				this.renderSetupGuide(this.status, this.certificates, this.passwall)),
+				E('div', { class: 'cbi-tabcontainer', 'data-dashboard-panel-mode': 'advanced',
+					'data-dashboard-panel-page': 'service', style: 'display:none' }, [
+					this.status.ok === false ? E('div', { class: 'alert-message danger' }, textNode(this.status.error, _('Unable to read service status.'))) : '',
+					this.renderService(this.status)
+				]),
+				E('div', { class: 'cbi-tabcontainer', 'data-dashboard-panel-mode': 'advanced',
+					'data-dashboard-panel-page': 'certificates', style: 'display:none' },
+				this.renderCertificates(this.certificates)),
+				E('div', { class: 'cbi-tabcontainer', 'data-dashboard-panel-mode': 'advanced',
+					'data-dashboard-panel-page': 'routing', style: 'display:none' },
+				this.renderRouting(this.passwall))
+			]),
 			E('div', { class: 'alert-message warning' }, _(
 				'Trust the public CA only on devices you control. Never copy, publish, or download the router private CA key.'
 			))

@@ -11,6 +11,8 @@ Describe the concrete problem and resulting behavior.
 - [ ] Every affected LuCI page was loaded and exercised in a local browser against
       the lab router, with no error notification, blank view, or new console error;
       or this change cannot affect LuCI.
+- [ ] The project owner visually reviewed and explicitly approved the exact tested
+      UI candidate, or this change cannot affect the UI.
 - [ ] Existing CA material, service state, and PassWall2 routing were preserved unless intentionally changed.
 - [ ] No private keys, credentials, router configurations, backups, or generated packages are included.
 
