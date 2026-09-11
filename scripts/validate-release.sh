@@ -31,11 +31,18 @@ done
 
 sh "$project_dir/ci/test-init-enable.sh"
 
-if command -v node >/dev/null 2>&1; then
-	node --check "$project_dir/luci-app-xray-mitm/htdocs/luci-static/resources/view/xray-mitm/overview.js"
-	node --check "$project_dir/luci-app-xray-mitm/htdocs/luci-static/resources/xray-mitm/state.js"
-	node "$project_dir/tests/test_frontend_state.js"
+node_bin=${NODE_BIN:-}
+if [ -z "$node_bin" ]; then
+	node_bin=$(command -v node 2>/dev/null || true)
+elif ! command -v "$node_bin" >/dev/null 2>&1 && [ ! -x "$node_bin" ]; then
+	node_bin=''
+fi
+
+if [ -n "$node_bin" ]; then
+	"$node_bin" --check "$project_dir/luci-app-xray-mitm/htdocs/luci-static/resources/view/xray-mitm/overview.js"
+	"$node_bin" --check "$project_dir/luci-app-xray-mitm/htdocs/luci-static/resources/xray-mitm/state.js"
+	"$node_bin" "$project_dir/tests/test_frontend_state.js"
 	printf '%s\n' 'Shell and LuCI JavaScript syntax checks passed.'
 else
-	printf '%s\n' 'Shell syntax checks passed; LuCI JavaScript syntax check skipped (Node.js not installed).'
+	printf '%s\n' 'Shell syntax checks passed; LuCI JavaScript syntax check skipped (set NODE_BIN to a Node.js executable).'
 fi
