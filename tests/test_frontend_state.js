@@ -156,7 +156,7 @@ function testOverviewLoadsAndRendersWithLuCIStateDependency() {
 
 	assert.doesNotMatch(overviewSource, /\brequire\s*\(/,
 		'LuCI modules must use loader directives instead of CommonJS require()');
-	assert.match(overviewSource, /var PROJECT_VERSION = '0\.4\.2';/,
+	assert.match(overviewSource, /var PROJECT_VERSION = '0\.4\.3';/,
 		'LuCI dashboard keeps the current project version fallback');
 	assert.match(overviewSource, /xray-mitm-version-badge/,
 		'LuCI dashboard renders a visible application version badge');
