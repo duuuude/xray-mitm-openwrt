@@ -7,6 +7,19 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Add a separate Google Meet web and signaling route under MITM-Compatible
+  Services for `meet.google.com`, `meetings.googleapis.com`,
+  `hangouts.googleapis.com`, `meetings.clients6.google.com`, and
+  `stream.meet.google.com`. Meet media may use UDP or separate media IPs, so a
+  real call should be tested before relying on MITM for media traffic.
+
+### Fixed
+
+- Keep routing recovery tests within a bounded time margin when PassWall2 takes
+  longer than usual to restart during an apply operation.
+
 ## [0.4.3] - 2026-09-11
 
 ### Changed
