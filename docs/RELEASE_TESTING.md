@@ -35,6 +35,7 @@ routing.
 ```sh
 cd "/path/to/xray-mitm-openwrt"
 sh scripts/router-local-test.sh validate
+sh scripts/router-local-test.sh config-validate
 sh scripts/router-local-test.sh stage
 sh scripts/router-local-test.sh check
 sh scripts/router-local-test.sh restore

@@ -19,6 +19,9 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   guidance to the Basic setup and routing flow.
 - Retain only the three newest completed PassWall2 routing activation results
   while preserving live activation state for safe browser polling.
+- Remove unused upstream metadata and inherited ad-blocking and Khan Academy
+  rules from the packaged Xray sample, and document the retained DNS and
+  service routing policy.
 
 ## [0.4.3] - 2026-09-12
 

@@ -31,12 +31,16 @@ usage() {
   cat <<'EOF'
 Usage:
   sh scripts/router-local-test.sh validate
+  sh scripts/router-local-test.sh config-validate
   sh scripts/router-local-test.sh stage
   sh scripts/router-local-test.sh check
   sh scripts/router-local-test.sh restore
 
 Commands:
   validate  Run the complete offline validator and detect the bundled Node.js.
+  config-validate
+            Validate the packaged Xray sample with the router's configured
+            asset directory; only a temporary file is copied to the router.
   stage     Protect the router originals and stage the exact local candidate.
   check     Read router/service/setup state and file hashes without changing it.
   restore   Restore the protected originals without restarting services or routing.
@@ -103,6 +107,11 @@ candidate_source() {
     state.js) printf '%s\n' "$project_dir/luci-app-xray-mitm/htdocs/luci-static/resources/xray-mitm/state.js" ;;
     *) die "unknown candidate file: $1" ;;
   esac
+}
+
+config_sample_source() {
+
+  printf '%s\n' "$project_dir/xray-mitm/files/usr/share/xray-mitm/config.json.example"
 }
 
 live_path() {
@@ -178,6 +187,44 @@ validate_local() {
     printf '%s\n' 'Node.js was not found; the validator will report the JavaScript check as skipped.'
     sh "$project_dir/scripts/validate-release.sh"
   fi
+}
+
+validate_router_sample() {
+  require_router_tools
+  check_worktree
+
+  local_file=$(config_sample_source)
+  [ -f "$local_file" ] || die "packaged configuration sample is missing: $local_file"
+  [ -r "$local_file" ] || die "packaged configuration sample is not readable: $local_file"
+
+  validate_local
+  prepare_stage_dir
+  trap cleanup_stage_dir 0 1 2 3 15
+  scp_to_router "$local_file" "$remote_stage_dir/config.json.example"
+  ssh_router chmod 0600 "$remote_stage_dir/config.json.example"
+  ssh_router sh -s <<REMOTE
+set -u
+sample='$remote_stage_dir/config.json.example'
+asset_dir="\$(uci -q get xray-mitm.main.asset_dir 2>/dev/null || true)"
+[ -n "\$asset_dir" ] || asset_dir=/usr/share/v2ray
+if [ ! -d "\$asset_dir" ]; then
+  printf '%s\n' "configured Xray asset directory is missing: \$asset_dir" >&2
+  exit 1
+fi
+set +e
+XRAY_LOCATION_ASSET="\$asset_dir" xray run -test -format=json -c "\$sample"
+status=\$?
+set -e
+if [ "\$status" -eq 0 ]; then
+  printf '%s\n' 'Router validation of the packaged Xray sample: passed'
+else
+  printf '%s\n' "Router validation of the packaged Xray sample: failed (exit \$status)" >&2
+fi
+exit "\$status"
+REMOTE
+  cleanup_stage_dir
+  trap - 0 1 2 3 15
+  printf '%s\n' 'The live Xray configuration and service were not changed.'
 }
 
 protect_router_originals() {
@@ -344,6 +391,7 @@ REMOTE
 command_name=${1:-help}
 case "$command_name" in
   validate) validate_local ;;
+  config-validate) validate_router_sample ;;
   stage) stage_candidate ;;
   check) check_router ;;
   restore) restore_router ;;
