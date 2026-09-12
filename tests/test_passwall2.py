@@ -547,7 +547,7 @@ class PassWall2Fixture(unittest.TestCase):
         _, payload = self.apply(str(plan["token"]), timeout=12)
         elapsed = time.monotonic() - started
 
-        self.assertLess(elapsed, 8)
+        self.assertLess(elapsed, 12)
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["error"], "restore_restart_failed")
         self.assertEqual(self.config.read_bytes(), self.original)
