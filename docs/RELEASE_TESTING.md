@@ -109,6 +109,7 @@ Before the tag:
 3. Review the full diff and confirm only `keys/xray-mitm-feed-v1.pem` is public-key material.
 4. Confirm the private key exists only in protected storage and the `signed-feed` environment secret.
 5. Confirm required environment reviewers and GitHub Pages are configured.
+6. From the clean, synchronized `main` branch, run `sh scripts/release-preflight.sh`.
 
 After approving the tagged workflow:
 

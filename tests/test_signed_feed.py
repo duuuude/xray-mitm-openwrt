@@ -92,6 +92,17 @@ class SignedFeedTests(unittest.TestCase):
             "--allow-untrusted was not used", ""
         ))
 
+    def test_luci_fallback_version_matches_package_version(self) -> None:
+        makefile = (ROOT / "xray-mitm/Makefile").read_text(encoding="utf-8")
+        overview = (ROOT / "luci-app-xray-mitm/htdocs/luci-static/resources/view/xray-mitm/overview.js").read_text(encoding="utf-8")
+        version = re.search(r"^PKG_VERSION:=([^\r\n]+)$", makefile, re.MULTILINE)
+
+        self.assertIsNotNone(version)
+        self.assertIn(
+            f"var PROJECT_VERSION = '{version.group(1)}';",
+            overview,
+        )
+
     def test_release_tag_must_match_package_version(self) -> None:
         good = subprocess.run(
             ["sh", str(VERSION_CHECK), str(ROOT), f"v{PACKAGE_VERSION}"],

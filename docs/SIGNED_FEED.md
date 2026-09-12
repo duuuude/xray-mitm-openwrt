@@ -40,10 +40,11 @@ The workflow derives a public key from the secret and compares it with the commi
 3. Update the LuCI version only when the LuCI package changed.
 4. Run `sh scripts/validate-release.sh`.
 5. Merge the reviewed change to `main` and wait for its build.
-6. Create and push a signed tag exactly matching `v${PKG_VERSION}`.
-7. Review and approve the `signed-feed` environment job.
-8. Confirm Pages and the GitHub Release contain both APKs, `packages.adb`, checksums, source commit, public key, and fingerprint. Confirm the GitHub Release notes match the version section in `CHANGELOG.md`.
-9. Complete [RELEASE_TESTING.md](RELEASE_TESTING.md).
+6. Run `sh scripts/release-preflight.sh` from the clean, synchronized `main` branch.
+7. Create and push a signed tag exactly matching `v${PKG_VERSION}`.
+8. Review and approve the `signed-feed` environment job.
+9. Confirm Pages and the GitHub Release contain both APKs, `packages.adb`, checksums, source commit, public key, and fingerprint. Confirm the GitHub Release notes match the version section in `CHANGELOG.md`.
+10. Complete [RELEASE_TESTING.md](RELEASE_TESTING.md).
 
 **MAC:**
 

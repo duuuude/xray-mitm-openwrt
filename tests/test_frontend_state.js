@@ -8,6 +8,7 @@ const modulePath = path.join(__dirname, '..', 'luci-app-xray-mitm', 'htdocs',
 	'luci-static', 'resources', 'xray-mitm', 'state.js');
 const overviewPath = path.join(__dirname, '..', 'luci-app-xray-mitm', 'htdocs',
 	'luci-static', 'resources', 'view', 'xray-mitm', 'overview.js');
+const packageMakefilePath = path.join(__dirname, '..', 'xray-mitm', 'Makefile');
 const rpcPath = path.join(__dirname, '..', 'luci-app-xray-mitm', 'root',
 	'usr', 'share', 'rpcd', 'ucode', 'xray-mitm.uc');
 const ctlPath = path.join(__dirname, '..', 'xray-mitm', 'files', 'usr', 'sbin',
@@ -215,11 +216,14 @@ function testOverviewLoadsAndRendersWithLuCIStateDependency() {
 		url: function(value) { return '/' + value; }
 	};
 	const overviewSource = fs.readFileSync(overviewPath, 'utf8');
+	const packageSource = fs.readFileSync(packageMakefilePath, 'utf8');
+	const packageVersionMatch = packageSource.match(/^PKG_VERSION:=([^\r\n]+)$/m);
 
 	assert.doesNotMatch(overviewSource, /\brequire\s*\(/,
 		'LuCI modules must use loader directives instead of CommonJS require()');
-	assert.match(overviewSource, /var PROJECT_VERSION = '0\.4\.3';/,
-		'LuCI dashboard keeps the current project version fallback');
+	assert.ok(packageVersionMatch, 'package Makefile declares PKG_VERSION');
+	assert.ok(overviewSource.includes("var PROJECT_VERSION = '" + packageVersionMatch[1] + "';"),
+		'LuCI dashboard fallback matches the package version');
 	assert.match(overviewSource, /xray-mitm-version-badge/,
 		'LuCI dashboard renders a visible application version badge');
 	assert.doesNotMatch(overviewSource, /Recommended routing is already configured/,

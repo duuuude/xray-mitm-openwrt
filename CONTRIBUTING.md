@@ -106,8 +106,21 @@ GitHub Release.
 The release sequence is:
 
 ```text
-local branch -> offline checks -> AX4200 test -> PR and CI -> merge -> signed tag -> authenticated update test
+local branch -> offline checks -> AX4200 test -> PR and CI -> merge -> release preflight -> signed tag -> authenticated update test
 ```
+
+After the reviewed change has been merged and local `main` is synchronized with
+the verified GitHub remote, run the read-only release preflight:
+
+**MAC:**
+
+```sh
+sh scripts/release-preflight.sh
+```
+
+It verifies the clean `main` branch, version and changelog state, tag
+availability, and the full offline validation. It never creates, signs, or
+pushes a tag.
 
 Never put the APK signing private key in the repository, release assets, workflow
 artifacts, terminal transcripts, or router files.
