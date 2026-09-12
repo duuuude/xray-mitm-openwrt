@@ -43,10 +43,12 @@ function loadLuciModule(moduleSource, modules, globals) {
 }
 
 function loadUiModule(fakeState, fakeUi, globals) {
-	return loadLuciModule(fs.readFileSync(uiModulePath, 'utf8'), {
+	const Ui = loadLuciModule(fs.readFileSync(uiModulePath, 'utf8'), {
+		baseclass: baseclass,
 		ui: fakeUi,
 		'xray-mitm.state': fakeState
 	}, globals);
+	return new Ui();
 }
 
 const baseclass = {

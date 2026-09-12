@@ -1,4 +1,5 @@
 'use strict';
+'require baseclass';
 'require ui';
 'require xray-mitm.state as state';
 
@@ -236,7 +237,7 @@ function operationList(plan) {
 	}));
 }
 
-return {
+return baseclass.extend({
 	assertOk: assertOk,
 	decodeRemarks: decodeRemarks,
 	notification: notification,
@@ -253,4 +254,4 @@ return {
 	statusPill: statusPill,
 	text: text,
 	textNode: textNode
-};
+});
