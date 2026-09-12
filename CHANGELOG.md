@@ -7,6 +7,8 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-09-12
+
 ### Added
 
 - Add a separate Google Meet web and signaling route under MITM-Compatible
@@ -19,8 +21,6 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Keep routing recovery tests within a bounded time margin when PassWall2 takes
   longer than usual to restart during an apply operation.
-
-## [0.4.3] - 2026-09-11
 
 ### Changed
 
