@@ -45,6 +45,7 @@ fi
 if [ -n "$node_bin" ]; then
 	"$node_bin" --check "$project_dir/luci-app-xray-mitm/htdocs/luci-static/resources/view/xray-mitm/overview.js"
 	"$node_bin" --check "$project_dir/luci-app-xray-mitm/htdocs/luci-static/resources/xray-mitm/state.js"
+	"$node_bin" --check "$project_dir/luci-app-xray-mitm/htdocs/luci-static/resources/xray-mitm/ui.js"
 	"$node_bin" "$project_dir/tests/test_frontend_state.js"
 	printf '%s\n' 'Shell and LuCI JavaScript syntax checks passed.'
 else

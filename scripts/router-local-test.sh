@@ -20,7 +20,7 @@ router_backup_dir=${ROUTER_BACKUP_DIR:-/root/xray-mitm-local-backup}
 remote_stage_dir=/tmp/xray-mitm-local-stage
 router_target=$router_user@$router_host
 
-candidate_names='passwall2 xray-mitmctl xray-mitm.uc overview.js state.js'
+candidate_names='passwall2 xray-mitmctl xray-mitm.uc overview.js state.js ui.js'
 
 die() {
   printf 'router-local-test: %s\n' "$*"
@@ -46,7 +46,7 @@ Commands:
   restore   Restore the protected originals without restarting services or routing.
 
 The stage command does not build an APK, restart Xray, or apply PassWall2 rules.
-It only copies the five candidate files needed for the real LuCI browser gate.
+It only copies the six candidate files needed for the real LuCI browser gate.
 Keep the browser test and any routing apply as deliberate, separate actions.
 
 Environment overrides:
@@ -105,6 +105,7 @@ candidate_source() {
     xray-mitm.uc) printf '%s\n' "$project_dir/luci-app-xray-mitm/root/usr/share/rpcd/ucode/xray-mitm.uc" ;;
     overview.js) printf '%s\n' "$project_dir/luci-app-xray-mitm/htdocs/luci-static/resources/view/xray-mitm/overview.js" ;;
     state.js) printf '%s\n' "$project_dir/luci-app-xray-mitm/htdocs/luci-static/resources/xray-mitm/state.js" ;;
+    ui.js) printf '%s\n' "$project_dir/luci-app-xray-mitm/htdocs/luci-static/resources/xray-mitm/ui.js" ;;
     *) die "unknown candidate file: $1" ;;
   esac
 }
@@ -121,6 +122,7 @@ live_path() {
     xray-mitm.uc) printf '%s\n' /usr/share/rpcd/ucode/xray-mitm.uc ;;
     overview.js) printf '%s\n' /www/luci-static/resources/view/xray-mitm/overview.js ;;
     state.js) printf '%s\n' /www/luci-static/resources/xray-mitm/state.js ;;
+    ui.js) printf '%s\n' /www/luci-static/resources/xray-mitm/ui.js ;;
     *) die "unknown live file: $1" ;;
   esac
 }
@@ -234,6 +236,24 @@ set -eu
 backup_dir='$router_backup_dir'
 if [ -f "\$backup_dir/SHA256SUMS" ]; then
   (cd "\$backup_dir" && sha256sum -c SHA256SUMS)
+  if grep -Eq '(^|[[:space:]])ui\\.js(\\.absent)?$' "\$backup_dir/SHA256SUMS"; then
+    exit 0
+  fi
+  if [ -e /www/luci-static/resources/xray-mitm/ui.js ]; then
+    rm -f "\$backup_dir/ui.js.absent"
+    cp -p /www/luci-static/resources/xray-mitm/ui.js "\$backup_dir/ui.js"
+  else
+    rm -f "\$backup_dir/ui.js"
+    : > "\$backup_dir/ui.js.absent"
+    chmod 0600 "\$backup_dir/ui.js.absent"
+  fi
+  if [ -f "\$backup_dir/ui.js" ]; then
+    (cd "\$backup_dir" && sha256sum passwall2 xray-mitmctl xray-mitm.uc overview.js state.js ui.js > SHA256SUMS)
+  else
+    (cd "\$backup_dir" && sha256sum passwall2 xray-mitmctl xray-mitm.uc overview.js state.js ui.js.absent > SHA256SUMS)
+  fi
+  chmod 0600 "\$backup_dir/SHA256SUMS"
+  printf '%s\n' 'Updated the protected backup for the additional LuCI resource.'
   exit 0
 fi
 if [ -e "\$backup_dir" ]; then
@@ -248,7 +268,19 @@ cp -p /usr/sbin/xray-mitmctl "\$backup_dir/xray-mitmctl"
 cp -p /usr/share/rpcd/ucode/xray-mitm.uc "\$backup_dir/xray-mitm.uc"
 cp -p /www/luci-static/resources/view/xray-mitm/overview.js "\$backup_dir/overview.js"
 cp -p /www/luci-static/resources/xray-mitm/state.js "\$backup_dir/state.js"
-(cd "\$backup_dir" && sha256sum passwall2 xray-mitmctl xray-mitm.uc overview.js state.js > SHA256SUMS)
+if [ -e /www/luci-static/resources/xray-mitm/ui.js ]; then
+  rm -f "\$backup_dir/ui.js.absent"
+  cp -p /www/luci-static/resources/xray-mitm/ui.js "\$backup_dir/ui.js"
+else
+  rm -f "\$backup_dir/ui.js"
+  : > "\$backup_dir/ui.js.absent"
+  chmod 0600 "\$backup_dir/ui.js.absent"
+fi
+if [ -f "\$backup_dir/ui.js" ]; then
+  (cd "\$backup_dir" && sha256sum passwall2 xray-mitmctl xray-mitm.uc overview.js state.js ui.js > SHA256SUMS)
+else
+  (cd "\$backup_dir" && sha256sum passwall2 xray-mitmctl xray-mitm.uc overview.js state.js ui.js.absent > SHA256SUMS)
+fi
 chmod 0600 "\$backup_dir/SHA256SUMS"
 printf '%s\n' 'Protected the original router files.'
 REMOTE
@@ -311,7 +343,8 @@ stage_candidate() {
   ssh_router chmod 0644 \
     "$remote_stage_dir/xray-mitm.uc" \
     "$remote_stage_dir/overview.js" \
-    "$remote_stage_dir/state.js"
+    "$remote_stage_dir/state.js" \
+    "$remote_stage_dir/ui.js"
 
   for candidate_name in $candidate_names; do
     verify_remote_file "$candidate_name" "$remote_stage_dir/$candidate_name"
@@ -325,8 +358,10 @@ cp -p "\$stage_dir/xray-mitmctl" /usr/sbin/xray-mitmctl
 cp -p "\$stage_dir/xray-mitm.uc" /usr/share/rpcd/ucode/xray-mitm.uc
 cp -p "\$stage_dir/overview.js" /www/luci-static/resources/view/xray-mitm/overview.js
 cp -p "\$stage_dir/state.js" /www/luci-static/resources/xray-mitm/state.js
+cp -p "\$stage_dir/ui.js" /www/luci-static/resources/xray-mitm/ui.js
 chmod 0755 /usr/libexec/xray-mitm/passwall2 /usr/sbin/xray-mitmctl
 chmod 0644 /usr/share/rpcd/ucode/xray-mitm.uc /www/luci-static/resources/view/xray-mitm/overview.js /www/luci-static/resources/xray-mitm/state.js
+chmod 0644 /www/luci-static/resources/xray-mitm/ui.js
 REMOTE
 
   for candidate_name in $candidate_names; do
@@ -358,6 +393,11 @@ sha256sum \
   /usr/share/rpcd/ucode/xray-mitm.uc \
   /www/luci-static/resources/view/xray-mitm/overview.js \
   /www/luci-static/resources/xray-mitm/state.js
+if [ -f /www/luci-static/resources/xray-mitm/ui.js ]; then
+  sha256sum /www/luci-static/resources/xray-mitm/ui.js
+else
+  printf '%s\n' 'MISSING /www/luci-static/resources/xray-mitm/ui.js'
+fi
 if [ -f '$router_backup_dir/SHA256SUMS' ]; then
   printf '%s\n' '--- protected backup verification ---'
   (cd '$router_backup_dir' && sha256sum -c SHA256SUMS)
@@ -382,8 +422,18 @@ cp -p "\$backup_dir/xray-mitmctl" /usr/sbin/xray-mitmctl
 cp -p "\$backup_dir/xray-mitm.uc" /usr/share/rpcd/ucode/xray-mitm.uc
 cp -p "\$backup_dir/overview.js" /www/luci-static/resources/view/xray-mitm/overview.js
 cp -p "\$backup_dir/state.js" /www/luci-static/resources/xray-mitm/state.js
+if [ -f "\$backup_dir/ui.js" ]; then
+  cp -p "\$backup_dir/ui.js" /www/luci-static/resources/xray-mitm/ui.js
+elif [ -f "\$backup_dir/ui.js.absent" ]; then
+  rm -f /www/luci-static/resources/xray-mitm/ui.js
+else
+  printf '%s\n' 'Protected backup predates ui.js; leaving that resource unchanged.'
+fi
 chmod 0755 /usr/libexec/xray-mitm/passwall2 /usr/sbin/xray-mitmctl
 chmod 0644 /usr/share/rpcd/ucode/xray-mitm.uc /www/luci-static/resources/view/xray-mitm/overview.js /www/luci-static/resources/xray-mitm/state.js
+if [ -f /www/luci-static/resources/xray-mitm/ui.js ]; then
+  chmod 0644 /www/luci-static/resources/xray-mitm/ui.js
+fi
 printf '%s\n' 'Restored protected router files. No service restart or routing change was performed.'
 REMOTE
 }

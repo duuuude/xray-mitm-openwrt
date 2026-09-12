@@ -6,6 +6,8 @@ const path = require('path');
 
 const modulePath = path.join(__dirname, '..', 'luci-app-xray-mitm', 'htdocs',
 	'luci-static', 'resources', 'xray-mitm', 'state.js');
+const uiModulePath = path.join(__dirname, '..', 'luci-app-xray-mitm', 'htdocs',
+	'luci-static', 'resources', 'xray-mitm', 'ui.js');
 const overviewPath = path.join(__dirname, '..', 'luci-app-xray-mitm', 'htdocs',
 	'luci-static', 'resources', 'view', 'xray-mitm', 'overview.js');
 const packageMakefilePath = path.join(__dirname, '..', 'xray-mitm', 'Makefile');
@@ -38,6 +40,13 @@ function loadLuciModule(moduleSource, modules, globals) {
 
 	return Function.apply(null, parameterNames.concat(moduleSource))
 		.apply(null, parameterValues);
+}
+
+function loadUiModule(fakeState, fakeUi, globals) {
+	return loadLuciModule(fs.readFileSync(uiModulePath, 'utf8'), {
+		ui: fakeUi,
+		'xray-mitm.state': fakeState
+	}, globals);
 }
 
 const baseclass = {
@@ -182,6 +191,44 @@ function testRouteStatusAndProgress() {
 	});
 }
 
+function testExtractedUiHelpers() {
+	const fakeElement = function(tag, attributes, children) {
+		return { tag: tag, attributes: attributes || {}, children: children };
+	};
+	const helpers = loadUiModule(state, {
+		addNotification: function() {}
+	}, {
+		E: fakeElement,
+		_: function(value) { return value; },
+		document: { createTextNode: function(value) { return value; } }
+	});
+
+	assert.strictEqual(helpers.text('', 'fallback'), 'fallback');
+	assert.strictEqual(helpers.text(42), '42');
+	assert.deepStrictEqual(helpers.optionList([
+		'vpn-a',
+		{ id: 'vpn-b', remarks: 'VPN B', group: 'paid', protocol: 'trojan' },
+		{ name: 'vpn-c', label: 'VPN C' },
+		{}
+	]), [
+		{ id: 'vpn-a', label: 'vpn-a' },
+		{ id: 'vpn-b', group: 'paid', label: 'VPN B — paid · trojan' },
+		{ id: 'vpn-c', group: '', label: 'VPN C' }
+	]);
+	assert.deepStrictEqual(helpers.routeStatus('existing', false), {
+		label: 'Saved rule found (inactive)', tone: 'info'
+	});
+	assert.deepStrictEqual(helpers.routeStatus(undefined, true), {
+		label: 'Active now', tone: 'good'
+	});
+	assert.strictEqual(helpers.slotPresent({ fingerprint: 'abc' }), true);
+	assert.deepStrictEqual(helpers.slotData({ slots: { current: { present: true } } }, 'current'), {
+		present: true
+	});
+	assert.strictEqual(helpers.assertOk({ ok: true }).ok, true);
+	assert.throws(function() { helpers.assertOk({ ok: false, message: 'failed' }); }, /failed/);
+}
+
 function testOverviewLoadsAndRendersWithLuCIStateDependency() {
 	const fakeView = {
 		extend: function(methods) { return methods; }
@@ -196,16 +243,10 @@ function testOverviewLoadsAndRendersWithLuCIStateDependency() {
 	const fakeDom = { content: function() {} };
 	const fakeState = {
 		routingFieldNames: function() { return []; },
+		routeStatus: function(source, active) { return state.routeStatus(source, active); },
 		setupProgress: function() {
 			return { firstTime: true, routingReady: false };
 		}
-	};
-	const modules = {
-		view: fakeView,
-		rpc: fakeRpc,
-		ui: fakeUi,
-		dom: fakeDom,
-		'xray-mitm.state': fakeState
 	};
 	const fakeElement = function(tag, attributes, children) {
 		return { tag: tag, attributes: attributes, children: children };
@@ -215,7 +256,20 @@ function testOverviewLoadsAndRendersWithLuCIStateDependency() {
 		bind: function(fn, context) { return fn.bind(context); },
 		url: function(value) { return '/' + value; }
 	};
+	const modules = {
+		view: fakeView,
+		rpc: fakeRpc,
+		ui: fakeUi,
+		dom: fakeDom,
+		'xray-mitm.state': fakeState,
+		'xray-mitm.ui': loadUiModule(fakeState, fakeUi, {
+			E: fakeElement,
+			_: function(value) { return value; },
+			document: fakeDocument
+		})
+	};
 	const overviewSource = fs.readFileSync(overviewPath, 'utf8');
+	const frontendSource = overviewSource + '\n' + fs.readFileSync(uiModulePath, 'utf8');
 	const packageSource = fs.readFileSync(packageMakefilePath, 'utf8');
 	const packageVersionMatch = packageSource.match(/^PKG_VERSION:=([^\r\n]+)$/m);
 
@@ -224,37 +278,37 @@ function testOverviewLoadsAndRendersWithLuCIStateDependency() {
 	assert.ok(packageVersionMatch, 'package Makefile declares PKG_VERSION');
 	assert.ok(overviewSource.includes("var PROJECT_VERSION = '" + packageVersionMatch[1] + "';"),
 		'LuCI dashboard fallback matches the package version');
-	assert.match(overviewSource, /xray-mitm-version-badge/,
+	assert.match(frontendSource, /xray-mitm-version-badge/,
 		'LuCI dashboard renders a visible application version badge');
 	assert.doesNotMatch(overviewSource, /Recommended routing is already configured/,
 		'Basic routing preview does not describe unchecked selections as recommended');
 	assert.match(overviewSource, /Selected routing is already active/,
 		'Basic routing preview reports the actual selected state');
-	assert.match(overviewSource, /Apply selected routing/,
+	assert.match(frontendSource, /Apply selected routing/,
 		'Basic routing preview applies the selected choices');
-	assert.match(overviewSource, /Saved rule found \(inactive\)/,
+	assert.match(frontendSource, /Saved rule found \(inactive\)/,
 		'Inactive existing rules are distinguishable from active assignments');
-	assert.match(overviewSource, /Automatic setup prepares only the MITM service/,
+	assert.match(frontendSource, /Automatic setup prepares only the MITM service/,
 		'Basic routing explains why automatic setup leaves assignments clear');
-	assert.match(overviewSource, /useSimpleRecommendedRouting/,
+	assert.match(frontendSource, /useSimpleRecommendedRouting/,
 		'Basic routing provides a recommended setup action');
-	assert.match(overviewSource, /New to PassWall2\? Select the recommended choices/,
+	assert.match(frontendSource, /New to PassWall2\? Select the recommended choices/,
 		'Basic routing explains the new-user setup flow');
-	assert.match(overviewSource, /Recommended routing/,
+	assert.match(frontendSource, /Recommended routing/,
 		'Basic routing shows the recommended destination summary');
-	assert.match(overviewSource, /Gemini and Google app\/control traffic/,
+	assert.match(frontendSource, /Gemini and Google app\/control traffic/,
 		'Basic routing summary identifies VPN-routed Google app traffic');
-	assert.match(overviewSource, /Google Drive and YouTube video.*Local SOCKS \(MITM\)/s,
+	assert.match(frontendSource, /Google Drive and YouTube video.*Local SOCKS \(MITM\)/s,
 		'Basic routing summary identifies the selective Google MITM route');
-	assert.match(overviewSource, /Customize routing/,
+	assert.match(frontendSource, /Customize routing/,
 		'Basic routing keeps detailed choices available under a customization section');
-	assert.match(overviewSource, /Meet audio and video media may use UDP or separate media IPs/,
+	assert.match(frontendSource, /Meet audio and video media may use UDP or separate media IPs/,
 		'Basic routing summary carries the Google Meet media limitation');
-	assert.match(overviewSource, /not all Google services/,
+	assert.match(frontendSource, /not all Google services/,
 		'Google MITM option clearly states that it is a selective bundle');
-	assert.match(overviewSource, /Google Meet web and signaling/,
+	assert.match(frontendSource, /Google Meet web and signaling/,
 		'Google Meet is exposed as a separate MITM-compatible routing group');
-	assert.match(overviewSource, /audio\/video media may use UDP or separate media IPs/,
+	assert.match(frontendSource, /audio\/video media may use UDP or separate media IPs/,
 		'Google Meet explains the media transport limitation');
 
 	const overview = loadLuciModule(overviewSource, modules, {
@@ -341,7 +395,17 @@ function testClientSideDashboardTabs() {
 		rpc: { declare: function() { return function() {}; } },
 		ui: { addNotification: function() {}, createHandlerFn: function() { return function() {}; } },
 		dom: { content: function() {} },
-		'xray-mitm.state': { routingFieldNames: function() { return []; } }
+		'xray-mitm.state': {
+			routingFieldNames: function() { return []; },
+			routeStatus: function(source, active) { return state.routeStatus(source, active); }
+		},
+		'xray-mitm.ui': loadUiModule({
+			routeStatus: function(source, active) { return state.routeStatus(source, active); }
+		}, { addNotification: function() {} }, {
+			E: function() {},
+			_: function(value) { return value; },
+			document: fakeDocument
+		})
 	}, {
 		E: function() {},
 		_: function(value) { return value; },
@@ -425,7 +489,17 @@ function testRoutingBusyOverlayLifecycle() {
 		rpc: { declare: function() { return function() {}; } },
 		ui: { addNotification: function() {}, createHandlerFn: function() { return function() {}; } },
 		dom: { content: function() {} },
-		'xray-mitm.state': { routingFieldNames: function() { return []; } }
+		'xray-mitm.state': {
+			routingFieldNames: function() { return []; },
+			routeStatus: function(source, active) { return state.routeStatus(source, active); }
+		},
+		'xray-mitm.ui': loadUiModule({
+			routeStatus: function(source, active) { return state.routeStatus(source, active); }
+		}, { addNotification: function() {} }, {
+			E: makeElement,
+			_: function(value) { return value; },
+			document: fakeDocument
+		})
 	}, {
 		E: makeElement,
 		_: function(value) { return value; },
@@ -457,6 +531,7 @@ testSimpleState();
 testRoutingArguments();
 testRoutingContractParity();
 testRouteStatusAndProgress();
+testExtractedUiHelpers();
 testOverviewLoadsAndRendersWithLuCIStateDependency();
 testSingleViewMenu();
 testClientSideDashboardTabs();

@@ -92,6 +92,7 @@ REQUIRED_PATHS = (
     "xray-mitm/files/usr/sbin/xray-mitmctl",
     "xray-mitm/files/usr/share/xray-mitm/config.json.example",
     "luci-app-xray-mitm/htdocs/luci-static/resources/view/xray-mitm/overview.js",
+    "luci-app-xray-mitm/htdocs/luci-static/resources/xray-mitm/ui.js",
     "luci-app-xray-mitm/root/usr/share/luci/menu.d/luci-app-xray-mitm.json",
     "luci-app-xray-mitm/root/usr/share/rpcd/acl.d/luci-app-xray-mitm.json",
     "luci-app-xray-mitm/root/usr/share/rpcd/ucode/xray-mitm.uc",

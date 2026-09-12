@@ -25,10 +25,10 @@ These checks are offline and do not connect to a router.
 
 The repository includes `scripts/router-local-test.sh` for the lab-router loop.
 It uses SSH and `scp -O`; it does not require Docker, GitHub Actions, an APK
-build, or a router-side package feed. The script protects the original five
-package files once, stages the exact local candidate with the correct modes, and
-can restore those originals without restarting Xray or changing PassWall2
-routing.
+build, or a router-side package feed. The script protects the original service,
+RPC, and LuCI candidate files once, stages the exact local candidate with the
+correct modes, and can restore those originals without restarting Xray or
+changing PassWall2 routing.
 
 **MAC:**
 
