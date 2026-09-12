@@ -236,6 +236,16 @@ function testOverviewLoadsAndRendersWithLuCIStateDependency() {
 		'Basic routing provides a recommended setup action');
 	assert.match(overviewSource, /New to PassWall2\? Select the recommended choices/,
 		'Basic routing explains the new-user setup flow');
+	assert.match(overviewSource, /Recommended routing/,
+		'Basic routing shows the recommended destination summary');
+	assert.match(overviewSource, /Gemini and Google app\/control traffic/,
+		'Basic routing summary identifies VPN-routed Google app traffic');
+	assert.match(overviewSource, /Google Drive and YouTube video.*Local SOCKS \(MITM\)/s,
+		'Basic routing summary identifies the selective Google MITM route');
+	assert.match(overviewSource, /Customize routing/,
+		'Basic routing keeps detailed choices available under a customization section');
+	assert.match(overviewSource, /Meet audio and video media may use UDP or separate media IPs/,
+		'Basic routing summary carries the Google Meet media limitation');
 	assert.match(overviewSource, /not all Google services/,
 		'Google MITM option clearly states that it is a selective bundle');
 	assert.match(overviewSource, /Google Meet web and signaling/,

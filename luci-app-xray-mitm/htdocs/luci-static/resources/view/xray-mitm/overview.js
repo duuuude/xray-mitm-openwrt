@@ -1022,6 +1022,24 @@ return view.extend({
 		}, [ E('strong', {}, label), E('span', {}, '→ ' + destination) ]);
 	},
 
+	simpleRoutingSummary: function() {
+		return E('div', {
+			class: 'xray-mitm-routing-summary',
+			style: 'padding:.85rem 1rem;margin:1rem 0;border:1px solid var(--border-color-medium,#ccc);' +
+				'border-radius:.45rem;background:rgba(128,128,128,.06)'
+		}, [
+			E('h4', { style: 'margin-top:0' }, _('Recommended routing')),
+			E('p', {}, _('The recommended preset sends only these tested service groups to each destination. Expand Customize routing to change individual groups.')),
+			E('div', { style: 'display:grid;gap:.1rem;margin:.7rem 0' }, [
+				this.simpleRouteRow(_('Gemini and Google app/control traffic'), _('Selected VPN')),
+				this.simpleRouteRow(_('Google Drive and YouTube video'), _('Local SOCKS (MITM)')),
+				this.simpleRouteRow(_('Google Meet web and signaling'), _('Local SOCKS (MITM)')),
+				this.simpleRouteRow(_('Iranian sites and IP addresses'), _('Direct connection'))
+			]),
+			E('p', { style: 'margin-bottom:0;opacity:.82' }, _('Meet audio and video media may use UDP or separate media IPs, so test a real call before relying on MITM for every part of a meeting.'))
+		]);
+	},
+
 	simpleStatusCard: function(label, value, tone, detail) {
 		return E('div', {
 			style: 'padding:.85rem 1rem;border:1px solid var(--border-color-medium,#ccc);' +
@@ -1249,7 +1267,11 @@ return view.extend({
 					E('p', {}, E('button', {
 						class: 'btn cbi-button-action', click: ui.createHandlerFn(this, 'useSimpleRecommendedRouting')
 					}, _('Use recommended choices'))),
-					this.simpleRoutingTable(routingState, passwall),
+					this.simpleRoutingSummary(),
+					E('details', { style: 'margin:1rem 0' }, [
+						E('summary', { style: 'cursor:pointer;font-weight:600' }, _('Customize routing')),
+						this.simpleRoutingTable(routingState, passwall)
+					]),
 					E('label', { for: 'xray-mitm-simple-vpn', style: 'display:block;font-weight:600;margin-bottom:.35rem' }, _('VPN destination for selected overrides')),
 					selectControl('xray-mitm-simple-vpn', vpns, selectedVpn, function() {
 						dom.content(document.getElementById('xray-mitm-simple-routing-preview'), '');
