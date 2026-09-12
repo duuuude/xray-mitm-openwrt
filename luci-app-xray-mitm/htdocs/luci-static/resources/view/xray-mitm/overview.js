@@ -111,11 +111,7 @@ var callRecoverPassWall2 = rpc.declare({
 	expect: { '': {} }
 });
 
-var routingParams = [
-	'shunt_node', 'vpn_node', 'gemini', 'android_check',
-	'youtube_control', 'google_play', 'google_mitm', 'google_meet', 'meta_mitm', 'fastly_mitm', 'iran_direct', 'accounts_google',
-	'set_default_vpn', 'set_localhost_proxy_zero'
-];
+var routingParams = [ 'shunt_node', 'vpn_node' ].concat(state.routingFieldNames());
 
 var ROUTING_POLL_INTERVAL = 2000;
 var ROUTING_POLL_ATTEMPTS = 75;
@@ -699,24 +695,7 @@ return view.extend({
 		var output = document.getElementById('xray-mitm-simple-routing-preview');
 		var button = ev.currentTarget;
 		var currentRouting = this.passwall.routing_state || {};
-		var hiddenRouting = this.simpleHiddenRouting || {
-			set_default_vpn: currentRouting.set_default_vpn === true,
-			set_localhost_proxy_zero: currentRouting.set_localhost_proxy_zero === true
-		};
-		var values = {
-			gemini: false,
-			android_check: false,
-			youtube_control: false,
-			google_play: false,
-			google_mitm: false,
-			google_meet: false,
-			meta_mitm: false,
-			fastly_mitm: false,
-			iran_direct: false,
-			accounts_google: false,
-			set_default_vpn: hiddenRouting.set_default_vpn,
-			set_localhost_proxy_zero: hiddenRouting.set_localhost_proxy_zero
-		};
+		var values = state.routingChoices(this.simpleHiddenRouting || currentRouting);
 		[ 'gemini', 'android_check', 'youtube_control', 'google_play', 'google_mitm', 'google_meet', 'meta_mitm',
 			'fastly_mitm', 'iran_direct', 'accounts_google' ].forEach(function(name) {
 			var choice = document.getElementById('xray-mitm-simple-route-' + name.replace(/_/g, '-'));
@@ -765,11 +744,8 @@ return view.extend({
 	},
 
 	useSimpleRecommendedRouting: function() {
-		this.simpleHiddenRouting = {
-			set_default_vpn: true,
-			set_localhost_proxy_zero: true
-		};
-		this.setSimpleRoutingChoices(state.recommendedChoices());
+		this.simpleHiddenRouting = state.recommendedChoices();
+		this.setSimpleRoutingChoices(this.simpleHiddenRouting);
 	},
 
 	generateCandidate: function(ev) {

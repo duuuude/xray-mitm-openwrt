@@ -88,27 +88,36 @@ function deriveSimpleState(setup, status, certificates, passwall) {
 	};
 }
 
-function routingChoices(routing) {
-	routing = routing || {};
+var ROUTING_FIELDS = [
+	'gemini', 'android_check', 'youtube_control', 'google_play',
+	'google_mitm', 'google_meet', 'meta_mitm', 'fastly_mitm',
+	'iran_direct', 'accounts_google', 'set_default_vpn',
+	'set_localhost_proxy_zero'
+];
 
-	return {
-		gemini: routing.gemini === true,
-		android_check: routing.android_check === true,
-		youtube_control: routing.youtube_control === true,
-		google_play: routing.google_play === true,
-		google_mitm: routing.google_mitm === true,
-		google_meet: routing.google_meet === true,
-		meta_mitm: routing.meta_mitm === true,
-		fastly_mitm: routing.fastly_mitm === true,
-		iran_direct: routing.iran_direct === true,
-		accounts_google: routing.accounts_google === true,
-		set_default_vpn: routing.set_default_vpn === true,
-		set_localhost_proxy_zero: routing.set_localhost_proxy_zero === true
-	};
+function normalizeRoutingChoices(routing, fallback) {
+	routing = routing || {};
+	fallback = fallback || {};
+	var choices = {};
+
+	ROUTING_FIELDS.forEach(function(name) {
+		var value = routing[name];
+
+		if (value === undefined)
+			value = fallback[name];
+
+		choices[name] = value === true;
+	});
+
+	return choices;
+}
+
+function routingChoices(routing) {
+	return normalizeRoutingChoices(routing);
 }
 
 function recommendedChoices() {
-	return {
+	return normalizeRoutingChoices({
 		gemini: true,
 		android_check: true,
 		youtube_control: true,
@@ -121,28 +130,15 @@ function recommendedChoices() {
 		accounts_google: true,
 		set_default_vpn: true,
 		set_localhost_proxy_zero: true
-	};
+	});
 }
 
 function routingArguments(values) {
 	values = values || {};
 
-	return [
-		values.shunt_node,
-		values.vpn_node,
-		values.gemini,
-		values.android_check,
-		values.youtube_control,
-		values.google_play,
-		values.google_mitm,
-		values.google_meet,
-		values.meta_mitm,
-		values.fastly_mitm,
-		values.iran_direct,
-		values.accounts_google,
-		values.set_default_vpn,
-		values.set_localhost_proxy_zero
-	];
+	return [ values.shunt_node, values.vpn_node ].concat(ROUTING_FIELDS.map(function(name) {
+		return values[name];
+	}));
 }
 
 function routeStatus(source, active) {
@@ -156,14 +152,13 @@ function routeStatus(source, active) {
 	return { kind: 'new', tone: 'warn' };
 }
 
-var ROUTING_FIELDS = [
-	'gemini', 'android_check', 'youtube_control', 'google_play',
-	'google_mitm', 'google_meet', 'meta_mitm', 'fastly_mitm',
-	'iran_direct', 'accounts_google', 'set_default_vpn',
-	'set_localhost_proxy_zero'
-];
+function routingFieldNames() {
+	return ROUTING_FIELDS.slice();
+}
 
 function routingIsConfigured(routing) {
+	routing = normalizeRoutingChoices(routing);
+
 	for (var i = 0; i < ROUTING_FIELDS.length; i++)
 		if (routing[ROUTING_FIELDS[i]] === true)
 			return true;
@@ -172,6 +167,7 @@ function routingIsConfigured(routing) {
 }
 
 function routingMatchesRecommended(routing) {
+	routing = normalizeRoutingChoices(routing);
 	var recommended = recommendedChoices();
 
 	for (var i = 0; i < ROUTING_FIELDS.length; i++) {
@@ -223,9 +219,11 @@ return baseclass.extend({
 	deriveSimpleState: deriveSimpleState,
 	nodeItems: nodeItems,
 	passwallSelection: passwallSelection,
+	normalizeRoutingChoices: normalizeRoutingChoices,
 	recommendedChoices: recommendedChoices,
 	deriveBasicRoutingStatus: deriveBasicRoutingStatus,
 	routeStatus: routeStatus,
+	routingFieldNames: routingFieldNames,
 	routingArguments: routingArguments,
 	routingChoices: routingChoices,
 	setupProgress: setupProgress,

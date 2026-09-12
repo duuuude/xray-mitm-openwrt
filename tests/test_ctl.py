@@ -19,6 +19,9 @@ LIBEXEC_SOURCE = PROJECT / "xray-mitm/files/usr/libexec/xray-mitm"
 DEFAULT_UCI = PROJECT / "xray-mitm/files/etc/config/xray-mitm"
 SAMPLE = PROJECT / "xray-mitm/files/usr/share/xray-mitm/config.json.example"
 FAKE_COMMAND = PROJECT / "tests/fakes/openwrt_cmd.py"
+RECOMMENDED_ROUTING = json.loads(
+    (PROJECT / "tests/fixtures/recommended-routing.json").read_text(encoding="utf-8")
+)
 
 
 class ControlFixture(unittest.TestCase):
@@ -267,28 +270,15 @@ class ControlFixture(unittest.TestCase):
     def test_setup_status_uses_complete_routing_recommendation(self) -> None:
         self.ctl("setup-recommended")
         helper = self.root / "usr/libexec/xray-mitm/passwall2"
-        routing = {
-            "gemini": True,
-            "android_check": True,
-            "youtube_control": True,
-            "google_play": True,
-            "google_mitm": True,
-            "google_meet": True,
-            "meta_mitm": False,
-            "fastly_mitm": False,
-            "iran_direct": True,
-            "accounts_google": True,
-            "set_default_vpn": True,
-            "set_localhost_proxy_zero": True,
-        }
+        routing = dict(RECOMMENDED_ROUTING)
 
-        def set_inspection(values: dict[str, bool]) -> None:
+        def set_inspection(values: dict[str, bool], recovery_pending: bool = False) -> None:
             inspection = {
                 "available": True,
                 "compatible": True,
                 "shunt_available": True,
                 "vpn_available": True,
-                "recovery_pending": False,
+                "recovery_pending": recovery_pending,
                 "routing_state": values,
             }
             helper.write_text(
@@ -303,11 +293,19 @@ class ControlFixture(unittest.TestCase):
         self.assertTrue(status["routing"]["configured"])
         self.assertTrue(status["routing"]["recommended_matches_current"])
 
-        custom = dict(routing, google_meet=False)
-        set_inspection(custom)
+        for name, expected in routing.items():
+            with self.subTest(field=name):
+                custom = dict(routing, **{name: not expected})
+                set_inspection(custom)
+                status = json.loads(self.ctl("setup-status-json").stdout)
+                self.assertTrue(status["routing"]["configured"])
+                self.assertFalse(status["routing"]["recommended_matches_current"])
+
+        set_inspection({}, recovery_pending=True)
         status = json.loads(self.ctl("setup-status-json").stdout)
-        self.assertTrue(status["routing"]["configured"])
+        self.assertFalse(status["routing"]["configured"])
         self.assertFalse(status["routing"]["recommended_matches_current"])
+        self.assertTrue(status["routing"]["recovery_pending"])
 
         set_inspection({name: False for name in routing})
         status = json.loads(self.ctl("setup-status-json").stdout)

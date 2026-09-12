@@ -8,6 +8,11 @@ const modulePath = path.join(__dirname, '..', 'luci-app-xray-mitm', 'htdocs',
 	'luci-static', 'resources', 'xray-mitm', 'state.js');
 const overviewPath = path.join(__dirname, '..', 'luci-app-xray-mitm', 'htdocs',
 	'luci-static', 'resources', 'view', 'xray-mitm', 'overview.js');
+const rpcPath = path.join(__dirname, '..', 'luci-app-xray-mitm', 'root',
+	'usr', 'share', 'rpcd', 'ucode', 'xray-mitm.uc');
+const ctlPath = path.join(__dirname, '..', 'xray-mitm', 'files', 'usr', 'sbin',
+	'xray-mitmctl');
+const recommendedPath = path.join(__dirname, 'fixtures', 'recommended-routing.json');
 const menuPath = path.join(__dirname, '..', 'luci-app-xray-mitm', 'root',
 	'usr', 'share', 'luci', 'menu.d', 'luci-app-xray-mitm.json');
 
@@ -89,17 +94,63 @@ function testSimpleState() {
 }
 
 function testRoutingArguments() {
+	const expectedFields = [
+		'gemini', 'android_check', 'youtube_control', 'google_play',
+		'google_mitm', 'google_meet', 'meta_mitm', 'fastly_mitm',
+		'iran_direct', 'accounts_google', 'set_default_vpn',
+		'set_localhost_proxy_zero'
+	];
+	const recommended = JSON.parse(fs.readFileSync(recommendedPath, 'utf8'));
 	const values = state.recommendedChoices();
+
+	assert.deepStrictEqual(state.routingFieldNames(), expectedFields);
+	assert.deepStrictEqual(values, recommended);
 	values.shunt_node = 'shunt-a';
 	values.vpn_node = 'vpn-a';
-
 	assert.deepStrictEqual(state.routingArguments(values), [
-		'shunt-a', 'vpn-a', true, true, true, true, true, true,
-		false, false, true, true, true, true
+		'shunt-a', 'vpn-a', ...expectedFields.map(function(name) { return recommended[name]; })
 	]);
 
+	assert.deepStrictEqual(state.normalizeRoutingChoices({ google_meet: true }, {
+		google_play: true
+	}), Object.assign({}, state.routingChoices({ google_meet: true }), { google_play: true }));
 	assert.strictEqual(state.routingChoices({ google_mitm: 1 }).google_mitm, false);
 	assert.strictEqual(state.routingChoices({ google_mitm: true }).google_mitm, true);
+}
+
+function testRoutingContractParity() {
+	const fields = state.routingFieldNames();
+	const rpcSource = fs.readFileSync(rpcPath, 'utf8');
+	const ctlSource = fs.readFileSync(ctlPath, 'utf8');
+	const recommended = JSON.parse(fs.readFileSync(recommendedPath, 'utf8'));
+	const flagsMatch = rpcSource.match(/let flags = \[([\s\S]*?)\];/);
+	const defaultsMatch = rpcSource.match(/planPassWall2:\s*{\s*args:\s*{([\s\S]*?)\n\s*},\s*call:/);
+
+	assert.ok(flagsMatch, 'rpcd exposes the routing flag contract');
+	const rpcFields = Array.from(flagsMatch[1].matchAll(/'([^']+)'/g)).map(function(match) {
+		return match[1];
+	});
+	assert.deepStrictEqual(rpcFields, fields,
+		'frontend routing fields match the rpcd plan contract');
+	assert.ok(defaultsMatch, 'rpcd exposes routing defaults');
+	const rpcDefaults = {};
+	fields.forEach(function(name) {
+		const match = defaultsMatch[1].match(new RegExp('\\b' + name + ':\\s*(true|false)'));
+		assert.ok(match, 'rpcd defines a default for routing field ' + name);
+		rpcDefaults[name] = match[1] === 'true';
+	});
+	assert.deepStrictEqual(rpcDefaults, recommended,
+		'rpcd defaults match the product recommended preset');
+	assert.match(fs.readFileSync(overviewPath, 'utf8'),
+		/\[ 'shunt_node', 'vpn_node' \]\.concat\(state\.routingFieldNames\(\)\)/,
+		'overview builds routing arguments from the shared field contract');
+	assert.match(fs.readFileSync(overviewPath, 'utf8'),
+		/this\.simpleHiddenRouting = state\.recommendedChoices\(\)/,
+		'Basic routing uses the canonical recommended preset');
+	fields.forEach(function(name) {
+		assert.match(ctlSource, new RegExp('routing_state\\.' + name),
+			'control status evaluates routing field ' + name);
+	});
 }
 
 function testRouteStatusAndProgress() {
@@ -143,6 +194,7 @@ function testOverviewLoadsAndRendersWithLuCIStateDependency() {
 	};
 	const fakeDom = { content: function() {} };
 	const fakeState = {
+		routingFieldNames: function() { return []; },
 		setupProgress: function() {
 			return { firstTime: true, routingReady: false };
 		}
@@ -275,7 +327,7 @@ function testClientSideDashboardTabs() {
 		rpc: { declare: function() { return function() {}; } },
 		ui: { addNotification: function() {}, createHandlerFn: function() { return function() {}; } },
 		dom: { content: function() {} },
-		'xray-mitm.state': {}
+		'xray-mitm.state': { routingFieldNames: function() { return []; } }
 	}, {
 		E: function() {},
 		_: function(value) { return value; },
@@ -359,7 +411,7 @@ function testRoutingBusyOverlayLifecycle() {
 		rpc: { declare: function() { return function() {}; } },
 		ui: { addNotification: function() {}, createHandlerFn: function() { return function() {}; } },
 		dom: { content: function() {} },
-		'xray-mitm.state': {}
+		'xray-mitm.state': { routingFieldNames: function() { return []; } }
 	}, {
 		E: makeElement,
 		_: function(value) { return value; },
@@ -389,6 +441,7 @@ function testRoutingBusyOverlayLifecycle() {
 testPasswallSelection();
 testSimpleState();
 testRoutingArguments();
+testRoutingContractParity();
 testRouteStatusAndProgress();
 testOverviewLoadsAndRendersWithLuCIStateDependency();
 testSingleViewMenu();
