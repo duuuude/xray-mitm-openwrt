@@ -7,6 +7,12 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- Lock the dashboard and show elapsed progress while PassWall2 routing changes
+  are applied and verified, so users do not start a second transaction while
+  the router is restarting.
+
 ## [0.4.3] - 2026-09-12
 
 ### Added

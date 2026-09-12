@@ -258,6 +258,18 @@ function testClientSideDashboardTabs() {
 		'overview polls background routing activation');
 	assert.ok(overviewSource.includes('pollRoutingActivation'),
 		'overview records routing activation completion');
+	assert.ok(overviewSource.includes("id: 'xray-mitm-routing-busy'"),
+		'overview locks the page during routing activation');
+	assert.ok(overviewSource.includes('Elapsed time: 0 seconds'),
+		'overview shows elapsed routing activation time');
+	assert.ok(overviewSource.includes('All routing controls are locked until the router confirms completion.'),
+		'overview tells users to wait for routing confirmation');
+	assert.ok(overviewSource.includes('Applying this routing may briefly interrupt traffic.'),
+		'basic routing explains the apply interruption');
+	assert.ok(overviewSource.includes('keep this page open while PassWall2 restarts and confirms the changes.'),
+		'advanced routing explains the apply wait');
+	assert.ok(overviewSource.includes('ROUTING_POLL_ATTEMPTS'),
+		'overview bounds routing activation polling');
 	const overview = loadLuciModule(overviewSource, {
 		view: { extend: function(methods) { return methods; } },
 		rpc: { declare: function() { return function() {}; } },
@@ -285,6 +297,95 @@ function testClientSideDashboardTabs() {
 	assert.strictEqual(tabs[3].className, 'cbi-tab');
 }
 
+function testRoutingBusyOverlayLifecycle() {
+	const root = { children: [], attributes: {}, appendChild: function(child) {
+			child.parentNode = this;
+			this.children.push(child);
+		}, removeChild: function(child) {
+			this.children = this.children.filter(function(item) { return item !== child; });
+			child.parentNode = null;
+		} };
+	const documentElement = {
+		attributes: {},
+		setAttribute: function(name, value) { this.attributes[name] = value; },
+		removeAttribute: function(name) { delete this.attributes[name]; }
+	};
+
+	function makeElement(tag, attributes, children) {
+		const element = {
+			tag: tag,
+			attributes: attributes || {},
+			children: [],
+			parentNode: null,
+			textContent: typeof children === 'string' ? children : '',
+			appendChild: function(child) {
+				child.parentNode = this;
+				this.children.push(child);
+			},
+			focus: function() { this.focused = true; }
+		};
+
+		if (Array.isArray(children))
+			children.forEach(function(child) { if (child && typeof child === 'object') element.appendChild(child); });
+
+		return element;
+	}
+
+	function findById(element, id) {
+		if (!element)
+			return null;
+		if (element.attributes && element.attributes.id === id)
+			return element;
+		for (const child of element.children || []) {
+			const found = findById(child, id);
+			if (found)
+				return found;
+		}
+		return null;
+	}
+
+	const fakeDocument = {
+		body: root,
+		documentElement: documentElement,
+		getElementById: function(id) { return findById(root, id); }
+	};
+	const fakeWindow = {
+		setInterval: function() { return 17; },
+		clearInterval: function(id) { fakeWindow.cleared = id; }
+	};
+	const overviewSource = fs.readFileSync(overviewPath, 'utf8');
+	const overview = loadLuciModule(overviewSource, {
+		view: { extend: function(methods) { return methods; } },
+		rpc: { declare: function() { return function() {}; } },
+		ui: { addNotification: function() {}, createHandlerFn: function() { return function() {}; } },
+		dom: { content: function() {} },
+		'xray-mitm.state': {}
+	}, {
+		E: makeElement,
+		_: function(value) { return value; },
+		document: fakeDocument,
+		window: fakeWindow,
+		L: { bind: function(fn, context) { return fn.bind(context); } }
+	});
+
+	overview.routingBusy = false;
+	overview.routingBusyTimer = null;
+	overview.setRoutingBusy(true);
+	assert.strictEqual(overview.routingBusy, true);
+	assert.strictEqual(root.children.length, 1);
+	assert.strictEqual(fakeDocument.getElementById('xray-mitm-routing-busy-title').textContent,
+		'Applying routing changes…');
+	assert.strictEqual(documentElement.attributes['aria-busy'], 'true');
+	overview.setRoutingBusyMessage('Waiting for PassWall2…', 'Still applying');
+	assert.strictEqual(fakeDocument.getElementById('xray-mitm-routing-busy-detail').textContent,
+		'Still applying');
+	overview.setRoutingBusy(false);
+	assert.strictEqual(overview.routingBusy, false);
+	assert.strictEqual(root.children.length, 0);
+	assert.strictEqual(fakeWindow.cleared, 17);
+	assert.strictEqual(documentElement.attributes['aria-busy'], undefined);
+}
+
 testPasswallSelection();
 testSimpleState();
 testRoutingArguments();
@@ -292,4 +393,5 @@ testRouteStatusAndProgress();
 testOverviewLoadsAndRendersWithLuCIStateDependency();
 testSingleViewMenu();
 testClientSideDashboardTabs();
+testRoutingBusyOverlayLifecycle();
 console.log('Frontend state tests passed.');

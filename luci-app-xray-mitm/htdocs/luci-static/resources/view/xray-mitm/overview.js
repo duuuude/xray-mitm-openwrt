@@ -117,6 +117,9 @@ var routingParams = [
 	'set_default_vpn', 'set_localhost_proxy_zero'
 ];
 
+var ROUTING_POLL_INTERVAL = 2000;
+var ROUTING_POLL_ATTEMPTS = 75;
+
 var callPlanPassWall2 = rpc.declare({
 	object: 'luci.xray-mitm',
 	method: 'planPassWall2',
@@ -447,6 +450,85 @@ return view.extend({
 		window.setTimeout(function() { window.location.reload(); }, 500);
 	},
 
+	setRoutingBusyMessage: function(title, detail) {
+		var titleNode = document.getElementById('xray-mitm-routing-busy-title');
+		var detailNode = document.getElementById('xray-mitm-routing-busy-detail');
+
+		if (titleNode)
+			titleNode.textContent = text(title);
+		if (detailNode)
+			detailNode.textContent = text(detail);
+	},
+
+	setRoutingBusy: function(busy) {
+		var overlay = document.getElementById('xray-mitm-routing-busy');
+
+		if (!busy) {
+			if (this.routingBusyTimer !== null && this.routingBusyTimer !== undefined)
+				window.clearInterval(this.routingBusyTimer);
+
+			this.routingBusyTimer = null;
+			this.routingBusy = false;
+			if (overlay && overlay.parentNode)
+				overlay.parentNode.removeChild(overlay);
+			if (document.documentElement)
+				document.documentElement.removeAttribute('aria-busy');
+			return;
+		}
+
+		if (this.routingBusy || !document.body)
+			return;
+
+		this.routingBusy = true;
+		this.routingBusyStartedAt = Date.now();
+		overlay = E('div', {
+			id: 'xray-mitm-routing-busy',
+			role: 'dialog',
+			'aria-modal': 'true',
+			'aria-live': 'polite',
+			'aria-labelledby': 'xray-mitm-routing-busy-title',
+			'tabindex': '-1',
+			keydown: function(ev) {
+				if (ev.key === 'Escape' || ev.key === 'Tab')
+					ev.preventDefault();
+			},
+			style: 'position:fixed;inset:0;z-index:10000;display:flex;align-items:center;' +
+				'justify-content:center;padding:1.5rem;background:rgba(0,0,0,.64);cursor:wait'
+		}, [
+			E('div', {
+				style: 'width:100%;max-width:34rem;padding:1.5rem;border:1px solid var(--border-color-medium,#ccc);' +
+					'border-radius:.55rem;background:var(--background-color-high,#222);' +
+					'box-shadow:0 1rem 3rem rgba(0,0,0,.4);text-align:center'
+			}, [
+				E('div', { style: 'font-size:2rem;line-height:1;margin-bottom:.8rem' }, '⏳'),
+				E('h3', { id: 'xray-mitm-routing-busy-title', style: 'margin:.2rem 0 .65rem' },
+					_('Applying routing changes…')),
+				E('p', { id: 'xray-mitm-routing-busy-detail', style: 'margin:.4rem 0' },
+					_('PassWall2 is restarting and checking the new rules. Please keep this page open.')),
+				E('p', { id: 'xray-mitm-routing-busy-elapsed', style: 'margin:.8rem 0;font-weight:600' },
+					_('Elapsed time: 0 seconds')),
+				E('small', { style: 'display:block;opacity:.78' },
+					_('All routing controls are locked until the router confirms completion.'))
+			])
+		]);
+		document.body.appendChild(overlay);
+		if (document.documentElement)
+			document.documentElement.setAttribute('aria-busy', 'true');
+
+		var startedAt = this.routingBusyStartedAt;
+		var updateElapsed = function() {
+			var elapsed = document.getElementById('xray-mitm-routing-busy-elapsed');
+			var seconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+
+			if (elapsed)
+				elapsed.textContent = _('Elapsed time: ') + seconds + _(' seconds');
+		};
+
+		updateElapsed();
+		this.routingBusyTimer = window.setInterval(updateElapsed, 1000);
+		overlay.focus();
+	},
+
 	runMutation: function(button, promise, successMessage, reload) {
 		setBusy(button, true);
 
@@ -656,7 +738,8 @@ return view.extend({
 					this.simpleRouteRow(_('MITM-Compatible Services'), mitmSelected ? _('Local SOCKS') : _('Not selected')),
 					this.simpleRouteRow(_('Regional Direct Access'), values.iran_direct ? _('Direct connection') : _('Not selected'))
 				]),
-				E('p', { style: 'opacity:.82' }, _('This reflects the checkboxes above. Existing custom rules are preserved, and nothing changes until you apply this preview.'))
+				E('p', { style: 'opacity:.82' }, _('This reflects the checkboxes above. Existing custom rules are preserved, and nothing changes until you apply this preview.')),
+				E('p', { style: 'opacity:.82' }, _('Applying this routing may briefly interrupt traffic. Keep this page open while PassWall2 restarts and confirms the changes.'))
 			];
 			if (blocked)
 				children.push(E('div', { class: 'alert-message warning' }, _('Start MITM before applying this routing setup.')));
@@ -806,14 +889,16 @@ return view.extend({
 	},
 
 	applyRouting: function(ev) {
-		if (!this.planToken || !window.confirm(_(
+		if (this.routingBusy || !this.planToken || !window.confirm(_(
 			'Apply exactly the previewed PassWall2 changes and restart PassWall2? A rollback snapshot will be kept.'
 		)))
 			return;
 
 		var button = ev.currentTarget;
 		var output = document.getElementById('xray-mitm-routing-preview');
+		this.setRoutingBusy(true);
 		setBusy(button, true);
+		notification(_('Applying PassWall2 routing changes. Keep this page open until it finishes.'), 'info');
 
 		callApplyPassWall2(this.planToken).then(assertOk).then(L.bind(function(result) {
 			if (!result.pending || !result.transaction)
@@ -821,25 +906,33 @@ return view.extend({
 
 			this.planToken = null;
 			this.routingActivation = result.transaction;
+			this.setRoutingBusyMessage(_('PassWall2 is restarting…'), _(
+				'The router is applying the reviewed rules. The controls are locked until activation is confirmed.'
+			));
 			dom.content(output, E('div', { class: 'alert-message warning' }, _(
-				'PassWall2 is restarting. This page will confirm the activation or exact rollback when it finishes.'
+				'PassWall2 is restarting. Keep this page open while the router confirms the activation or exact rollback.'
 			)));
 			this.pollRoutingActivation(result.transaction, button, output, 0);
 		}, this)).catch(function(error) {
+			this.setRoutingBusy(false);
 			setBusy(button, false);
 			notification(error.message, 'error');
-		});
+		}.bind(this));
 	},
 
 	pollRoutingActivation: function(transaction, button, output, attempts) {
 		callPassWall2Activation(transaction).then(assertOk).then(L.bind(function(status) {
 			if (status.pending === true) {
-				window.setTimeout(L.bind(this.pollRoutingActivation, this, transaction, button, output, attempts + 1), 2000);
+				this.setRoutingBusyMessage(_('Waiting for PassWall2…'), _(
+					'The router is still applying the change. It will unlock this page after verification.'
+				));
+				window.setTimeout(L.bind(this.pollRoutingActivation, this, transaction, button, output, attempts + 1), ROUTING_POLL_INTERVAL);
 				return;
 			}
 
 			var result = status.result || {};
 			if (result.ok !== true) {
+				this.setRoutingBusy(false);
 				setBusy(button, false);
 				dom.content(output, E('div', { class: 'alert-message danger' }, textNode(
 					result.message || _('Routing activation failed. The recorded recovery state must be reviewed before another change.')
@@ -850,15 +943,20 @@ return view.extend({
 
 			this.rollbackTransaction = result.transaction || null;
 			this.routingActivation = null;
+			this.setRoutingBusyMessage(_('Routing changes applied'), _('The router confirmed the new PassWall2 rules. Reloading this page…'));
 			setBusy(button, false);
 			notification(_('PassWall2 routing changes applied.'), 'info');
 			this.reloadPage();
 		}, this)).catch(L.bind(function(error) {
-			if (attempts < 75) {
-				window.setTimeout(L.bind(this.pollRoutingActivation, this, transaction, button, output, attempts + 1), 2000);
+			if (attempts < ROUTING_POLL_ATTEMPTS) {
+				this.setRoutingBusyMessage(_('Waiting for PassWall2…'), _(
+					'The router did not answer this check yet. Retrying automatically; keep this page open.'
+				));
+				window.setTimeout(L.bind(this.pollRoutingActivation, this, transaction, button, output, attempts + 1), ROUTING_POLL_INTERVAL);
 				return;
 			}
 			setBusy(button, false);
+			this.setRoutingBusy(false);
 			dom.content(output, E('div', { class: 'alert-message danger' }, textNode(
 				_('Could not read the routing activation result. Reopen this page to check its recorded status.')
 			)));
@@ -887,6 +985,9 @@ return view.extend({
 	},
 
 	routingSelectionChanged: function() {
+		if (this.routingBusy)
+			return;
+
 		this.planToken = null;
 		this.lastPlan = null;
 		var apply = document.getElementById('xray-mitm-routing-apply');
@@ -1515,7 +1616,7 @@ return view.extend({
 				]),
 				E('h4', {}, _('3. Review and apply')),
 				E('p', { style: 'opacity:.82' }, _(
-					'Review builds a private temporary copy first. Nothing is changed until you apply that exact preview. A rollback copy is kept.'
+					'Review builds a private temporary copy first. Nothing is changed until you apply that exact preview. A rollback copy is kept. Applying may briefly interrupt traffic; keep this page open while PassWall2 restarts and confirms the changes.'
 				)),
 				E('p', { style: 'display:flex;gap:.5rem;flex-wrap:wrap' }, [
 					E('button', { class: 'btn cbi-button-action', disabled: canPlan ? null : '', click: ui.createHandlerFn(this, 'planRouting') }, _('Review setup')), ' ',
@@ -1532,6 +1633,8 @@ return view.extend({
 		this.status = data[1] || {};
 		this.certificates = data[2] || {};
 		this.passwall = data[3] || {};
+		this.routingBusy = false;
+		this.routingBusyTimer = null;
 		this.appVersion = text(this.setup.app_version || this.setup.version, PROJECT_VERSION)
 			.replace(/^v/i, '');
 		this.planToken = null;
