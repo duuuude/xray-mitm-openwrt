@@ -447,17 +447,19 @@ def check_signed_feed(root: Path, errors: list[str]) -> None:
         "https://duuuude.github.io/xray-mitm-openwrt/feed/25.12/all/packages.adb",
         "/etc/apk/keys",
         "/etc/apk/repositories.d",
-        "apk add xray-mitm luci-app-xray-mitm",
-        "apk upgrade xray-mitm luci-app-xray-mitm",
+        "detect_platform()",
+        "check_platform_support()",
+        '"$APK_BIN" add xray-mitm luci-app-xray-mitm',
+        '"$APK_BIN" upgrade xray-mitm luci-app-xray-mitm',
     ):
         if required not in installer:
             errors.append(f"{installer_relative} signed-feed logic is missing {required}")
     if re.search(r"apk[ \t]+(?:add|upgrade).*--allow-untrusted", installer):
         errors.append(f"{installer_relative} must not bypass APK signature verification")
     targeted_installer = installer.replace(
-        "apk upgrade xray-mitm luci-app-xray-mitm", ""
+        '"$APK_BIN" upgrade xray-mitm luci-app-xray-mitm', ""
     )
-    if re.search(r"apk[ \t]+upgrade", targeted_installer):
+    if re.search(r"\$APK_BIN[ \t]+upgrade", targeted_installer):
         errors.append(f"{installer_relative} must not upgrade unrelated router packages")
 
 

@@ -176,6 +176,7 @@ class InstallerTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("Authenticated installation/update complete.", result.stdout)
+        self.assertIn("Package manager: apk", result.stdout)
         self.assertIn(self.public_key_sha256, result.stdout)
         self.assertEqual(
             self.apk_calls(),
@@ -194,6 +195,10 @@ class InstallerTests(unittest.TestCase):
         self.assertNotIn("--allow-untrusted", json.dumps(self.apk_calls()))
         self.assertIn("xray-mitm\n", self.world_file.read_text())
         self.assertIn("luci-app-xray-mitm\n", self.world_file.read_text())
+        self.assertIn("Basic -> Setup", result.stdout)
+        self.assertIn("Set up automatically", result.stdout)
+        self.assertIn("Basic -> Routing", result.stdout)
+        self.assertNotIn("install the packaged default configuration", result.stdout)
 
     def test_fingerprint_mismatch_stops_before_system_changes(self) -> None:
         result = self.run_installer(key_sha256="0" * 64)
@@ -290,6 +295,33 @@ class InstallerTests(unittest.TestCase):
         self.assertIn("xray-mitm", listing)
         self.assertIn("world", listing)
 
+    def test_backup_retention_keeps_latest_three_project_backups(self) -> None:
+        old_backups = [
+            "xray-mitm-before-install-20200101-000000.tar.gz",
+            "xray-mitm-before-install-20200102-000000.tar.gz",
+            "xray-mitm-before-install-20200103-000000.tar.gz",
+            "xray-mitm-before-install-20200104-000000.tar.gz",
+        ]
+        for name in old_backups:
+            path = self.backup_dir / name
+            path.write_bytes(b"old backup")
+            path.chmod(0o644)
+        unrelated = self.backup_dir / "xray-mitm-other.tar.gz"
+        unrelated.write_bytes(b"keep this file")
+
+        result = self.run_installer()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        backups = sorted(self.backup_dir.glob("xray-mitm-before-install-*.tar.gz"))
+        self.assertEqual(len(backups), 3)
+        self.assertFalse((self.backup_dir / old_backups[0]).exists())
+        self.assertFalse((self.backup_dir / old_backups[1]).exists())
+        self.assertTrue((self.backup_dir / old_backups[2]).exists())
+        self.assertTrue((self.backup_dir / old_backups[3]).exists())
+        for backup in backups:
+            self.assertEqual(backup.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(unrelated.read_bytes(), b"keep this file")
+
     def test_requires_root(self) -> None:
         result = self.run_installer(fake_uid="1000")
 
@@ -297,8 +329,20 @@ class InstallerTests(unittest.TestCase):
         self.assertIn("Run this installer as root", result.stderr)
         self.assertEqual(self.apk_calls(), [])
 
-    def test_rejects_older_and_unpublished_release_series(self) -> None:
-        for release in ("25.12.4", "25.13.0", "26.1.0"):
+    def test_accepts_supported_25_12_release_series(self) -> None:
+        for release in ("25.12", "25.12.0", "25.12.4", "25.12.5", "25.12.9"):
+            with self.subTest(release=release):
+                self.release_file.write_text(
+                    f"DISTRIB_RELEASE='{release}'\n", encoding="utf-8"
+                )
+                if self.apk_log.exists():
+                    self.apk_log.unlink()
+                result = self.run_installer()
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn(f"OpenWrt: {release}", result.stdout)
+
+    def test_rejects_unpublished_release_series(self) -> None:
+        for release in ("24.12.5", "25.13.0", "26.1.0"):
             with self.subTest(release=release):
                 self.release_file.write_text(
                     f"DISTRIB_RELEASE='{release}'\n", encoding="utf-8"
@@ -307,8 +351,23 @@ class InstallerTests(unittest.TestCase):
                     self.apk_log.unlink()
                 result = self.run_installer()
                 self.assertNotEqual(result.returncode, 0)
-                self.assertIn("official OpenWrt 25.12.5", result.stderr)
+                self.assertIn("official OpenWrt 25.12.x", result.stderr)
                 self.assertEqual(self.apk_calls(), [])
+
+    def test_rejects_unsupported_package_manager(self) -> None:
+        no_apk_bin = self.root / "no-apk-bin"
+        no_apk_bin.mkdir()
+        (no_apk_bin / "sh").symlink_to("/bin/sh")
+        fake_id = no_apk_bin / "id"
+        fake_id.write_text("#!/bin/sh\nprintf '%s\\n' 0\n", encoding="utf-8")
+        fake_id.chmod(0o755)
+
+        result = self.run_installer(extra_env={"PATH": str(no_apk_bin)})
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("package manager", result.stderr.lower())
+        self.assertIn("APK-based OpenWrt", result.stderr)
+        self.assertEqual(self.apk_calls(), [])
 
 
 if __name__ == "__main__":

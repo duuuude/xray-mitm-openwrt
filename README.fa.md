@@ -18,7 +18,7 @@
 
 ## نیازمندی‌ها
 
-- OpenWrt رسمی 25.12.5 یا یکی از نسخه‌های نگهداری بعدی سری 25.12، همراه با `apk` و LuCI.
+- OpenWrt رسمی سری 25.12.x همراه با `apk` و LuCI. feed عمومی روی نسخه 25.12.5 ساخته و آزمایش می‌شود؛ نسخه‌های رسمی دیگر از سری 25.12 باید همان قابلیت‌های لازم APK را فراهم کنند.
 - دسترسی روتر به GitHub و GitHub Pages.
 - PassWall2 برای مسیریابی خودکار؛ خود سرویس MITM به PassWall2 نیاز ندارد.
 - یک پروفایل shunt فعال و یک VPN سالم در PassWall2 برای سرویس‌هایی که باید از VPN عبور کنند.
@@ -35,13 +35,13 @@
 **MAC:**
 
 ```sh
-ssh root@192.168.1.1 'wget -qO /tmp/install-xray-mitm.sh https://duuuude.github.io/xray-mitm-openwrt/install.sh && printf "%s  %s\n" "8af96edc133c01a7e9d0a8f4673b7225c47322d73874c05a9c4a0133f3058405" "/tmp/install-xray-mitm.sh" | sha256sum -c - && sh /tmp/install-xray-mitm.sh'
+ssh root@192.168.1.1 'wget -qO /tmp/install-xray-mitm.sh https://duuuude.github.io/xray-mitm-openwrt/install.sh && printf "%s  %s\n" "9014182bc04803172ef0715ba5e1af87385f76adefce64306c5d5f2f43a47e89" "/tmp/install-xray-mitm.sh" | sha256sum -c - && sh /tmp/install-xray-mitm.sh'
 ```
 
 **WINDOWS PC (PowerShell):**
 
 ```powershell
-ssh.exe root@192.168.1.1 'wget -qO /tmp/install-xray-mitm.sh https://duuuude.github.io/xray-mitm-openwrt/install.sh && printf "%s  %s\n" "8af96edc133c01a7e9d0a8f4673b7225c47322d73874c05a9c4a0133f3058405" "/tmp/install-xray-mitm.sh" | sha256sum -c - && sh /tmp/install-xray-mitm.sh'
+ssh.exe root@192.168.1.1 'wget -qO /tmp/install-xray-mitm.sh https://duuuude.github.io/xray-mitm-openwrt/install.sh && printf "%s  %s\n" "9014182bc04803172ef0715ba5e1af87385f76adefce64306c5d5f2f43a47e89" "/tmp/install-xray-mitm.sh" | sha256sum -c - && sh /tmp/install-xray-mitm.sh'
 ```
 
 اگر از قبل داخل SSH روتر هستید:
@@ -49,12 +49,12 @@ ssh.exe root@192.168.1.1 'wget -qO /tmp/install-xray-mitm.sh https://duuuude.git
 **ROUTER:**
 
 ```sh
-wget -qO /tmp/install-xray-mitm.sh https://duuuude.github.io/xray-mitm-openwrt/install.sh && printf '%s  %s\n' '8af96edc133c01a7e9d0a8f4673b7225c47322d73874c05a9c4a0133f3058405' '/tmp/install-xray-mitm.sh' | sha256sum -c - && sh /tmp/install-xray-mitm.sh
+wget -qO /tmp/install-xray-mitm.sh https://duuuude.github.io/xray-mitm-openwrt/install.sh && printf '%s  %s\n' '9014182bc04803172ef0715ba5e1af87385f76adefce64306c5d5f2f43a47e89' '/tmp/install-xray-mitm.sh' | sha256sum -c - && sh /tmp/install-xray-mitm.sh
 ```
 
-نصب‌کننده نسخه OpenWrt، checksum نصب‌کننده و feed امضاشده را بررسی می‌کند، نسخه پشتیبان محافظت‌شده می‌سازد و فقط بسته‌های پروژه را نصب یا به‌روزرسانی می‌کند. PassWall2 نصب نمی‌شود، گواهی ساخته نمی‌شود، MITM روشن نمی‌شود و مسیریابی تغییر نمی‌کند.
+نصب‌کننده نسخه OpenWrt و package manager را شناسایی می‌کند، checksum نصب‌کننده و feed امضاشده را بررسی می‌کند، نسخه پشتیبان محافظت‌شده می‌سازد و فقط بسته‌های پروژه را نصب یا به‌روزرسانی می‌کند. فقط سه نسخه پشتیبان جدید پروژه نگه داشته می‌شوند و فایل‌های نامرتبط در پوشه پشتیبان دست‌نخورده می‌مانند. PassWall2 نصب نمی‌شود، گواهی ساخته نمی‌شود، MITM روشن نمی‌شود و مسیریابی تغییر نمی‌کند.
 
-SHA-256 ثابت نصب‌کننده این است: `8af96edc133c01a7e9d0a8f4673b7225c47322d73874c05a9c4a0133f3058405`.
+SHA-256 ثابت نصب‌کننده این است: `9014182bc04803172ef0715ba5e1af87385f76adefce64306c5d5f2f43a47e89`.
 
 بعد از پایان، LuCI را با **HTTPS** در مسیر **Services → MITM Domain Fronting** باز کنید.
 

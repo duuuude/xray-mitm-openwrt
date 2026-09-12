@@ -17,6 +17,12 @@ APK_WORLD="${XRAY_MITM_APK_WORLD:-/etc/apk/world}"
 BACKUP_DIR="${XRAY_MITM_BACKUP_DIR:-/root}"
 CONFIG_FILE="${XRAY_MITM_CONFIG_FILE:-/etc/config/xray-mitm}"
 STATE_DIR="${XRAY_MITM_STATE_DIR:-/etc/xray-mitm}"
+BACKUP_PREFIX='xray-mitm-before-install-'
+BACKUP_RETENTION=3
+
+PLATFORM_RELEASE=''
+PLATFORM_PACKAGE_MANAGER=''
+APK_BIN=''
 
 KEY_FILE="$APK_KEYS_DIR/$KEY_NAME"
 REPOSITORY_FILE="$REPOSITORIES_DIR/xray-mitm.list"
@@ -61,7 +67,8 @@ cleanup() {
 }
 
 supported_openwrt_release() {
-	version="${DISTRIB_RELEASE%%-*}"
+	release="$1"
+	version="${release%%-*}"
 	old_ifs="$IFS"
 	IFS='.'
 	set -- $version
@@ -74,7 +81,31 @@ supported_openwrt_release() {
 		*[!0-9:]*) return 1 ;;
 	esac
 
-	[ "$major" -eq 25 ] && [ "$minor" -eq 12 ] && [ "$patch" -ge 5 ]
+	[ "$major" -eq 25 ] && [ "$minor" -eq 12 ]
+}
+
+detect_platform() {
+	[ -r "$RELEASE_FILE" ] || die 'This does not appear to be an OpenWrt router.'
+
+	# shellcheck disable=SC1090
+	. "$RELEASE_FILE"
+	[ -n "${DISTRIB_RELEASE:-}" ] || die 'OpenWrt release information is incomplete.'
+
+	PLATFORM_RELEASE="$DISTRIB_RELEASE"
+	APK_BIN="$(command -v apk 2>/dev/null || true)"
+	if [ -n "$APK_BIN" ]; then
+		PLATFORM_PACKAGE_MANAGER='apk'
+	else
+		PLATFORM_PACKAGE_MANAGER='unknown'
+	fi
+}
+
+check_platform_support() {
+	[ "$PLATFORM_PACKAGE_MANAGER" = 'apk' ] || \
+		die "OpenWrt $PLATFORM_RELEASE has no supported APK package manager; this installer requires APK-based OpenWrt."
+	command -v sha256sum >/dev/null 2>&1 || die 'sha256sum is required to verify the feed key.'
+	supported_openwrt_release "$PLATFORM_RELEASE" || \
+		die "OpenWrt $PLATFORM_RELEASE is unsupported; use official OpenWrt 25.12.x with APK."
 }
 
 snapshot_file() {
@@ -121,15 +152,31 @@ write_atomic() {
 	mv -f "$stage" "$destination"
 }
 
-[ "$(id -u)" = '0' ] || die 'Run this installer as root on the OpenWrt router.'
-[ -r "$RELEASE_FILE" ] || die 'This does not appear to be an OpenWrt router.'
+prune_backups() {
+	backup_list="$work_dir/backups"
+	backup_sorted="$work_dir/backups.sorted"
+	: > "$backup_list"
+	for candidate in "${BACKUP_DIR}/${BACKUP_PREFIX}"*.tar.gz; do
+		[ -f "$candidate" ] || continue
+		printf '%s\n' "$candidate" >> "$backup_list"
+	done
+	LC_ALL=C sort -r "$backup_list" > "$backup_sorted"
 
-# shellcheck disable=SC1090
-. "$RELEASE_FILE"
-[ -n "${DISTRIB_RELEASE:-}" ] || die 'OpenWrt release information is incomplete.'
-command -v apk >/dev/null 2>&1 || die 'This installer requires an APK-based OpenWrt release.'
-command -v sha256sum >/dev/null 2>&1 || die 'sha256sum is required to verify the feed key.'
-supported_openwrt_release || die "OpenWrt $DISTRIB_RELEASE is unsupported; use official OpenWrt 25.12.5 or a later 25.12 maintenance release."
+	backup_count=0
+	while IFS= read -r candidate; do
+		[ -n "$candidate" ] || continue
+		backup_count=$((backup_count + 1))
+		if [ "$backup_count" -le "$BACKUP_RETENTION" ]; then
+			chmod 0600 "$candidate"
+		else
+			rm -f "$candidate"
+		fi
+	done < "$backup_sorted"
+}
+
+[ "$(id -u)" = '0' ] || die 'Run this installer as root on the OpenWrt router.'
+detect_platform
+check_platform_support
 
 case "$PUBLIC_KEY_SHA256" in
 	*[!0-9a-f]*) die 'The pinned public-key SHA-256 value is invalid.' ;;
@@ -144,7 +191,8 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-say "OpenWrt: $DISTRIB_RELEASE"
+say "OpenWrt: $PLATFORM_RELEASE"
+say "Package manager: $PLATFORM_PACKAGE_MANAGER"
 say "Signed feed: $FEED_URL"
 say 'Downloading the project feed public key...'
 download "$PUBLIC_KEY_URL" "$work_dir/$KEY_NAME"
@@ -160,7 +208,7 @@ fi
 say "Feed key verified: $actual_key_sha256"
 
 mkdir -p "$BACKUP_DIR"
-backup_file="$BACKUP_DIR/xray-mitm-before-install-$(date +%Y%m%d-%H%M%S).tar.gz"
+backup_file="$BACKUP_DIR/${BACKUP_PREFIX}$(date +%Y%m%d-%H%M%S).tar.gz"
 set --
 for path in \
 	"$CONFIG_FILE" \
@@ -177,6 +225,7 @@ if [ "$#" -gt 0 ]; then
 	chmod 0600 "$backup_file"
 	say "Protected backup: $backup_file"
 fi
+prune_backups
 
 snapshot_file "$KEY_FILE" key
 snapshot_file "$REPOSITORY_FILE" repository
@@ -191,7 +240,7 @@ printf '%s\n%s\n' "$KEY_FILE" "$REPOSITORY_FILE" > "$work_dir/xray-mitm-feed.kee
 write_atomic "$work_dir/xray-mitm-feed.keep" "$KEEP_FILE" 0644
 
 say 'Refreshing signed package metadata...'
-if ! apk update; then
+if ! "$APK_BIN" update; then
 	if restore_feed_state; then
 		feed_state_changed=0
 		die 'APK rejected or could not download the package indexes; the previous feed state was restored.'
@@ -200,7 +249,7 @@ if ! apk update; then
 fi
 
 say 'Installing or updating xray-mitm and its LuCI page...'
-if ! apk add xray-mitm luci-app-xray-mitm; then
+if ! "$APK_BIN" add xray-mitm luci-app-xray-mitm; then
 	if restore_feed_state; then
 		feed_state_changed=0
 		die 'Package installation failed; the previous feed and package-selection state was restored.'
@@ -212,7 +261,7 @@ fi
 # not upgrade an already installed package merely because a newer candidate is
 # available. Run a targeted upgrade so repeat invocations update these two
 # packages without performing an unsafe system-wide upgrade.
-if ! apk upgrade xray-mitm luci-app-xray-mitm; then
+if ! "$APK_BIN" upgrade xray-mitm luci-app-xray-mitm; then
 	if restore_feed_state; then
 		feed_state_changed=0
 		die 'Package upgrade failed; the previous feed and package-selection state was restored.'
@@ -232,6 +281,7 @@ say ''
 say 'Authenticated installation/update complete.'
 say 'APK verified the signed feed and packages; --allow-untrusted was not used.'
 say 'Open LuCI over HTTPS, then go to Services -> MITM Domain Fronting.'
-say 'First installation: install the packaged default configuration, create and activate a CA, then start the service.'
-say 'Existing installation: configuration, CA state, service state, and PassWall2 routing are preserved.'
+say 'In Basic -> Setup, select Set up automatically when setup is needed.'
+say 'Download the public certificate there, then use Basic -> Routing for optional PassWall2 rules.'
+say 'Existing configuration, CA state, service state, and PassWall2 routing are preserved.'
 say 'Install only mycert.crt on client devices. Keep mycert.key on the router and in protected backups.'

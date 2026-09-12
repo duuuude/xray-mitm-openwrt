@@ -12,6 +12,11 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Lock the dashboard and show elapsed progress while PassWall2 routing changes
   are applied and verified, so users do not start a second transaction while
   the router is restarting.
+- Detect the router's OpenWrt release and APK package manager before applying
+  installer support policy; accept official 25.12.x releases while keeping
+  unvalidated release families out of scope.
+- Keep only the three newest project installer backups and point post-install
+  guidance to the Basic setup and routing flow.
 
 ## [0.4.3] - 2026-09-12
 

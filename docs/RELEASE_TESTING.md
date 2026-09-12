@@ -122,7 +122,7 @@ After approving the tagged workflow:
 
 Use a disposable or lab router:
 
-1. Confirm official OpenWrt 25.12.5 or a later 25.12 maintenance release and APK.
+1. Confirm official OpenWrt 25.12.x with APK; use 25.12.5 for the public clean-router baseline.
 2. Run the public one-command installer.
 3. Confirm the expected fingerprint and that `--allow-untrusted` is absent.
 4. Confirm the project key and repository list exist under `/etc/apk/`.
@@ -140,7 +140,8 @@ Use a disposable or lab router:
 1. Start with a working prior version, active CA, boot setting, and known PassWall2 routing.
 2. Run the same one-command installer.
 3. Confirm APK migrates both packages to named feed-managed entries and installs the new version.
-4. Confirm `/root/xray-mitm-before-install-*.tar.gz` exists with mode `0600`.
+4. Confirm only the three newest `/root/xray-mitm-before-install-*.tar.gz`
+   project backups are retained and each has mode `0600`.
 5. Confirm the CA pair, service state, boot state, PassWall2 rules, node selection, and recovery state are unchanged.
 6. Repeat health, route, and reboot checks.
 
