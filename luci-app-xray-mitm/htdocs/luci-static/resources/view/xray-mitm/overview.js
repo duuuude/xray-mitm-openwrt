@@ -6,7 +6,7 @@
 'require xray-mitm.state as state';
 
 /* Keep this fallback synchronized with xray-mitm/Makefile PKG_VERSION. */
-var PROJECT_VERSION = '0.4.2';
+var PROJECT_VERSION = '0.4.3';
 
 var callGetStatus = rpc.declare({
 	object: 'luci.xray-mitm',
@@ -113,7 +113,7 @@ var callRecoverPassWall2 = rpc.declare({
 
 var routingParams = [
 	'shunt_node', 'vpn_node', 'gemini', 'android_check',
-	'youtube_control', 'google_mitm', 'meta_mitm', 'fastly_mitm', 'iran_direct', 'accounts_google',
+	'youtube_control', 'google_play', 'google_mitm', 'google_meet', 'meta_mitm', 'fastly_mitm', 'iran_direct', 'accounts_google',
 	'set_default_vpn', 'set_localhost_proxy_zero'
 ];
 
@@ -128,6 +128,13 @@ var callApplyPassWall2 = rpc.declare({
 	object: 'luci.xray-mitm',
 	method: 'applyPassWall2',
 	params: [ 'token' ],
+	expect: { '': {} }
+});
+
+var callPassWall2Activation = rpc.declare({
+	object: 'luci.xray-mitm',
+	method: 'passWall2Activation',
+	params: [ 'transaction' ],
 	expect: { '': {} }
 });
 
@@ -340,7 +347,7 @@ function routeStatus(source, active) {
 	var result = state.routeStatus(source, active);
 	var labels = {
 		active: _('Active now'),
-		existing: _('Existing rule found'),
+		existing: _('Saved rule found (inactive)'),
 		managed: _('Ready but disabled'),
 		new: _('Will be created')
 	};
@@ -540,8 +547,8 @@ return view.extend({
 		var advancedPages = [
 			{ name: 'overview', label: _('Overview') },
 			{ name: 'service', label: _('Service') },
-			{ name: 'certificates', label: _('Certificates') },
-			{ name: 'routing', label: _('Routing') }
+			{ name: 'routing', label: _('Routing') },
+			{ name: 'certificates', label: _('Certificates') }
 		];
 		var basicPages = [
 			{ name: 'overview', label: _('Overview') },
@@ -601,7 +608,7 @@ return view.extend({
 		});
 	},
 
-	reviewRecommendedRouting: function(ev) {
+		reviewRecommendedRouting: function(ev) {
 		var shunts = optionList(this.passwall.shunt_nodes || this.passwall.shunts);
 		var vpns = optionList(this.passwall.vpn_nodes || this.passwall.vpns);
 		var shunt = this.passwall.selected_shunt || (shunts[0] && shunts[0].id);
@@ -609,8 +616,21 @@ return view.extend({
 		var vpn = vpnControl ? vpnControl.value : (this.passwall.selected_vpn || (vpns[0] && vpns[0].id));
 		var output = document.getElementById('xray-mitm-simple-routing-preview');
 		var button = ev.currentTarget;
-		var values = state.recommendedChoices();
-		[ 'gemini', 'android_check', 'youtube_control', 'google_mitm', 'meta_mitm',
+		var values = {
+			gemini: false,
+			android_check: false,
+			youtube_control: false,
+			google_play: false,
+			google_mitm: false,
+			google_meet: false,
+			meta_mitm: false,
+			fastly_mitm: false,
+			iran_direct: false,
+			accounts_google: false,
+			set_default_vpn: false,
+			set_localhost_proxy_zero: true
+		};
+		[ 'gemini', 'android_check', 'youtube_control', 'google_play', 'google_mitm', 'google_meet', 'meta_mitm',
 			'fastly_mitm', 'iran_direct', 'accounts_google' ].forEach(function(name) {
 			var choice = document.getElementById('xray-mitm-simple-route-' + name.replace(/_/g, '-'));
 			if (choice)
@@ -619,17 +639,19 @@ return view.extend({
 		values.shunt_node = shunt;
 		values.vpn_node = vpn;
 		setBusy(button, true);
-		callPlanPassWall2.apply(null, state.routingArguments(values)).then(assertOk).then(L.bind(function(plan) {
+		callPlanPassWall2.apply(null, routingParams.map(function(name) { return values[name]; })).then(assertOk).then(L.bind(function(plan) {
 			this.planToken = plan.no_change === true ? null : (plan.token || null);
 			var blocked = plan.requires_mitm_running === true && this.status.running !== true;
+			var vpnSelected = values.gemini || values.android_check || values.youtube_control || values.google_play || values.accounts_google;
+			var mitmSelected = values.google_mitm || values.google_meet || values.meta_mitm || values.fastly_mitm;
 			var children = [
-				E('h4', {}, plan.no_change === true ? _('Recommended routing is already configured') : _('Ready to configure routing')),
+				E('h4', {}, plan.no_change === true ? _('Selected routing is already active') : _('Ready to configure selected routing')),
 				E('div', { style: 'display:grid;gap:.45rem;margin:.75rem 0' }, [
-					this.simpleRouteRow(_('Google services'), _('MITM')),
-					this.simpleRouteRow(_('Gemini'), _('Selected VPN')),
-					this.simpleRouteRow(_('Iranian services'), _('Direct'))
+					this.simpleRouteRow(_('VPN Overrides'), vpnSelected ? _('Selected VPN') : _('Not selected')),
+					this.simpleRouteRow(_('MITM-Compatible Services'), mitmSelected ? _('Local SOCKS') : _('Not selected')),
+					this.simpleRouteRow(_('Regional Direct Access'), values.iran_direct ? _('Direct connection') : _('Not selected'))
 				]),
-				E('p', { style: 'opacity:.82' }, _('Unknown custom rules are preserved. The exact staged preview will be applied.'))
+				E('p', { style: 'opacity:.82' }, _('This reflects the checkboxes above. Existing custom rules are preserved, and nothing changes until you apply this preview.'))
 			];
 			if (blocked)
 				children.push(E('div', { class: 'alert-message warning' }, _('Start MITM before applying this routing setup.')));
@@ -637,11 +659,40 @@ return view.extend({
 				children.push(E('button', {
 					class: 'btn cbi-button-positive',
 					click: ui.createHandlerFn(this, 'applyRouting')
-				}, _('Apply recommended routing')));
+				}, _('Apply selected routing')));
 			dom.content(output, children);
 		}, this)).catch(function(error) {
 			dom.content(output, E('div', { class: 'alert-message danger' }, textNode(error.message)));
 		}).then(function() { setBusy(button, false); });
+	},
+
+	setSimpleRoutingChoices: function(values) {
+		Object.keys(values).forEach(function(name) {
+			var element = document.getElementById('xray-mitm-simple-route-' + name.replace(/_/g, '-'));
+			if (element && element.type === 'checkbox')
+				element.checked = values[name] === true;
+		});
+
+		this.routingSelectionChanged();
+	},
+
+	useSimpleRecommendedRouting: function() {
+		var choices = state.recommendedChoices();
+		// A browser can retain a prior state.js after an in-place LuCI update.
+		// Keep the recommended route complete during that short cache transition.
+		choices.gemini = true;
+		choices.android_check = true;
+		choices.youtube_control = true;
+		choices.google_play = true;
+		choices.google_mitm = true;
+		choices.google_meet = true;
+		choices.meta_mitm = false;
+		choices.fastly_mitm = false;
+		choices.iran_direct = true;
+		choices.accounts_google = true;
+		choices.set_default_vpn = true;
+		choices.set_localhost_proxy_zero = true;
+		this.setSimpleRoutingChoices(choices);
 	},
 
 	generateCandidate: function(ev) {
@@ -738,7 +789,7 @@ return view.extend({
 		var output = document.getElementById('xray-mitm-routing-preview');
 		setBusy(button, true);
 
-		callPlanPassWall2.apply(null, state.routingArguments(values)).then(assertOk).then(L.bind(function(plan) {
+		callPlanPassWall2.apply(null, routingParams.map(function(name) { return values[name]; })).then(assertOk).then(L.bind(function(plan) {
 			this.planToken = plan.no_change === true ? null : (plan.token || null);
 			this.lastPlan = plan;
 			var mitmRequiredButStopped = plan.requires_mitm_running === true &&
@@ -766,20 +817,58 @@ return view.extend({
 		)))
 			return;
 
-		this.runMutation(ev.currentTarget, callApplyPassWall2(this.planToken),
-			_('PassWall2 routing changes applied.'), true).then(L.bind(function(result) {
-			if (!result || !result.ok)
+		var button = ev.currentTarget;
+		var output = document.getElementById('xray-mitm-routing-preview');
+		setBusy(button, true);
+
+		callApplyPassWall2(this.planToken).then(assertOk).then(L.bind(function(result) {
+			if (!result.pending || !result.transaction)
+				throw new Error(_('The routing activation was not accepted.'));
+
+			this.planToken = null;
+			this.routingActivation = result.transaction;
+			dom.content(output, E('div', { class: 'alert-message warning' }, _(
+				'PassWall2 is restarting. This page will confirm the activation or exact rollback when it finishes.'
+			)));
+			this.pollRoutingActivation(result.transaction, button, output, 0);
+		}, this)).catch(function(error) {
+			setBusy(button, false);
+			notification(error.message, 'error');
+		});
+	},
+
+	pollRoutingActivation: function(transaction, button, output, attempts) {
+		callPassWall2Activation(transaction).then(assertOk).then(L.bind(function(status) {
+			if (status.pending === true) {
+				window.setTimeout(L.bind(this.pollRoutingActivation, this, transaction, button, output, attempts + 1), 2000);
 				return;
+			}
+
+			var result = status.result || {};
+			if (result.ok !== true) {
+				setBusy(button, false);
+				dom.content(output, E('div', { class: 'alert-message danger' }, textNode(
+					result.message || _('Routing activation failed. The recorded recovery state must be reviewed before another change.')
+				)));
+				notification(result.message || _('PassWall2 routing activation failed.'), 'error');
+				return;
+			}
 
 			this.rollbackTransaction = result.transaction || null;
-			this.planToken = null;
-			var apply = document.getElementById('xray-mitm-routing-apply');
-			var rollback = document.getElementById('xray-mitm-routing-rollback');
-			if (apply)
-				apply.disabled = true;
-			if (rollback)
-				rollback.disabled = !this.rollbackTransaction ||
-					(this.passwall.capabilities && this.passwall.capabilities.rollback === false);
+			this.routingActivation = null;
+			setBusy(button, false);
+			notification(_('PassWall2 routing changes applied.'), 'info');
+			this.reloadPage();
+		}, this)).catch(L.bind(function(error) {
+			if (attempts < 75) {
+				window.setTimeout(L.bind(this.pollRoutingActivation, this, transaction, button, output, attempts + 1), 2000);
+				return;
+			}
+			setBusy(button, false);
+			dom.content(output, E('div', { class: 'alert-message danger' }, textNode(
+				_('Could not read the routing activation result. Reopen this page to check its recorded status.')
+			)));
+			notification(error.message, 'error');
 		}, this));
 	},
 
@@ -834,7 +923,20 @@ return view.extend({
 	},
 
 	useRecommendedRouting: function() {
-		this.setRoutingChoices(state.recommendedChoices());
+		var choices = state.recommendedChoices();
+		choices.gemini = true;
+		choices.android_check = true;
+		choices.youtube_control = true;
+		choices.google_play = true;
+		choices.google_mitm = true;
+		choices.google_meet = true;
+		choices.meta_mitm = false;
+		choices.fastly_mitm = false;
+		choices.iran_direct = true;
+		choices.accounts_google = true;
+		choices.set_default_vpn = true;
+		choices.set_localhost_proxy_zero = true;
+		this.setRoutingChoices(choices);
 	},
 
 	restoreCurrentRouting: function() {
@@ -941,14 +1043,16 @@ return view.extend({
 		var ruleSources = passwall.rule_sources || {};
 		var onChange = L.bind(this.routingSelectionChanged, this);
 		var rows = [
-			{ group: _('VPN overrides'), source: 'vpn_overrides', name: 'gemini', label: _('Gemini app and API'), domains: 'gemini.google.com, generativelanguage.googleapis.com', destination: _('Selected VPN') },
-			{ group: _('VPN overrides'), source: 'vpn_overrides', name: 'android_check', label: _('Android internet checks'), domains: 'connectivitycheck.gstatic.com, connectivitycheck.android.com, clients3.google.com', destination: _('Selected VPN') },
-			{ group: _('VPN overrides'), source: 'vpn_overrides', name: 'youtube_control', label: _('YouTube sign-in and controls'), domains: _('YouTube UI/API domains; video delivery is excluded'), destination: _('Selected VPN') },
-			{ group: _('VPN overrides'), source: 'vpn_overrides', name: 'accounts_google', label: _('Google Account sign-in'), domains: 'accounts.google.com', destination: _('Selected VPN') },
-			{ group: _('MITM-compatible services'), source: 'mitm_services', name: 'google_mitm', label: _('Google services'), domains: 'geosite:google', destination: _('Local SOCKS') },
-			{ group: _('MITM-compatible services'), source: 'mitm_services', name: 'meta_mitm', label: _('Meta websites'), domains: 'geosite:meta', destination: _('Local SOCKS') },
-			{ group: _('MITM-compatible services'), source: 'mitm_services', name: 'fastly_mitm', label: _('Fastly-backed websites'), domains: _('Fastly, Reddit, CNN, and BuzzFeed groups'), destination: _('Local SOCKS') },
-			{ group: _('Regional direct access'), source: 'regional_direct', name: 'iran_direct', label: _('Iranian websites and IP addresses'), domains: 'geosite:ir, geoip:ir', destination: _('Direct connection') }
+			{ group: _('VPN Overrides'), source: 'vpn_overrides', name: 'gemini', label: _('Gemini app and API'), domains: 'gemini.google.com, generativelanguage.googleapis.com', destination: _('Selected VPN') },
+			{ group: _('VPN Overrides'), source: 'vpn_overrides', name: 'android_check', label: _('Android internet checks'), domains: 'connectivitycheck.gstatic.com, connectivitycheck.android.com, clients3.google.com', destination: _('Selected VPN') },
+			{ group: _('VPN Overrides'), source: 'vpn_overrides', name: 'youtube_control', label: _('YouTube sign-in and controls'), domains: _('YouTube UI/API domains; googlevideo.com uses Google MITM only when that optional route is enabled'), destination: _('Selected VPN') },
+			{ group: _('VPN Overrides'), source: 'vpn_overrides', name: 'google_play', label: _('Google Play and Android services'), domains: _('Google Play, Android authentication, check-in, and download endpoints; bypasses MITM for native-app compatibility'), destination: _('Selected VPN') },
+			{ group: _('VPN Overrides'), source: 'vpn_overrides', name: 'accounts_google', label: _('Google Account sign-in'), domains: 'accounts.google.com', destination: _('Selected VPN') },
+			{ group: _('MITM-Compatible Services'), source: 'mitm_services', name: 'google_mitm', label: _('Google Drive and YouTube video'), domains: _('Selected Drive API/upload and googlevideo.com domains only; this is not all Google services. Google Play remains on the VPN override.'), destination: _('Local SOCKS') },
+			{ group: _('MITM-Compatible Services'), source: 'mitm_services', name: 'google_meet', label: _('Google Meet web and signaling'), domains: _('Meet web and signaling hostnames; audio/video media may use UDP or separate media IPs, so test a real call before relying on MITM.'), destination: _('Local SOCKS') },
+			{ group: _('MITM-Compatible Services'), source: 'mitm_services', name: 'meta_mitm', label: _('Meta websites'), domains: 'geosite:meta', destination: _('Local SOCKS') },
+			{ group: _('MITM-Compatible Services'), source: 'mitm_services', name: 'fastly_mitm', label: _('Fastly-backed websites'), domains: _('Fastly, Reddit, CNN, and BuzzFeed groups'), destination: _('Local SOCKS') },
+			{ group: _('Regional Direct Access'), source: 'regional_direct', name: 'iran_direct', label: _('Iranian websites and IP addresses'), domains: 'geosite:ir, geoip:ir', destination: _('Direct connection') }
 		];
 		var lastGroup = null;
 		var body = [];
@@ -1002,12 +1106,14 @@ return view.extend({
 		var candidateAttention = setup.certificate && setup.certificate.candidate_requires_attention === true;
 		var certificateAttention = setup.certificate && setup.certificate.requires_attention === true;
 		var passwallState = setup.passwall2 || {};
-		var routingState = setup.routing || {};
+		var routingState = passwall.routing_state || setup.routing || {};
+		var routingMeta = setup.routing || {};
 		var shunts = optionList(passwall.shunt_nodes || passwall.shunts);
 		var vpns = optionList(passwall.vpn_nodes || passwall.vpns);
 		var selectedVpn = passwall.selected_vpn || (vpns[0] && vpns[0].id);
 		var canReviewRouting = passwallState.compatible === true && passwall.writable === true &&
-			routingState.recovery_pending !== true && shunts.length > 0 && vpns.length > 0;
+			routingMeta.recovery_pending !== true && passwall.recovery_pending !== true &&
+			shunts.length > 0 && vpns.length > 0;
 		var setupBlocked = candidateAttention || certificateAttention;
 		var setupComplete = setup.ready === true && setup.service && setup.service.boot_enabled === true;
 		var pageStyle = function(name) { return page === name ? '' : 'display:none'; };
@@ -1077,14 +1183,21 @@ return view.extend({
 					'No usable VPN connection was found. Add and test a VPN node in PassWall2, then return here.'
 				)) : '',
 				canReviewRouting ? E('div', {}, [
+					E('div', { class: 'alert-message notice' }, _(
+						'Automatic setup prepares only the MITM service. It never edits PassWall2 routing; these checkboxes change routing only after you preview and apply it.'
+					)),
+					E('p', {}, _('New to PassWall2? Select the recommended choices, preview the result, then apply it.')),
+					E('p', {}, E('button', {
+						class: 'btn cbi-button-action', click: ui.createHandlerFn(this, 'useSimpleRecommendedRouting')
+					}, _('Use recommended choices'))),
 					this.simpleRoutingTable(routingState, passwall),
-					E('label', { for: 'xray-mitm-simple-vpn', style: 'display:block;font-weight:600;margin-bottom:.35rem' }, _('VPN for Gemini')),
+					E('label', { for: 'xray-mitm-simple-vpn', style: 'display:block;font-weight:600;margin-bottom:.35rem' }, _('VPN destination for selected overrides')),
 					selectControl('xray-mitm-simple-vpn', vpns, selectedVpn, function() {
 						dom.content(document.getElementById('xray-mitm-simple-routing-preview'), '');
 					}),
 					E('p', {}, E('button', {
 						class: 'btn cbi-button-action', click: ui.createHandlerFn(this, 'reviewRecommendedRouting')
-					}, _('Review selected routing'))),
+					}, _('Preview selected routing'))),
 					E('div', { id: 'xray-mitm-simple-routing-preview', 'aria-live': 'polite' })
 				]) : ''
 			]),
@@ -1382,7 +1495,7 @@ return view.extend({
 				]),
 				E('h4', {}, _('2. Choose what should happen')),
 				E('p', {}, [
-					E('button', { class: 'btn cbi-button-action', click: ui.createHandlerFn(this, 'useRecommendedRouting') }, _('Use recommended setup')), ' ',
+					E('button', { class: 'btn cbi-button-action', click: ui.createHandlerFn(this, 'useRecommendedRouting') }, _('Use recommended choices')), ' ',
 					E('button', { class: 'btn', click: ui.createHandlerFn(this, 'restoreCurrentRouting') }, _('Restore saved choices'))
 				]),
 				hasExistingRules ? E('div', { class: 'alert-message notice' }, _(
@@ -1396,13 +1509,15 @@ return view.extend({
 				), [
 					{ id: 'xray-mitm-route-gemini', label: _('Gemini app and API'), description: 'gemini.google.com, generativelanguage.googleapis.com', checked: routingState.gemini === true, onChange: selectionChanged },
 					{ id: 'xray-mitm-route-android-check', label: _('Android internet checks'), description: 'connectivitycheck.gstatic.com, connectivitycheck.android.com, clients3.google.com', checked: routingState.android_check === true, onChange: selectionChanged },
-					{ id: 'xray-mitm-route-youtube-control', label: _('YouTube sign-in and controls'), description: _('YouTube UI/API domains; googlevideo.com is excluded so video delivery can use MITM.'), checked: routingState.youtube_control === true, onChange: selectionChanged },
+					{ id: 'xray-mitm-route-youtube-control', label: _('YouTube sign-in and controls'), description: _('YouTube UI/API domains; googlevideo.com stays outside this VPN override and uses MITM only when the optional Google route is enabled.'), checked: routingState.youtube_control === true, onChange: selectionChanged },
+					{ id: 'xray-mitm-route-google-play', label: _('Google Play and Android services'), description: _('Google Play, Android authentication, check-in, and download endpoints. These use the selected VPN instead of MITM.'), checked: routingState.google_play === true, onChange: selectionChanged },
 					{ id: 'xray-mitm-route-accounts-google', label: _('Google Account sign-in'), description: 'accounts.google.com', checked: routingState.accounts_google === true, onChange: selectionChanged }
 				], ruleSources.vpn_overrides),
-				routingRuleCard('2', _('MITM-Compatible Services'), _('Destination: local SOCKS 127.0.0.1:10808'), _(
+					routingRuleCard('2', _('MITM-Compatible Services'), _('Destination: local SOCKS 127.0.0.1:10808'), _(
 					'The assistant reuses or creates the localhost SOCKS node. Enable only service groups you have tested on your devices.'
 				), [
-					{ id: 'xray-mitm-route-google-mitm', label: _('Google services'), description: 'geosite:google', checked: routingState.google_mitm === true, onChange: selectionChanged },
+					{ id: 'xray-mitm-route-google-mitm', label: _('Google Drive and YouTube video'), description: _('Selected Drive API/upload and googlevideo.com domains only, not all Google services. Google Play and Android services stay on the VPN override.'), checked: routingState.google_mitm === true, onChange: selectionChanged },
+					{ id: 'xray-mitm-route-google-meet', label: _('Google Meet web and signaling'), description: _('Meet web and signaling hostnames; audio/video media may use UDP or separate media IPs, so test a real call before relying on MITM.'), checked: routingState.google_meet === true, onChange: selectionChanged },
 					{ id: 'xray-mitm-route-meta-mitm', label: _('Meta websites'), description: _('geosite:meta (optional; test before relying on native apps)'), checked: routingState.meta_mitm === true, onChange: selectionChanged },
 					{ id: 'xray-mitm-route-fastly-mitm', label: _('Fastly-backed websites'), description: _('Fastly, Reddit, CNN, and BuzzFeed groups from the packaged Patterniha configuration'), checked: routingState.fastly_mitm === true, onChange: selectionChanged }
 				], ruleSources.mitm_services),

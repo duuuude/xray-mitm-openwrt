@@ -1,6 +1,6 @@
 # Xray MITM Domain Fronting برای OpenWrt
 
-**نسخه:** `v0.4.2` · **راهنما:** [English](README.md) | فارسی · **پروژه:** [فهرست تغییرات](CHANGELOG.md) | [راهنمای مشارکت](CONTRIBUTING.md)
+**نسخه:** `v0.4.3` · **راهنما:** [English](README.md) | فارسی · **پروژه:** [فهرست تغییرات](CHANGELOG.md) | [راهنمای مشارکت](CONTRIBUTING.md)
 
 این پروژه سرویس مستقل Xray MITM-DomainFronting، داشبورد LuCI و مسیریابی اختیاری PassWall2 را برای روترهای رسمی OpenWrt 25.12 که از APK استفاده می‌کنند فراهم می‌کند.
 
@@ -85,7 +85,7 @@ SHA-256 ثابت نصب‌کننده این است: `8af96edc133c01a7e9d0a8f4673
 - **Main routing profile** — پروفایل shunt که در PassWall2 فعال است.
 - **Working VPN connection** — یک VPN موجود که از قبل کار می‌کند.
 
-گزینه **Review selected routing** را بزنید، مقصدها را بررسی کنید و سپس **Apply recommended routing** را انتخاب کنید. مقصدهای MITM به سرویس روشن نیاز دارند؛ در صورت نیاز آن را از **Advanced → Service** روشن کنید. دستیار preview را بررسی و قوانین نامرتبط PassWall2 را حفظ می‌کند.
+گزینه **Use recommended choices** را بزنید، سپس با **Preview selected routing** مقصدها را بررسی کنید و **Apply selected routing** را انتخاب کنید. مقصدهای MITM به سرویس روشن نیاز دارند؛ در صورت نیاز آن را از **Advanced → Service** روشن کنید. دستیار preview را بررسی و قوانین نامرتبط PassWall2 را حفظ می‌کند.
 
 ### ۴. بررسی عملکرد
 
@@ -99,14 +99,14 @@ SHA-256 ثابت نصب‌کننده این است: `8af96edc133c01a7e9d0a8f4673
 
 | ترافیک | مقصد | هدف |
 | --- | --- | --- |
-| سرویس‌های Google | MITM | استفاده از سرویس MITM محلی برای گروه انتخاب‌شده Google. |
+| Google Drive، ویدئوی YouTube و وب/سیگنالینگ Meet | MITM | استفاده از سرویس MITM محلی فقط برای دامنه‌های صریح Drive، `googlevideo.com` و میزبان‌های وب/سیگنالینگ Meet؛ رسانه صوتی/تصویری Meet باید روی هر دستگاه جداگانه آزمایش شود. |
 | اپلیکیشن و API جمنای | VPN انتخاب‌شده | عبور ترافیک Gemini از VPN سالم. |
 | وب‌سایت‌ها و IPهای ایران | Direct | عبور مستقیم ترافیک محلی انتخاب‌شده بدون VPN و MITM. |
 
 گروه‌های اختیاری در **Basic → Routing** قرار دارند:
 
-- **VPN Overrides** می‌تواند بررسی اتصال Android، ورود و کنترل‌های YouTube و ورود به حساب Google را شامل شود. `googlevideo.com` عمداً خارج است تا تحویل ویدئوی YouTube بتواند از MITM استفاده کند.
-- **MITM-Compatible Services** می‌تواند گروه‌های Google، وب‌سایت‌های Meta و سایت‌های مبتنی بر Fastly را شامل شود. ابتدا Google را آزمایش کنید و قبل از اتکا به برنامه‌های native، Meta و Fastly را جداگانه آزمایش کنید.
+- **VPN Overrides** می‌تواند Gemini، بررسی اتصال Android، ورود و کنترل‌های YouTube، Google Play و سرویس‌های Android و ورود به حساب Google را شامل شود. `googlevideo.com` عمداً خارج است تا تحویل ویدئوی YouTube بتواند از MITM استفاده کند.
+- **MITM-Compatible Services** می‌تواند دامنه‌های صریح Google Drive، ویدئوی YouTube، وب/سیگنالینگ Google Meet، وب‌سایت‌های Meta و سایت‌های مبتنی بر Fastly را شامل شود. گروه‌های Google همه سرویس‌های Google را route نمی‌کنند؛ رسانه صوتی/تصویری Meet ممکن است از UDP یا IPهای جداگانه استفاده کند، بنابراین قبل از اتکا به MITM یک تماس واقعی را روی هر دستگاه آزمایش کنید. Google Play و سرویس‌های Android در **VPN Overrides** باقی می‌مانند.
 - **Regional Direct Access** از گروه‌های دامنه و IP ایران استفاده می‌کند.
 
 هر checkbox یک گروه سرویس را داخل یکی از این انتساب‌ها فعال می‌کند و قانون جداگانه نمی‌سازد. بیشتر کاربران می‌توانند انتخاب‌های پیشنهادی را بدون تغییر نگه دارند.

@@ -7,6 +7,21 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Add a separate Google Meet web and signaling route under MITM-Compatible
+  Services for `meet.google.com`, `meetings.googleapis.com`,
+  `hangouts.googleapis.com`, `meetings.clients6.google.com`, and
+  `stream.meet.google.com`. Meet media may use UDP or separate media IPs, so a
+  real call should be tested before relying on MITM for media traffic.
+
+### Fixed
+
+- Keep routing recovery tests within a bounded time margin when PassWall2 takes
+  longer than usual to restart during an apply operation.
+
+## [0.4.3] - 2026-09-11
+
 ### Changed
 
 - Rewrite the English and Persian README files as concise beginner-first guides,
@@ -151,7 +166,8 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - LuCI service, certificate lifecycle, health-check, and optional PassWall2 controls.
 - English and Persian installation and operating instructions.
 
-[Unreleased]: https://github.com/duuuude/xray-mitm-openwrt/compare/v0.4.2...HEAD
+[Unreleased]: https://github.com/duuuude/xray-mitm-openwrt/compare/v0.4.3...HEAD
+[0.4.3]: https://github.com/duuuude/xray-mitm-openwrt/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/duuuude/xray-mitm-openwrt/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/duuuude/xray-mitm-openwrt/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/duuuude/xray-mitm-openwrt/compare/v0.3.0...v0.4.0

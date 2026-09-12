@@ -41,8 +41,8 @@ Only export the public certificate. The private key must remain root-owned with 
 
 The Routing page uses three package-managed rules. Their user-facing names and destinations are:
 
-1. **VPN Overrides** — sends selected Gemini, Android connectivity, YouTube control, and Google Account bundles to the chosen VPN.
-2. **MITM-Compatible Services** — sends selected Google, Meta, and Fastly-backed website bundles to the local SOCKS node at `127.0.0.1:10808`.
+1. **VPN Overrides** — sends selected Gemini, Android connectivity, YouTube control, Google Play/Android, and Google Account bundles to the chosen VPN.
+2. **MITM-Compatible Services** — sends selected Drive and YouTube-video, Meta, and Fastly-backed website bundles to the local SOCKS node at `127.0.0.1:10808`.
 3. **Regional Direct Access** — sends selected Iranian domains and IP ranges directly.
 
 The available service groups currently map as follows:
@@ -52,13 +52,15 @@ The available service groups currently map as follows:
 | Gemini app and API | `gemini.google.com`, `generativelanguage.googleapis.com` |
 | Android internet checks | `connectivitycheck.gstatic.com`, `connectivitycheck.android.com`, `clients3.google.com` |
 | YouTube sign-in and controls | `www.youtube.com`, `youtubei.googleapis.com`, `youtube.googleapis.com`, `accounts.youtube.com` |
+| Google Play and Android services | Play, Android authentication, check-in, and download endpoints |
 | Google Account sign-in | `accounts.google.com` |
-| Google services | `geosite:google` |
+| Google Drive and YouTube video | `drive.google.com`, `drive.usercontent.google.com`, `www.googleapis.com`, `content.googleapis.com`, `googlevideo.com` |
+| Google Meet web and signaling | `meet.google.com`, `meetings.googleapis.com`, `hangouts.googleapis.com`, `meetings.clients6.google.com`, `stream.meet.google.com` |
 | Meta websites | `geosite:meta` |
 | Fastly-backed websites | `geosite:fastly`, `geosite:reddit`, `geosite:cnn`, `buzzfeed.com` |
 | Iranian websites and IP addresses | `geosite:ir`, `geoip:ir` |
 
-`googlevideo.com` is deliberately excluded from YouTube control routing so video delivery can remain on the MITM path.
+The Google MITM bundle uses only the explicit Drive, Google API, and `googlevideo.com` domains above. Google Play, Android services, account sign-in, and YouTube controls remain separate VPN overrides so they do not enter the MITM path.
 
 The checkboxes select entries inside these assignments. They do not create one PassWall2 rule per checkbox. The assistant creates or reuses the local SOCKS node when needed, previews the exact change, and applies it only after the reviewed preview is accepted.
 

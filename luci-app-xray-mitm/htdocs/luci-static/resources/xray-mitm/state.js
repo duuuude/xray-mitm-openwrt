@@ -95,7 +95,9 @@ function routingChoices(routing) {
 		gemini: routing.gemini === true,
 		android_check: routing.android_check === true,
 		youtube_control: routing.youtube_control === true,
+		google_play: routing.google_play === true,
 		google_mitm: routing.google_mitm === true,
+		google_meet: routing.google_meet === true,
 		meta_mitm: routing.meta_mitm === true,
 		fastly_mitm: routing.fastly_mitm === true,
 		iran_direct: routing.iran_direct === true,
@@ -108,14 +110,16 @@ function routingChoices(routing) {
 function recommendedChoices() {
 	return {
 		gemini: true,
-		android_check: false,
-		youtube_control: false,
+		android_check: true,
+		youtube_control: true,
+		google_play: true,
 		google_mitm: true,
+		google_meet: true,
 		meta_mitm: false,
 		fastly_mitm: false,
 		iran_direct: true,
-		accounts_google: false,
-		set_default_vpn: false,
+		accounts_google: true,
+		set_default_vpn: true,
 		set_localhost_proxy_zero: true
 	};
 }
@@ -129,7 +133,9 @@ function routingArguments(values) {
 		values.gemini,
 		values.android_check,
 		values.youtube_control,
+		values.google_play,
 		values.google_mitm,
+		values.google_meet,
 		values.meta_mitm,
 		values.fastly_mitm,
 		values.iran_direct,
@@ -160,7 +166,7 @@ function setupProgress(status, certificates, passwall) {
 		serviceReady: status.configured === true,
 		certificateReady: slotPresent(current),
 		mitmRunning: status.running === true,
-		routingReady: routing.google_mitm === true || routing.gemini === true ||
+		routingReady: routing.google_mitm === true || routing.google_meet === true || routing.gemini === true ||
 			routing.iran_direct === true
 	};
 }

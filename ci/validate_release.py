@@ -148,6 +148,7 @@ READ_ONLY_RPC_METHODS = {
     "getCertificateStatus",
     "exportCertificate",
     "inspectPassWall2",
+    "passWall2Activation",
 }
 
 

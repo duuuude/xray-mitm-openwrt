@@ -10,6 +10,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -110,7 +111,9 @@ DEFAULT_REQUEST = {
     "gemini": True,
     "android_check": True,
     "youtube_control": True,
+    "google_play": True,
     "google_mitm": True,
+    "google_meet": False,
     "meta_mitm": False,
     "fastly_mitm": False,
     "iran_direct": True,
@@ -144,14 +147,23 @@ class PassWall2Fixture(unittest.TestCase):
         self.original = self.config.read_bytes()
 
         app = self.root / "usr/share/passwall2/app.sh"
-        app.write_text("# fixture presence marker\n", encoding="utf-8")
+        app.write_text(
+            "#!/bin/sh\n"
+            "[ ! -e /dev/fd/9 ] || exit 70\n"
+            "case \"${1:-}\" in\n"
+            "  stop) exit 0 ;;\n"
+            "  start) printf 'restart\\n' >>\"$XRAY_MITM_TEST_ROOT/tmp/restarts\" ;;\n"
+            "  *) exit 64 ;;\n"
+            "esac\n",
+            encoding="utf-8",
+        )
+        app.chmod(0o755)
 
         init = self.root / "etc/init.d/passwall2"
         init.write_text(
             "#!/bin/sh\n"
-            "[ \"${1:-}\" = restart ] || exit 64\n"
-            "[ ! -e /dev/fd/9 ] || exit 70\n"
-            "printf 'restart\\n' >>\"$XRAY_MITM_TEST_ROOT/tmp/restarts\"\n",
+            "touch \"$XRAY_MITM_TEST_ROOT/tmp/init-called\"\n"
+            "exit 70\n",
             encoding="utf-8",
         )
         init.chmod(0o755)
@@ -238,11 +250,32 @@ class PassWall2Fixture(unittest.TestCase):
         path = self.root / "tmp/restarts"
         return len(path.read_text(encoding="utf-8").splitlines()) if path.exists() else 0
 
+    def restart_attempt_count(self) -> int:
+        path = self.root / "tmp/restart-attempts"
+        return len(path.read_text(encoding="utf-8").splitlines()) if path.exists() else 0
+
     def plan_all(self) -> dict[str, object]:
         _, payload = self.helper("plan", str(self.request_file()))
         self.assertTrue(payload["ok"])
         self.assertFalse(payload["no_change"])
         return payload
+
+    def apply(self, token: str, timeout: float = 20.0) -> tuple[None, dict[str, object]]:
+        _, queued = self.helper("apply", token)
+        self.assertTrue(queued["ok"])
+        self.assertTrue(queued["pending"])
+        self.assertEqual(queued["transaction"], token)
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            _, status = self.helper("activation-status", token)
+            if status.get("pending") is True:
+                time.sleep(0.05)
+                continue
+            self.assertTrue(status["ok"])
+            result = status.get("result")
+            self.assertIsInstance(result, dict)
+            return None, result
+        self.fail("background routing activation did not finish before the test deadline")
 
     def test_inspect_returns_only_non_secret_inventory(self) -> None:
         _, payload = self.helper("inspect")
@@ -283,7 +316,7 @@ class PassWall2Fixture(unittest.TestCase):
             staged.parent, "get", "passwall2.xray_mitm_vpn_overrides.domain_list"
         )
         self.assertNotIn("googlevideo.com", vpn_domains)
-        self.assertNotIn("googlevideo.com", staged_text)
+        self.assertIn("domain:googlevideo.com", staged_text)
         self.assertEqual(vpn_domains.splitlines(), [
             "domain:gemini.google.com",
             "domain:generativelanguage.googleapis.com",
@@ -295,6 +328,25 @@ class PassWall2Fixture(unittest.TestCase):
             "domain:youtube.googleapis.com",
             "domain:accounts.youtube.com",
             "domain:accounts.google.com",
+            "domain:play.google.com",
+            "domain:play.googleapis.com",
+            "domain:play-fe.googleapis.com",
+            "domain:android.clients.google.com",
+            "domain:android.googleapis.com",
+            "domain:checkin.googleapis.com",
+            "domain:firebaseinstallations.googleapis.com",
+            "domain:oauth2.googleapis.com",
+            "domain:mtalk.google.com",
+            "domain:dl.google.com",
+            "domain:update.googleapis.com",
+            "domain:clientservices.googleapis.com",
+            "domain:clients4.google.com",
+            "domain:optimizationguide-pa.googleapis.com",
+            "domain:ssl.gstatic.com",
+            "domain:redirector.gvt1.com",
+            "domain:play-lh.googleusercontent.com",
+            "domain:dns.google",
+            "domain:dns.google.com",
         ])
         staged_order = self._section_order(staged.parent)
         managed_order = ["xray_mitm_vpn_overrides", "xray_mitm_services", "xray_mitm_regional_direct"]
@@ -305,12 +357,13 @@ class PassWall2Fixture(unittest.TestCase):
             staged_order.index("xray_mitm_regional_direct"), staged_order.index("existing_main")
         )
 
-        _, applied = self.helper("apply", token)
+        _, applied = self.apply(token)
         self.assertTrue(applied["ok"])
         self.assertTrue(applied["changed"])
         self.assertEqual(applied["transaction"], token)
         self.assertTrue(applied["rollback_available"])
         self.assertEqual(self.restart_count(), 1)
+        self.assertFalse((self.root / "tmp/init-called").exists())
         self.assertEqual(self.uci("get", "passwall2.@global[0].localhost_proxy"), "0")
         self.assertEqual(self.uci("get", "passwall2.xray_mitm_socks.address"), "127.0.0.1")
         self.assertEqual(self.uci("get", "passwall2.xray_mitm_socks.port"), "10808")
@@ -358,7 +411,7 @@ class PassWall2Fixture(unittest.TestCase):
         self.assertTrue(plan["requires_mitm_running"])
         (self.root / "tmp/mitm-running").unlink()
 
-        _, payload = self.helper("apply", token, expected_status=69)
+        _, payload = self.apply(token)
 
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["error"], "mitm_not_running")
@@ -372,10 +425,136 @@ class PassWall2Fixture(unittest.TestCase):
         self.assertFalse(plan["requires_mitm_running"])
         (self.root / "tmp/mitm-running").unlink()
 
-        _, applied = self.helper("apply", str(plan["token"]))
+        _, applied = self.apply(str(plan["token"]))
 
         self.assertTrue(applied["ok"])
         self.assertEqual(self.restart_count(), 1)
+
+    def test_apply_returns_pending_before_slow_restart_finishes(self) -> None:
+        app = self.root / "usr/share/passwall2/app.sh"
+        app.write_text(
+            "#!/bin/sh\n"
+            "case \"${1:-}\" in\n"
+            "  stop) exit 0 ;;\n"
+            "  start) sleep 2; printf 'restart\\n' >>\"$XRAY_MITM_TEST_ROOT/tmp/restarts\" ;;\n"
+            "  *) exit 64 ;;\n"
+            "esac\n",
+            encoding="utf-8",
+        )
+        app.chmod(0o755)
+        token = str(self.plan_all()["token"])
+        started = time.monotonic()
+        _, queued = self.helper("apply", token)
+        self.assertLess(time.monotonic() - started, 1.0)
+        self.assertTrue(queued["pending"])
+        _, pending = self.helper("activation-status", token)
+        self.assertTrue(pending["pending"])
+        # The request was already queued above; wait for its recorded outcome.
+        applied = None
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline:
+            _, status = self.helper("activation-status", token)
+            if status.get("pending"):
+                time.sleep(0.05)
+                continue
+            applied = status["result"]
+            break
+        self.assertIsInstance(applied, dict)
+        self.assertTrue(applied["ok"])
+        self.assertEqual(self.restart_count(), 1)
+
+    def test_hung_candidate_restart_is_bounded_and_restores_previous_config(self) -> None:
+        app = self.root / "usr/share/passwall2/app.sh"
+        app.write_text(
+            "#!/bin/sh\n"
+            "[ ! -e /dev/fd/9 ] || exit 70\n"
+            "case \"${1:-}\" in\n"
+            "  stop) exit 0 ;;\n"
+            "  start)\n"
+            "    printf 'attempt\\n' >>\"$XRAY_MITM_TEST_ROOT/tmp/restart-attempts\"\n"
+            "    if grep -q xray_mitm_vpn_overrides \"$XRAY_MITM_TEST_ROOT/etc/config/passwall2\"; then\n"
+            "      sleep 10\n"
+            "    fi\n"
+            "    printf 'restart\\n' >>\"$XRAY_MITM_TEST_ROOT/tmp/restarts\"\n"
+            "    ;;\n"
+            "  *) exit 64 ;;\n"
+            "esac\n",
+            encoding="utf-8",
+        )
+        app.chmod(0o755)
+        self.env["XRAY_MITM_PASSWALL_RESTART_TIMEOUT"] = "1"
+
+        plan = self.plan_all()
+        started = time.monotonic()
+        _, payload = self.apply(str(plan["token"]), timeout=12)
+        elapsed = time.monotonic() - started
+
+        self.assertLess(elapsed, 10)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["error"], "service_restart_failed")
+        self.assertEqual(self.config.read_bytes(), self.original)
+        self.assertEqual(self.restart_count(), 1)
+        self.assertEqual(self.restart_attempt_count(), 2)
+        state = self.root / "etc/xray-mitm/passwall2-routing"
+        self.assertFalse((state / "recovery").exists())
+        self.assertFalse((state / "backups" / f"{plan['token']}.passwall2").exists())
+
+    def test_started_runtime_is_accepted_when_app_returns_nonzero(self) -> None:
+        app = self.root / "usr/share/passwall2/app.sh"
+        app.write_text(
+            "#!/bin/sh\n"
+            "[ ! -e /dev/fd/9 ] || exit 70\n"
+            "case \"${1:-}\" in\n"
+            "  stop) exit 0 ;;\n"
+            "  start)\n"
+            "    touch \"$XRAY_MITM_TEST_ROOT/tmp/passwall-runtime-ready\"\n"
+            "    printf 'restart\\n' >>\"$XRAY_MITM_TEST_ROOT/tmp/restarts\"\n"
+            "    exit 1\n"
+            "    ;;\n"
+            "  *) exit 64 ;;\n"
+            "esac\n",
+            encoding="utf-8",
+        )
+        app.chmod(0o755)
+
+        plan = self.plan_all()
+        _, applied = self.apply(str(plan["token"]))
+
+        self.assertTrue(applied["ok"])
+        self.assertEqual(self.restart_count(), 1)
+        self.assertFalse((self.root / "etc/xray-mitm/passwall2-routing/recovery").exists())
+
+    def test_second_hung_restart_is_not_retried_by_exit_recovery(self) -> None:
+        app = self.root / "usr/share/passwall2/app.sh"
+        app.write_text(
+            "#!/bin/sh\n"
+            "[ ! -e /dev/fd/9 ] || exit 70\n"
+            "case \"${1:-}\" in\n"
+            "  stop) exit 0 ;;\n"
+            "  start)\n"
+            "    printf 'attempt\\n' >>\"$XRAY_MITM_TEST_ROOT/tmp/restart-attempts\"\n"
+            "    sleep 10\n"
+            "    ;;\n"
+            "  *) exit 64 ;;\n"
+            "esac\n",
+            encoding="utf-8",
+        )
+        app.chmod(0o755)
+        self.env["XRAY_MITM_PASSWALL_RESTART_TIMEOUT"] = "1"
+
+        plan = self.plan_all()
+        started = time.monotonic()
+        _, payload = self.apply(str(plan["token"]), timeout=12)
+        elapsed = time.monotonic() - started
+
+        self.assertLess(elapsed, 12)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["error"], "restore_restart_failed")
+        self.assertEqual(self.config.read_bytes(), self.original)
+        self.assertEqual(self.restart_attempt_count(), 2)
+        state = self.root / "etc/xray-mitm/passwall2-routing"
+        self.assertTrue((state / "recovery").exists())
+        self.assertTrue((state / "backups" / f"{plan['token']}.passwall2").exists())
 
     def test_meta_and_fastly_bundles_require_mitm_and_use_one_rule(self) -> None:
         _, plan = self.helper("plan", str(self.request_file({
@@ -393,7 +572,7 @@ class PassWall2Fixture(unittest.TestCase):
         self.assertEqual(self._uci_from_path(staged_dir, "get", "passwall2.xray_mitm_services.ip_list"), "geoip:fastly")
         self.assertNotIn("xray_mitm_google", (staged_dir / "passwall2").read_text(encoding="utf-8"))
 
-        _, applied = self.helper("apply", token)
+        _, applied = self.apply(token)
         self.assertTrue(applied["ok"])
         _, inspection = self.helper("inspect")
         self.assertFalse(inspection["routing_state"]["google_mitm"])
@@ -405,6 +584,7 @@ class PassWall2Fixture(unittest.TestCase):
             "gemini": False,
             "android_check": False,
             "youtube_control": False,
+            "google_play": False,
             "accounts_google": True,
         })))
         token = str(plan["token"])
@@ -414,9 +594,70 @@ class PassWall2Fixture(unittest.TestCase):
             "domain:accounts.google.com",
         )
 
+    def test_google_meet_bundle_is_selective_and_uses_mitm_rule(self) -> None:
+        _, plan = self.helper("plan", str(self.request_file({
+            "gemini": False,
+            "android_check": False,
+            "youtube_control": False,
+            "google_play": False,
+            "google_mitm": False,
+            "google_meet": True,
+            "accounts_google": False,
+            "iran_direct": False,
+        })))
+        token = str(plan["token"])
+        staged_dir = self.root / "tmp/xray-mitm-passwall2-plans" / f"{token}.stage/config"
+        domains = self._uci_from_path(
+            staged_dir, "get", "passwall2.xray_mitm_services.domain_list"
+        ).splitlines()
+        self.assertEqual(domains, [
+            "domain:meet.google.com",
+            "domain:meetings.googleapis.com",
+            "domain:hangouts.googleapis.com",
+            "domain:meetings.clients6.google.com",
+            "domain:stream.meet.google.com",
+        ])
+        self.assertNotIn("geosite:google", domains)
+
+    def test_google_play_bundle_is_independent_of_other_vpn_exceptions(self) -> None:
+        _, plan = self.helper("plan", str(self.request_file({
+            "gemini": False,
+            "android_check": False,
+            "youtube_control": False,
+            "accounts_google": False,
+            "google_play": True,
+        })))
+        token = str(plan["token"])
+        staged_dir = self.root / "tmp/xray-mitm-passwall2-plans" / f"{token}.stage/config"
+        domains = self._uci_from_path(
+            staged_dir, "get", "passwall2.xray_mitm_vpn_overrides.domain_list"
+        ).splitlines()
+        self.assertEqual(domains, [
+            "domain:play.google.com",
+            "domain:play.googleapis.com",
+            "domain:play-fe.googleapis.com",
+            "domain:android.clients.google.com",
+            "domain:android.googleapis.com",
+            "domain:checkin.googleapis.com",
+            "domain:firebaseinstallations.googleapis.com",
+            "domain:oauth2.googleapis.com",
+            "domain:mtalk.google.com",
+            "domain:dl.google.com",
+            "domain:update.googleapis.com",
+            "domain:clientservices.googleapis.com",
+            "domain:clients4.google.com",
+            "domain:optimizationguide-pa.googleapis.com",
+            "domain:ssl.gstatic.com",
+            "domain:redirector.gvt1.com",
+            "domain:play-lh.googleusercontent.com",
+            "domain:dns.google",
+            "domain:dns.google.com",
+        ])
+        self.assertNotIn("googlevideo.com", domains)
+
     def test_second_identical_preview_is_no_change(self) -> None:
         first = self.plan_all()
-        _, applied = self.helper("apply", str(first["token"]))
+        _, applied = self.apply(str(first["token"]))
         self.assertTrue(applied["ok"])
         _, second = self.helper("plan", str(self.request_file()))
         self.assertTrue(second["no_change"])
@@ -453,7 +694,7 @@ config nodes 'xray_mitm_socks'
         for rule in ("xray_mitm_gemini", "xray_mitm_android", "xray_mitm_youtube", "xray_mitm_google", "xray_mitm_ir"):
             self.assertNotIn(f"config shunt_rules '{rule}'", text)
         self.assertIn("config shunt_rules 'xray_mitm_vpn_overrides'", text)
-        _, applied = self.helper("apply", token)
+        _, applied = self.apply(token)
         self.assertTrue(applied["ok"])
         _, rolled_back = self.helper("rollback", token)
         self.assertTrue(rolled_back["ok"])
@@ -510,7 +751,7 @@ config nodes 'xray_mitm_socks'
         self.assertNotIn("option IR_Direct '_direct'", staged_text)
         self.assertEqual(self.config.read_bytes(), self.original)
 
-        _, applied = self.helper("apply", token)
+        _, applied = self.apply(token)
         self.assertTrue(applied["ok"])
         _, after = self.helper("inspect")
         self.assertTrue(after["routing_state"]["gemini"])

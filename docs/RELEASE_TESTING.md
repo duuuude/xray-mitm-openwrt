@@ -21,7 +21,25 @@ wsl.exe sh -lc 'cd /path/to/xray-mitm-openwrt && sh scripts/validate-release.sh'
 
 These checks are offline and do not connect to a router.
 
-## 2. Local LuCI browser gate
+## 2. Recovering from a failed CI run
+
+When GitHub Actions fails, read the failed step before changing code. Reproduce
+the named test locally, make the smallest fix, and run the complete validation
+again. If the local shell cannot find Node.js, pass the bundled or installed
+executable explicitly:
+
+**MAC:**
+
+```sh
+NODE_BIN=/path/to/node sh scripts/validate-release.sh
+```
+
+Check the remote before pushing. The repository may contain a local mirror in
+`origin`; push to the verified GitHub remote only. After every follow-up commit,
+repeat the applicable local tests and obtain explicit project-owner approval
+before pushing it.
+
+## 3. Local LuCI browser gate
 
 This gate is required for every change that can affect a LuCI page, including its
 JavaScript, templates, styles, RPC data, and ACL access.
@@ -45,7 +63,7 @@ A syntax check, mocked frontend test, successful APK build, or green GitHub Acti
 run is insufficient by itself. The owner's silence is not UI approval. Do not push,
 merge, tag, or publish until both the browser test and visual approval pass.
 
-## 3. Signed publishing checks
+## 4. Signed publishing checks
 
 Before the tag:
 
@@ -63,7 +81,7 @@ After approving the tagged workflow:
 4. Confirm Pages serves the key and `feed/25.12/all/packages.adb` over HTTPS.
 5. Independently verify key SHA-256 `3e0dc07ffef69d1512500b6add486381d8c261a8ec3fcce54fa403b35320df8a`.
 
-## 4. Clean-router installation
+## 5. Clean-router installation
 
 Use a disposable or lab router:
 
@@ -80,7 +98,7 @@ Use a disposable or lab router:
 11. Confirm a MITM domain shows `CN=MITM-DomainFronting` while a control domain shows its public issuer.
 12. Reboot and repeat service, routing, health, and client checks.
 
-## 5. Existing-router update
+## 6. Existing-router update
 
 1. Start with a working prior version, active CA, boot setting, and known PassWall2 routing.
 2. Run the same one-command installer.
