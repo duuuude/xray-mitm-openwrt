@@ -56,6 +56,7 @@ class SignedFeedTests(unittest.TestCase):
         ).split()[0]
 
         self.assertEqual(installer_digest, EXPECTED_INSTALLER_SHA256)
+        self.assertIn(f"'{EXPECTED_INSTALLER_SHA256}'", workflow)
         self.assertIn("cp install.sh site/install.sh", workflow)
         self.assertIn("site/INSTALLER_SHA256", workflow)
         self.assertIn('"signed-site/install.sh"', workflow)
