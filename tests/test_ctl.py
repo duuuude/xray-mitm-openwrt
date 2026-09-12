@@ -19,6 +19,9 @@ LIBEXEC_SOURCE = PROJECT / "xray-mitm/files/usr/libexec/xray-mitm"
 DEFAULT_UCI = PROJECT / "xray-mitm/files/etc/config/xray-mitm"
 SAMPLE = PROJECT / "xray-mitm/files/usr/share/xray-mitm/config.json.example"
 FAKE_COMMAND = PROJECT / "tests/fakes/openwrt_cmd.py"
+RECOMMENDED_ROUTING = json.loads(
+    (PROJECT / "tests/fixtures/recommended-routing.json").read_text(encoding="utf-8")
+)
 
 
 class ControlFixture(unittest.TestCase):
@@ -263,6 +266,51 @@ class ControlFixture(unittest.TestCase):
                 f"rollback {token}", "recover",
             ],
         )
+
+    def test_setup_status_uses_complete_routing_recommendation(self) -> None:
+        self.ctl("setup-recommended")
+        helper = self.root / "usr/libexec/xray-mitm/passwall2"
+        routing = dict(RECOMMENDED_ROUTING)
+
+        def set_inspection(values: dict[str, bool], recovery_pending: bool = False) -> None:
+            inspection = {
+                "available": True,
+                "compatible": True,
+                "shunt_available": True,
+                "vpn_available": True,
+                "recovery_pending": recovery_pending,
+                "routing_state": values,
+            }
+            helper.write_text(
+                "#!/bin/sh\n"
+                f"printf '%s\\n' '{json.dumps(inspection, separators=(',', ':'))}'\n",
+                encoding="utf-8",
+            )
+            helper.chmod(0o755)
+
+        set_inspection(routing)
+        status = json.loads(self.ctl("setup-status-json").stdout)
+        self.assertTrue(status["routing"]["configured"])
+        self.assertTrue(status["routing"]["recommended_matches_current"])
+
+        for name, expected in routing.items():
+            with self.subTest(field=name):
+                custom = dict(routing, **{name: not expected})
+                set_inspection(custom)
+                status = json.loads(self.ctl("setup-status-json").stdout)
+                self.assertTrue(status["routing"]["configured"])
+                self.assertFalse(status["routing"]["recommended_matches_current"])
+
+        set_inspection({}, recovery_pending=True)
+        status = json.loads(self.ctl("setup-status-json").stdout)
+        self.assertFalse(status["routing"]["configured"])
+        self.assertFalse(status["routing"]["recommended_matches_current"])
+        self.assertTrue(status["routing"]["recovery_pending"])
+
+        set_inspection({name: False for name in routing})
+        status = json.loads(self.ctl("setup-status-json").stdout)
+        self.assertFalse(status["routing"]["configured"])
+        self.assertFalse(status["routing"]["recommended_matches_current"])
 
 
 if __name__ == "__main__":

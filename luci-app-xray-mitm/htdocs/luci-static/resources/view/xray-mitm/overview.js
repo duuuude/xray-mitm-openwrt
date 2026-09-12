@@ -4,6 +4,7 @@
 'require ui';
 'require dom';
 'require xray-mitm.state as state';
+'require xray-mitm.ui as uiHelpers';
 
 /* Keep this fallback synchronized with xray-mitm/Makefile PKG_VERSION. */
 var PROJECT_VERSION = '0.4.3';
@@ -111,11 +112,26 @@ var callRecoverPassWall2 = rpc.declare({
 	expect: { '': {} }
 });
 
-var routingParams = [
-	'shunt_node', 'vpn_node', 'gemini', 'android_check',
-	'youtube_control', 'google_play', 'google_mitm', 'google_meet', 'meta_mitm', 'fastly_mitm', 'iran_direct', 'accounts_google',
-	'set_default_vpn', 'set_localhost_proxy_zero'
-];
+var routingParams = [ 'shunt_node', 'vpn_node' ].concat(state.routingFieldNames());
+
+var ROUTING_POLL_INTERVAL = 2000;
+var ROUTING_POLL_ATTEMPTS = 75;
+
+var text = uiHelpers.text;
+var textNode = uiHelpers.textNode;
+var assertOk = uiHelpers.assertOk;
+var notification = uiHelpers.notification;
+var setBusy = uiHelpers.setBusy;
+var readSelectedFile = uiHelpers.readSelectedFile;
+var slotData = uiHelpers.slotData;
+var slotPresent = uiHelpers.slotPresent;
+var optionList = uiHelpers.optionList;
+var selectControl = uiHelpers.selectControl;
+var statusPill = uiHelpers.statusPill;
+var routeStatus = uiHelpers.routeStatus;
+var simpleCheck = uiHelpers.simpleCheck;
+var routingRuleCard = uiHelpers.routingRuleCard;
+var operationList = uiHelpers.operationList;
 
 var callPlanPassWall2 = rpc.declare({
 	object: 'luci.xray-mitm',
@@ -144,83 +160,6 @@ var callRollbackPassWall2 = rpc.declare({
 	params: [ 'transaction' ],
 	expect: { '': {} }
 });
-
-function text(value, fallback) {
-	if (value === null || value === undefined || value === '')
-		return fallback || _('Unknown');
-
-	return String(value);
-}
-
-function textNode(value, fallback) {
-	return document.createTextNode(text(value, fallback));
-}
-
-function yesNo(value) {
-	if (value === true)
-		return _('Yes');
-
-	if (value === false)
-		return _('No');
-
-	return _('Unknown');
-}
-
-function assertOk(result) {
-	if (!result || result.ok === false)
-		throw new Error(result && (result.message || result.error) ?
-			(result.message || result.error) : _('Operation failed.'));
-
-	return result;
-}
-
-function notification(message, type) {
-	ui.addNotification(null, E('p', {}, textNode(message, _('Operation completed.'))), type || 'info');
-}
-
-function setBusy(button, busy) {
-	if (button)
-		button.disabled = busy;
-}
-
-function readSelectedFile(input, maximum) {
-	return new Promise(function(resolve, reject) {
-		var file = input && input.files && input.files[0];
-
-		if (!file) {
-			reject(new Error(_('Choose a file first.')));
-			return;
-		}
-
-		if (file.size > maximum) {
-			reject(new Error(_('The selected file is too large.')));
-			return;
-		}
-
-		var reader = new FileReader();
-		reader.onerror = function() {
-			reject(new Error(_('The selected file could not be read.')));
-		};
-		reader.onload = function() {
-			resolve(String(reader.result || ''));
-		};
-		reader.readAsText(file);
-	});
-}
-
-function slotData(data, name) {
-	if (!data)
-		return {};
-
-	if (data.slots && data.slots[name])
-		return data.slots[name];
-
-	return data[name] || {};
-}
-
-function slotPresent(slot) {
-	return slot && (slot.present === true || !!slot.fingerprint);
-}
 
 function certificateRows(data) {
 	var canExport = data && data.ok === true && data.recovery_pending !== true &&
@@ -266,173 +205,6 @@ function certificateRows(data) {
 	});
 }
 
-function decodeRemarks(item) {
-	if (!item || !item.remarks_b64)
-		return item && (item.remarks || item.label) || '';
-
-	try {
-		var bytes = Uint8Array.from(atob(item.remarks_b64), function(character) {
-			return character.charCodeAt(0);
-		});
-		return new TextDecoder('utf-8').decode(bytes);
-	}
-	catch (error) {
-		return '';
-	}
-}
-
-function optionList(items) {
-	if (!Array.isArray(items))
-		return [];
-
-	return items.map(function(item) {
-		if (typeof item === 'string')
-			return { id: item, label: item };
-
-		var id = item.id || item.name || item.section;
-		var details = [ item.group, item.protocol, item.type ].filter(Boolean).join(' · ');
-		var remarks = decodeRemarks(item);
-		return {
-			id: id,
-			group: item.group || '',
-			label: (remarks || _('Unnamed node') + ' [' + id + ']') + (details ? ' — ' + details : '')
-		};
-	}).filter(function(item) { return !!item.id; });
-}
-
-function selectControl(id, items, selected, onChange) {
-	var select = E('select', { id: id, class: 'cbi-input-select' });
-	if (onChange)
-		select.addEventListener('change', onChange);
-
-	var groups = {};
-	items.forEach(function(item) {
-		var group = item.group || '';
-		if (!groups[group])
-			groups[group] = [];
-		groups[group].push(item);
-	});
-
-	Object.keys(groups).forEach(function(group) {
-		var target = group ? E('optgroup', { label: group }) : select;
-		groups[group].forEach(function(item) {
-			target.appendChild(E('option', {
-				value: item.id,
-				selected: item.id === selected ? '' : null
-			}, textNode(item.label)));
-		});
-		if (target !== select)
-			select.appendChild(target);
-	});
-
-	return select;
-}
-
-function statusPill(label, tone) {
-	var colors = {
-		good: [ '#e7f5e7', '#246b2d' ],
-		info: [ '#e8f1fb', '#245b91' ],
-		muted: [ '#eeeeee', '#555555' ],
-		warn: [ '#fff3cd', '#7a5700' ]
-	};
-	var color = colors[tone] || colors.muted;
-
-	return E('span', {
-		style: 'display:inline-block;padding:.18rem .55rem;border-radius:999px;' +
-			'font-size:.82em;font-weight:600;background:' + color[0] + ';color:' + color[1]
-	}, label);
-}
-
-function routeStatus(source, active) {
-	var result = state.routeStatus(source, active);
-	var labels = {
-		active: _('Active now'),
-		existing: _('Saved rule found (inactive)'),
-		managed: _('Ready but disabled'),
-		new: _('Will be created')
-	};
-
-	return { label: labels[result.kind] || labels.new, tone: result.tone };
-}
-
-function simpleCheck(id, label, description, checked, onChange) {
-	var checkbox = E('input', {
-		id: id,
-		class: 'cbi-input-checkbox xray-mitm-choice-input',
-		type: 'checkbox',
-		checked: checked ? '' : null,
-		style: 'appearance:auto!important;-webkit-appearance:auto!important;' +
-			'position:static!important;float:none!important;display:block!important;' +
-			'width:1.25rem!important;height:1.25rem!important;' +
-			'margin:0!important;padding:0!important;flex:0 0 1.25rem;' +
-			'accent-color:#5e72e4;cursor:pointer',
-		change: onChange
-	});
-
-	return E('label', {
-		class: 'xray-mitm-choice-row',
-		for: id,
-		style: 'display:grid;grid-template-columns:2rem minmax(0,1fr);align-items:start;' +
-			'column-gap:.65rem;margin:0;padding:.7rem .75rem;' +
-			'border-top:1px solid var(--border-color-low,#ddd);cursor:pointer;' +
-			'background:rgba(255,255,255,.015);min-height:3.2rem;box-sizing:border-box'
-	}, [
-		E('span', { style: 'display:flex;align-items:flex-start;justify-content:center;padding-top:.05rem' }, checkbox),
-		E('span', { style: 'display:block;min-width:0;line-height:1.35' }, [
-			E('strong', {}, label),
-			description ? E('small', { style: 'display:block;margin-top:.25rem;opacity:.78;line-height:1.35' }, description) : ''
-		])
-	]);
-}
-
-function routingRuleCard(number, title, destination, description, choices, source) {
-	var active = choices.some(function(choice) { return choice.checked; });
-	var status = routeStatus(source, active);
-	return E('section', {
-		style: 'margin:1rem 0;border:1px solid var(--border-color-medium,#ccc);' +
-			'border-radius:.45rem;overflow:hidden;background:rgba(0,0,0,.08)'
-	}, [
-		E('div', { style: 'display:flex;align-items:center;justify-content:space-between;gap:1rem;' +
-			'padding:.85rem 1rem;background:rgba(128,128,128,.14);border-bottom:1px solid var(--border-color-low,#ddd)' }, [
-			E('div', { style: 'display:flex;align-items:center;gap:.65rem;min-width:0' }, [
-				E('span', { style: 'display:inline-flex;align-items:center;justify-content:center;' +
-					'width:1.65rem;height:1.65rem;border-radius:50%;font-weight:700;' +
-					'background:#5e72e4;color:#fff;flex:0 0 auto' }, number),
-				E('div', { style: 'min-width:0' }, [
-					E('strong', { style: 'display:block' }, title),
-					E('small', { style: 'display:block;margin-top:.2rem;opacity:.8' }, destination)
-				])
-			]),
-			statusPill(status.label, status.tone)
-		]),
-		E('div', { style: 'padding:.75rem 1rem .35rem' }, [
-			E('p', { style: 'margin:0;opacity:.85;line-height:1.45' }, description),
-			E('small', { style: 'display:block;margin-top:.45rem;opacity:.7' }, _('Choose the rows to include in this PassWall2 rule.'))
-		]),
-		E('div', { style: 'margin:0 .35rem .35rem;border:1px solid var(--border-color-low,#ddd);border-radius:.3rem;overflow:hidden' }, choices.map(function(choice) {
-			return simpleCheck(choice.id, choice.label, choice.description, choice.checked, choice.onChange);
-		}))
-	]);
-}
-
-function operationList(plan) {
-	var operations = plan.operations || plan.changes || [];
-
-	if (!Array.isArray(operations) || !operations.length)
-		return E('p', {}, _('No configuration changes are required.'));
-
-	return E('div', { style: 'display:grid;gap:.5rem;margin:.75rem 0' }, operations.map(function(operation) {
-		if (typeof operation === 'string')
-			return E('div', { style: 'padding:.65rem .8rem;border-left:4px solid #5e72e4;background:rgba(94,114,228,.08)' }, textNode(operation));
-
-		return E('div', { style: 'padding:.65rem .8rem;border-left:4px solid #5e72e4;background:rgba(94,114,228,.08)' }, [
-			E('strong', {}, textNode(operation.description || operation.action || operation.name)),
-			operation.id ? E('small', { style: 'display:block;margin-top:.2rem;opacity:.75' },
-				_('PassWall2 object: ') + operation.id) : ''
-		]);
-	}));
-}
-
 return view.extend({
 	load: function() {
 		return Promise.all([
@@ -445,6 +217,85 @@ return view.extend({
 
 	reloadPage: function() {
 		window.setTimeout(function() { window.location.reload(); }, 500);
+	},
+
+	setRoutingBusyMessage: function(title, detail) {
+		var titleNode = document.getElementById('xray-mitm-routing-busy-title');
+		var detailNode = document.getElementById('xray-mitm-routing-busy-detail');
+
+		if (titleNode)
+			titleNode.textContent = text(title);
+		if (detailNode)
+			detailNode.textContent = text(detail);
+	},
+
+	setRoutingBusy: function(busy) {
+		var overlay = document.getElementById('xray-mitm-routing-busy');
+
+		if (!busy) {
+			if (this.routingBusyTimer !== null && this.routingBusyTimer !== undefined)
+				window.clearInterval(this.routingBusyTimer);
+
+			this.routingBusyTimer = null;
+			this.routingBusy = false;
+			if (overlay && overlay.parentNode)
+				overlay.parentNode.removeChild(overlay);
+			if (document.documentElement)
+				document.documentElement.removeAttribute('aria-busy');
+			return;
+		}
+
+		if (this.routingBusy || !document.body)
+			return;
+
+		this.routingBusy = true;
+		this.routingBusyStartedAt = Date.now();
+		overlay = E('div', {
+			id: 'xray-mitm-routing-busy',
+			role: 'dialog',
+			'aria-modal': 'true',
+			'aria-live': 'polite',
+			'aria-labelledby': 'xray-mitm-routing-busy-title',
+			'tabindex': '-1',
+			keydown: function(ev) {
+				if (ev.key === 'Escape' || ev.key === 'Tab')
+					ev.preventDefault();
+			},
+			style: 'position:fixed;inset:0;z-index:10000;display:flex;align-items:center;' +
+				'justify-content:center;padding:1.5rem;background:rgba(0,0,0,.64);cursor:wait'
+		}, [
+			E('div', {
+				style: 'width:100%;max-width:34rem;padding:1.5rem;border:1px solid var(--border-color-medium,#ccc);' +
+					'border-radius:.55rem;background:var(--background-color-high,#222);' +
+					'box-shadow:0 1rem 3rem rgba(0,0,0,.4);text-align:center'
+			}, [
+				E('div', { style: 'font-size:2rem;line-height:1;margin-bottom:.8rem' }, '⏳'),
+				E('h3', { id: 'xray-mitm-routing-busy-title', style: 'margin:.2rem 0 .65rem' },
+					_('Applying routing changes…')),
+				E('p', { id: 'xray-mitm-routing-busy-detail', style: 'margin:.4rem 0' },
+					_('PassWall2 is restarting and checking the new rules. Please keep this page open.')),
+				E('p', { id: 'xray-mitm-routing-busy-elapsed', style: 'margin:.8rem 0;font-weight:600' },
+					_('Elapsed time: 0 seconds')),
+				E('small', { style: 'display:block;opacity:.78' },
+					_('All routing controls are locked until the router confirms completion.'))
+			])
+		]);
+		document.body.appendChild(overlay);
+		if (document.documentElement)
+			document.documentElement.setAttribute('aria-busy', 'true');
+
+		var startedAt = this.routingBusyStartedAt;
+		var updateElapsed = function() {
+			var elapsed = document.getElementById('xray-mitm-routing-busy-elapsed');
+			var seconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+
+			if (elapsed)
+				elapsed.textContent = _('Elapsed time: ') + seconds + _(' seconds');
+		};
+
+		updateElapsed();
+		this.routingBusyTimer = window.setInterval(updateElapsed, 1000);
+		overlay.focus();
 	},
 
 	runMutation: function(button, promise, successMessage, reload) {
@@ -616,20 +467,8 @@ return view.extend({
 		var vpn = vpnControl ? vpnControl.value : (this.passwall.selected_vpn || (vpns[0] && vpns[0].id));
 		var output = document.getElementById('xray-mitm-simple-routing-preview');
 		var button = ev.currentTarget;
-		var values = {
-			gemini: false,
-			android_check: false,
-			youtube_control: false,
-			google_play: false,
-			google_mitm: false,
-			google_meet: false,
-			meta_mitm: false,
-			fastly_mitm: false,
-			iran_direct: false,
-			accounts_google: false,
-			set_default_vpn: false,
-			set_localhost_proxy_zero: true
-		};
+		var currentRouting = this.passwall.routing_state || {};
+		var values = state.routingChoices(this.simpleHiddenRouting || currentRouting);
 		[ 'gemini', 'android_check', 'youtube_control', 'google_play', 'google_mitm', 'google_meet', 'meta_mitm',
 			'fastly_mitm', 'iran_direct', 'accounts_google' ].forEach(function(name) {
 			var choice = document.getElementById('xray-mitm-simple-route-' + name.replace(/_/g, '-'));
@@ -651,7 +490,8 @@ return view.extend({
 					this.simpleRouteRow(_('MITM-Compatible Services'), mitmSelected ? _('Local SOCKS') : _('Not selected')),
 					this.simpleRouteRow(_('Regional Direct Access'), values.iran_direct ? _('Direct connection') : _('Not selected'))
 				]),
-				E('p', { style: 'opacity:.82' }, _('This reflects the checkboxes above. Existing custom rules are preserved, and nothing changes until you apply this preview.'))
+				E('p', { style: 'opacity:.82' }, _('This reflects the checkboxes above. Existing custom rules are preserved, and nothing changes until you apply this preview.')),
+				E('p', { style: 'opacity:.82' }, _('Applying this routing may briefly interrupt traffic. Keep this page open while PassWall2 restarts and confirms the changes.'))
 			];
 			if (blocked)
 				children.push(E('div', { class: 'alert-message warning' }, _('Start MITM before applying this routing setup.')));
@@ -677,22 +517,8 @@ return view.extend({
 	},
 
 	useSimpleRecommendedRouting: function() {
-		var choices = state.recommendedChoices();
-		// A browser can retain a prior state.js after an in-place LuCI update.
-		// Keep the recommended route complete during that short cache transition.
-		choices.gemini = true;
-		choices.android_check = true;
-		choices.youtube_control = true;
-		choices.google_play = true;
-		choices.google_mitm = true;
-		choices.google_meet = true;
-		choices.meta_mitm = false;
-		choices.fastly_mitm = false;
-		choices.iran_direct = true;
-		choices.accounts_google = true;
-		choices.set_default_vpn = true;
-		choices.set_localhost_proxy_zero = true;
-		this.setSimpleRoutingChoices(choices);
+		this.simpleHiddenRouting = state.recommendedChoices();
+		this.setSimpleRoutingChoices(this.simpleHiddenRouting);
 	},
 
 	generateCandidate: function(ev) {
@@ -812,14 +638,16 @@ return view.extend({
 	},
 
 	applyRouting: function(ev) {
-		if (!this.planToken || !window.confirm(_(
+		if (this.routingBusy || !this.planToken || !window.confirm(_(
 			'Apply exactly the previewed PassWall2 changes and restart PassWall2? A rollback snapshot will be kept.'
 		)))
 			return;
 
 		var button = ev.currentTarget;
 		var output = document.getElementById('xray-mitm-routing-preview');
+		this.setRoutingBusy(true);
 		setBusy(button, true);
+		notification(_('Applying PassWall2 routing changes. Keep this page open until it finishes.'), 'info');
 
 		callApplyPassWall2(this.planToken).then(assertOk).then(L.bind(function(result) {
 			if (!result.pending || !result.transaction)
@@ -827,25 +655,33 @@ return view.extend({
 
 			this.planToken = null;
 			this.routingActivation = result.transaction;
+			this.setRoutingBusyMessage(_('PassWall2 is restarting…'), _(
+				'The router is applying the reviewed rules. The controls are locked until activation is confirmed.'
+			));
 			dom.content(output, E('div', { class: 'alert-message warning' }, _(
-				'PassWall2 is restarting. This page will confirm the activation or exact rollback when it finishes.'
+				'PassWall2 is restarting. Keep this page open while the router confirms the activation or exact rollback.'
 			)));
 			this.pollRoutingActivation(result.transaction, button, output, 0);
 		}, this)).catch(function(error) {
+			this.setRoutingBusy(false);
 			setBusy(button, false);
 			notification(error.message, 'error');
-		});
+		}.bind(this));
 	},
 
 	pollRoutingActivation: function(transaction, button, output, attempts) {
 		callPassWall2Activation(transaction).then(assertOk).then(L.bind(function(status) {
 			if (status.pending === true) {
-				window.setTimeout(L.bind(this.pollRoutingActivation, this, transaction, button, output, attempts + 1), 2000);
+				this.setRoutingBusyMessage(_('Waiting for PassWall2…'), _(
+					'The router is still applying the change. It will unlock this page after verification.'
+				));
+				window.setTimeout(L.bind(this.pollRoutingActivation, this, transaction, button, output, attempts + 1), ROUTING_POLL_INTERVAL);
 				return;
 			}
 
 			var result = status.result || {};
 			if (result.ok !== true) {
+				this.setRoutingBusy(false);
 				setBusy(button, false);
 				dom.content(output, E('div', { class: 'alert-message danger' }, textNode(
 					result.message || _('Routing activation failed. The recorded recovery state must be reviewed before another change.')
@@ -856,15 +692,20 @@ return view.extend({
 
 			this.rollbackTransaction = result.transaction || null;
 			this.routingActivation = null;
+			this.setRoutingBusyMessage(_('Routing changes applied'), _('The router confirmed the new PassWall2 rules. Reloading this page…'));
 			setBusy(button, false);
 			notification(_('PassWall2 routing changes applied.'), 'info');
 			this.reloadPage();
 		}, this)).catch(L.bind(function(error) {
-			if (attempts < 75) {
-				window.setTimeout(L.bind(this.pollRoutingActivation, this, transaction, button, output, attempts + 1), 2000);
+			if (attempts < ROUTING_POLL_ATTEMPTS) {
+				this.setRoutingBusyMessage(_('Waiting for PassWall2…'), _(
+					'The router did not answer this check yet. Retrying automatically; keep this page open.'
+				));
+				window.setTimeout(L.bind(this.pollRoutingActivation, this, transaction, button, output, attempts + 1), ROUTING_POLL_INTERVAL);
 				return;
 			}
 			setBusy(button, false);
+			this.setRoutingBusy(false);
 			dom.content(output, E('div', { class: 'alert-message danger' }, textNode(
 				_('Could not read the routing activation result. Reopen this page to check its recorded status.')
 			)));
@@ -893,6 +734,9 @@ return view.extend({
 	},
 
 	routingSelectionChanged: function() {
+		if (this.routingBusy)
+			return;
+
 		this.planToken = null;
 		this.lastPlan = null;
 		var apply = document.getElementById('xray-mitm-routing-apply');
@@ -923,20 +767,7 @@ return view.extend({
 	},
 
 	useRecommendedRouting: function() {
-		var choices = state.recommendedChoices();
-		choices.gemini = true;
-		choices.android_check = true;
-		choices.youtube_control = true;
-		choices.google_play = true;
-		choices.google_mitm = true;
-		choices.google_meet = true;
-		choices.meta_mitm = false;
-		choices.fastly_mitm = false;
-		choices.iran_direct = true;
-		choices.accounts_google = true;
-		choices.set_default_vpn = true;
-		choices.set_localhost_proxy_zero = true;
-		this.setRoutingChoices(choices);
+		this.setRoutingChoices(state.recommendedChoices());
 	},
 
 	restoreCurrentRouting: function() {
@@ -962,6 +793,24 @@ return view.extend({
 			style: 'display:grid;grid-template-columns:minmax(10rem,1fr) auto;gap:1rem;' +
 				'align-items:center;padding:.45rem 0'
 		}, [ E('strong', {}, label), E('span', {}, '→ ' + destination) ]);
+	},
+
+	simpleRoutingSummary: function() {
+		return E('div', {
+			class: 'xray-mitm-routing-summary',
+			style: 'padding:.85rem 1rem;margin:1rem 0;border:1px solid var(--border-color-medium,#ccc);' +
+				'border-radius:.45rem;background:rgba(128,128,128,.06)'
+		}, [
+			E('h4', { style: 'margin-top:0' }, _('Recommended routing')),
+			E('p', {}, _('The recommended preset sends only these tested service groups to each destination. Expand Customize routing to change individual groups.')),
+			E('div', { style: 'display:grid;gap:.1rem;margin:.7rem 0' }, [
+				this.simpleRouteRow(_('Gemini and Google app/control traffic'), _('Selected VPN')),
+				this.simpleRouteRow(_('Google Drive and YouTube video'), _('Local SOCKS (MITM)')),
+				this.simpleRouteRow(_('Google Meet web and signaling'), _('Local SOCKS (MITM)')),
+				this.simpleRouteRow(_('Iranian sites and IP addresses'), _('Direct connection'))
+			]),
+			E('p', { style: 'margin-bottom:0;opacity:.82' }, _('Meet audio and video media may use UDP or separate media IPs, so test a real call before relying on MITM for every part of a meeting.'))
+		]);
 	},
 
 	simpleStatusCard: function(label, value, tone, detail) {
@@ -1108,6 +957,7 @@ return view.extend({
 		var passwallState = setup.passwall2 || {};
 		var routingState = passwall.routing_state || setup.routing || {};
 		var routingMeta = setup.routing || {};
+		var basicRoutingStatus = state.deriveBasicRoutingStatus(routingMeta, passwall.routing_state);
 		var shunts = optionList(passwall.shunt_nodes || passwall.shunts);
 		var vpns = optionList(passwall.vpn_nodes || passwall.vpns);
 		var selectedVpn = passwall.selected_vpn || (vpns[0] && vpns[0].id);
@@ -1190,7 +1040,11 @@ return view.extend({
 					E('p', {}, E('button', {
 						class: 'btn cbi-button-action', click: ui.createHandlerFn(this, 'useSimpleRecommendedRouting')
 					}, _('Use recommended choices'))),
-					this.simpleRoutingTable(routingState, passwall),
+					this.simpleRoutingSummary(),
+					E('details', { style: 'margin:1rem 0' }, [
+						E('summary', { style: 'cursor:pointer;font-weight:600' }, _('Customize routing')),
+						this.simpleRoutingTable(routingState, passwall)
+					]),
 					E('label', { for: 'xray-mitm-simple-vpn', style: 'display:block;font-weight:600;margin-bottom:.35rem' }, _('VPN destination for selected overrides')),
 					selectControl('xray-mitm-simple-vpn', vpns, selectedVpn, function() {
 						dom.content(document.getElementById('xray-mitm-simple-routing-preview'), '');
@@ -1205,9 +1059,9 @@ return view.extend({
 				'data-dashboard-panel-mode': 'basic', 'data-dashboard-panel-page': 'status', style: pageStyle('status') }, [
 				E('h3', {}, _('Status')),
 				this.simpleStateRow(_('MITM'), status.running === true ? _('Running') : _('Stopped'), status.running === true ? 'good' : 'warn'),
-				this.simpleStateRow(_('Routing'), routingState.recommended_matches_current === true ? _('Recommended') :
-					(routingState.configured === true ? _('Custom') : _('Not configured')),
-					routingState.configured === true ? 'good' : 'warn'),
+				this.simpleStateRow(_('Routing'), basicRoutingStatus.kind === 'recommended' ? _('Recommended') :
+					(basicRoutingStatus.kind === 'custom' ? _('Custom') : _('Not configured')),
+					basicRoutingStatus.tone),
 				this.simpleStateRow(_('PassWall2'), passwallState.compatible === true ? _('Working') : _('Needs attention'),
 					passwallState.compatible === true ? 'good' : 'warn'),
 				E('div', {
@@ -1533,7 +1387,7 @@ return view.extend({
 				]),
 				E('h4', {}, _('3. Review and apply')),
 				E('p', { style: 'opacity:.82' }, _(
-					'Review builds a private temporary copy first. Nothing is changed until you apply that exact preview. A rollback copy is kept.'
+					'Review builds a private temporary copy first. Nothing is changed until you apply that exact preview. A rollback copy is kept. Applying may briefly interrupt traffic; keep this page open while PassWall2 restarts and confirms the changes.'
 				)),
 				E('p', { style: 'display:flex;gap:.5rem;flex-wrap:wrap' }, [
 					E('button', { class: 'btn cbi-button-action', disabled: canPlan ? null : '', click: ui.createHandlerFn(this, 'planRouting') }, _('Review setup')), ' ',
@@ -1550,6 +1404,8 @@ return view.extend({
 		this.status = data[1] || {};
 		this.certificates = data[2] || {};
 		this.passwall = data[3] || {};
+		this.routingBusy = false;
+		this.routingBusyTimer = null;
 		this.appVersion = text(this.setup.app_version || this.setup.version, PROJECT_VERSION)
 			.replace(/^v/i, '');
 		this.planToken = null;

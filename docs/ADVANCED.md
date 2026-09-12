@@ -74,6 +74,16 @@ The assistant creates a private temporary preview first. Applying is limited to 
 
 Pending PassWall2 changes must be saved or reverted before a new preview can be created.
 
+Background routing activation status is kept under
+`/etc/xray-mitm/passwall2-routing/activations/`. The latest three completed
+status results are retained for browser polling; older completed results are
+removed after a new result is recorded. A live `.pending` file is never removed
+by this cleanup. If the router reboots while an activation is running, the
+pending state remains until `activation-status` detects the dead worker and
+records an interrupted result. Result files contain only the transaction token,
+status flags, service action, hashes, and fixed error text; they do not contain
+PassWall2 configuration, node details, certificates, or credentials.
+
 ## CLI reference
 
 These commands run on the router. Most return JSON; certificate export returns the public certificate.

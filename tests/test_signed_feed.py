@@ -16,7 +16,7 @@ PUBLIC_KEY = ROOT / "keys/xray-mitm-feed-v1.pem"
 VERSION_CHECK = ROOT / "scripts/check-release-version.sh"
 RELEASE_NOTES = ROOT / "scripts/release-notes.sh"
 EXPECTED_KEY_SHA256 = "3e0dc07ffef69d1512500b6add486381d8c261a8ec3fcce54fa403b35320df8a"
-EXPECTED_INSTALLER_SHA256 = "8af96edc133c01a7e9d0a8f4673b7225c47322d73874c05a9c4a0133f3058405"
+EXPECTED_INSTALLER_SHA256 = "9014182bc04803172ef0715ba5e1af87385f76adefce64306c5d5f2f43a47e89"
 PACKAGE_VERSION = next(
     line.split(":=", 1)[1].strip()
     for line in (ROOT / "xray-mitm/Makefile").read_text(encoding="utf-8").splitlines()
@@ -56,6 +56,7 @@ class SignedFeedTests(unittest.TestCase):
         ).split()[0]
 
         self.assertEqual(installer_digest, EXPECTED_INSTALLER_SHA256)
+        self.assertIn(f"'{EXPECTED_INSTALLER_SHA256}'", workflow)
         self.assertIn("cp install.sh site/install.sh", workflow)
         self.assertIn("site/INSTALLER_SHA256", workflow)
         self.assertIn('"signed-site/install.sh"', workflow)
@@ -83,12 +84,25 @@ class SignedFeedTests(unittest.TestCase):
 
         self.assertIn("/etc/apk/keys", text)
         self.assertIn("/etc/apk/repositories.d", text)
-        self.assertRegex(text, r"apk add xray-mitm luci-app-xray-mitm")
-        self.assertRegex(text, r"apk upgrade xray-mitm luci-app-xray-mitm")
-        self.assertNotRegex(text, r"apk upgrade(?:\s|$)(?!xray-mitm)")
+        self.assertIn("detect_platform()", text)
+        self.assertIn("check_platform_support()", text)
+        self.assertIn('"$APK_BIN" add xray-mitm luci-app-xray-mitm', text)
+        self.assertIn('"$APK_BIN" upgrade xray-mitm luci-app-xray-mitm', text)
+        self.assertIn("BACKUP_RETENTION=3", text)
         self.assertNotIn("allow-untrusted", text.replace(
             "--allow-untrusted was not used", ""
         ))
+
+    def test_luci_fallback_version_matches_package_version(self) -> None:
+        makefile = (ROOT / "xray-mitm/Makefile").read_text(encoding="utf-8")
+        overview = (ROOT / "luci-app-xray-mitm/htdocs/luci-static/resources/view/xray-mitm/overview.js").read_text(encoding="utf-8")
+        version = re.search(r"^PKG_VERSION:=([^\r\n]+)$", makefile, re.MULTILINE)
+
+        self.assertIsNotNone(version)
+        self.assertIn(
+            f"var PROJECT_VERSION = '{version.group(1)}';",
+            overview,
+        )
 
     def test_release_tag_must_match_package_version(self) -> None:
         good = subprocess.run(

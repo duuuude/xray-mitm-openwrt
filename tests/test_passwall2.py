@@ -113,7 +113,7 @@ DEFAULT_REQUEST = {
     "youtube_control": True,
     "google_play": True,
     "google_mitm": True,
-    "google_meet": False,
+    "google_meet": True,
     "meta_mitm": False,
     "fastly_mitm": False,
     "iran_direct": True,
@@ -420,7 +420,9 @@ class PassWall2Fixture(unittest.TestCase):
 
     def test_apply_without_google_route_allows_stopped_mitm(self) -> None:
         _, plan = self.helper(
-            "plan", str(self.request_file({"google_mitm": False}))
+            "plan", str(self.request_file({
+                "google_mitm": False, "google_meet": False
+            }))
         )
         self.assertFalse(plan["requires_mitm_running"])
         (self.root / "tmp/mitm-running").unlink()
@@ -462,6 +464,76 @@ class PassWall2Fixture(unittest.TestCase):
         self.assertIsInstance(applied, dict)
         self.assertTrue(applied["ok"])
         self.assertEqual(self.restart_count(), 1)
+        activation_dir = self.root / "etc/xray-mitm/passwall2-routing/activations"
+        self.assertFalse((activation_dir / f"{token}.pending").exists())
+        result_file = activation_dir / f"{token}.result"
+        self.assertTrue(result_file.exists())
+        self.assertEqual(result_file.stat().st_mode & 0o777, 0o600)
+
+    def test_completed_activation_results_are_bounded_and_pending_is_preserved(self) -> None:
+        plan = self.plan_all()
+        token = str(plan["token"])
+        activation_dir = self.root / "etc/xray-mitm/passwall2-routing/activations"
+        activation_dir.mkdir(mode=0o700, exist_ok=True)
+
+        old_tokens = [letter * 64 for letter in ("a", "b", "c", "d")]
+        for index, old_token in enumerate(old_tokens):
+            result_file = activation_dir / f"{old_token}.result"
+            result_file.write_text(
+                json.dumps({
+                    "ok": True,
+                    "pending": False,
+                    "transaction": old_token,
+                    "result": {
+                        "ok": True,
+                        "changed": False,
+                        "transaction": old_token,
+                        "service_action": "none",
+                        "rollback_available": False,
+                    },
+                }),
+                encoding="utf-8",
+            )
+            result_file.chmod(0o600)
+            os.utime(result_file, (1_000_000 + index, 1_000_000 + index))
+
+        pending_token = "e" * 64
+        pending_file = activation_dir / f"{pending_token}.pending"
+        pending_file.write_text("pid=999999\n", encoding="utf-8")
+        pending_file.chmod(0o600)
+
+        worker = subprocess.run(
+            ["sh", str(HELPER), "apply-worker", token],
+            env=self.env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        self.assertEqual(worker.returncode, 0, worker.stdout + worker.stderr)
+
+        result_files = list(activation_dir.glob("*.result"))
+        self.assertEqual(len(result_files), 3)
+        current_result = activation_dir / f"{token}.result"
+        self.assertTrue(current_result.exists())
+        self.assertTrue(pending_file.exists())
+        self.assertFalse((activation_dir / f"{old_tokens[0]}.result").exists())
+        self.assertFalse((activation_dir / f"{old_tokens[1]}.result").exists())
+
+        allowed_outer = {"ok", "pending", "transaction", "result"}
+        allowed_inner = {
+            "ok", "changed", "transaction", "post_hash", "service_action",
+            "rollback_available", "error", "message",
+        }
+        for result_file in result_files:
+            self.assertEqual(result_file.stat().st_mode & 0o777, 0o600)
+            payload = json.loads(result_file.read_text(encoding="utf-8"))
+            self.assertTrue(set(payload).issubset(allowed_outer))
+            self.assertTrue(set(payload["result"]).issubset(allowed_inner))
+            serialized = result_file.read_text(encoding="utf-8")
+            self.assertNotIn("fixture-private-value-7391", serialized)
+            self.assertNotIn("private.fixture.invalid", serialized)
+            self.assertNotIn("domain_list", serialized)
 
     def test_hung_candidate_restart_is_bounded_and_restores_previous_config(self) -> None:
         app = self.root / "usr/share/passwall2/app.sh"
@@ -559,6 +631,7 @@ class PassWall2Fixture(unittest.TestCase):
     def test_meta_and_fastly_bundles_require_mitm_and_use_one_rule(self) -> None:
         _, plan = self.helper("plan", str(self.request_file({
             "google_mitm": False,
+            "google_meet": False,
             "meta_mitm": True,
             "fastly_mitm": True,
         })))

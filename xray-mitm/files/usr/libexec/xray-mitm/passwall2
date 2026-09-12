@@ -32,6 +32,7 @@ MANAGED_MARKER='xray_mitm_managed'
 MAX_PLAN_AGE=600
 MAX_REQUEST_BYTES=4096
 MAX_INSPECT_NODES=128
+MAX_ACTIVATION_RESULTS=3
 REQUEST_BASENAME='request.json'
 ERROR_EMITTED=0
 RECOVERY_RESTART_ATTEMPTED=0
@@ -1631,10 +1632,27 @@ activation_pending() {
 	local pending
 	[ -d "$ACTIVATION_DIR" ] || return 1
 	for pending in "$ACTIVATION_DIR"/*.pending; do
-		[ -f "$pending" ] || continue
+		[ -f "$pending" ] && [ ! -L "$pending" ] || continue
 		return 0
 	done
 	return 1
+}
+
+prune_activation_results() {
+	local result_file kept
+	kept=0
+	[ -d "$ACTIVATION_DIR" ] || return 0
+	# Result names contain only validated transaction tokens, so the absolute
+	# paths emitted by ls are safe to iterate. Pending files are never included.
+	for result_file in $(ls -1t "$ACTIVATION_DIR"/*.result 2>/dev/null || true); do
+		[ -f "$result_file" ] && [ ! -L "$result_file" ] || continue
+		kept=$((kept + 1))
+		if [ "$kept" -le "$MAX_ACTIVATION_RESULTS" ]; then
+			chmod 0600 "$result_file" || return 1
+			continue
+		fi
+		rm -f "$result_file" || return 1
+	done
 }
 
 write_activation_result() {
@@ -1650,6 +1668,9 @@ write_activation_result() {
 	printf '{"ok":true,"pending":false,"transaction":"%s","result":%s}\n' "$token" "$result" >"$temporary" || return 1
 	chmod 0600 "$temporary" || { rm -f "$temporary"; return 1; }
 	mv -f "$temporary" "$ACTIVATION_DIR/$token.result" || { rm -f "$temporary"; return 1; }
+	# A cleanup failure must not hide the completed result from the browser or
+	# leave a finished activation looking pending. The next completion retries it.
+	prune_activation_results || log_event 'completed activation result cleanup could not finish'
 }
 
 apply_worker() {
@@ -1710,17 +1731,18 @@ start_apply() {
 }
 
 activation_status() {
-	local token pending pid
+	local token pending pid result_file
 	token=${1:-}
 	[ "$#" -eq 1 ] || die invalid_arguments 'Activation status requires one transaction token.' 64
 	valid_token "$token" || die invalid_token 'The transaction token is invalid.' 65
 	ensure_state_dirs
-	if [ -f "$ACTIVATION_DIR/$token.result" ]; then
-		cat "$ACTIVATION_DIR/$token.result"
+	result_file="$ACTIVATION_DIR/$token.result"
+	if [ -f "$result_file" ] && [ ! -L "$result_file" ]; then
+		cat "$result_file"
 		return 0
 	fi
 	pending="$ACTIVATION_DIR/$token.pending"
-	if [ -f "$pending" ]; then
+	if [ -f "$pending" ] && [ ! -L "$pending" ]; then
 		pid=$(sed -n 's/^pid=\([0-9][0-9]*\)$/\1/p' "$pending" 2>/dev/null || true)
 		if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then
 			write_activation_result "$token" '{"ok":false,"error":"activation_interrupted","message":"The routing activation stopped before completion. The recovery marker, if present, must be recovered before another change."}' || die activation_status_failed 'The interrupted activation could not be recorded.' 70

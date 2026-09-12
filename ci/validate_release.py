@@ -63,7 +63,10 @@ REQUIRED_PATHS = (
     "THIRD_PARTY_NOTICES.md",
     "ci/test-init-enable.sh",
     "docs/RELEASE_TESTING.md",
+    "docs/CONFIG_AUDIT.md",
     "docs/SIGNED_FEED.md",
+    "scripts/release-preflight.sh",
+    "scripts/router-local-test.sh",
     "scripts/validate-release.sh",
     "install.sh",
     "keys/xray-mitm-feed-v1.pem",
@@ -71,8 +74,10 @@ REQUIRED_PATHS = (
     "scripts/release-notes.sh",
     "tests/fakes/openwrt_cmd.py",
     "tests/test_certificates.py",
+    "tests/test_config.py",
     "tests/test_installer.py",
     "tests/test_passwall2.py",
+    "tests/test_release_preflight.py",
     "tests/test_signed_feed.py",
     "xray-mitm/Makefile",
     "luci-app-xray-mitm/Makefile",
@@ -87,6 +92,7 @@ REQUIRED_PATHS = (
     "xray-mitm/files/usr/sbin/xray-mitmctl",
     "xray-mitm/files/usr/share/xray-mitm/config.json.example",
     "luci-app-xray-mitm/htdocs/luci-static/resources/view/xray-mitm/overview.js",
+    "luci-app-xray-mitm/htdocs/luci-static/resources/xray-mitm/ui.js",
     "luci-app-xray-mitm/root/usr/share/luci/menu.d/luci-app-xray-mitm.json",
     "luci-app-xray-mitm/root/usr/share/rpcd/acl.d/luci-app-xray-mitm.json",
     "luci-app-xray-mitm/root/usr/share/rpcd/ucode/xray-mitm.uc",
@@ -447,18 +453,46 @@ def check_signed_feed(root: Path, errors: list[str]) -> None:
         "https://duuuude.github.io/xray-mitm-openwrt/feed/25.12/all/packages.adb",
         "/etc/apk/keys",
         "/etc/apk/repositories.d",
-        "apk add xray-mitm luci-app-xray-mitm",
-        "apk upgrade xray-mitm luci-app-xray-mitm",
+        "detect_platform()",
+        "check_platform_support()",
+        '"$APK_BIN" add xray-mitm luci-app-xray-mitm',
+        '"$APK_BIN" upgrade xray-mitm luci-app-xray-mitm',
     ):
         if required not in installer:
             errors.append(f"{installer_relative} signed-feed logic is missing {required}")
     if re.search(r"apk[ \t]+(?:add|upgrade).*--allow-untrusted", installer):
         errors.append(f"{installer_relative} must not bypass APK signature verification")
     targeted_installer = installer.replace(
-        "apk upgrade xray-mitm luci-app-xray-mitm", ""
+        '"$APK_BIN" upgrade xray-mitm luci-app-xray-mitm', ""
     )
-    if re.search(r"apk[ \t]+upgrade", targeted_installer):
+    if re.search(r"\$APK_BIN[ \t]+upgrade", targeted_installer):
         errors.append(f"{installer_relative} must not upgrade unrelated router packages")
+
+
+def check_version_parity(root: Path, errors: list[str]) -> None:
+    makefile_relative = "xray-mitm/Makefile"
+    overview_relative = "luci-app-xray-mitm/htdocs/luci-static/resources/view/xray-mitm/overview.js"
+    makefile = (root / makefile_relative).read_text(encoding="utf-8", errors="replace")
+    overview = (root / overview_relative).read_text(encoding="utf-8", errors="replace")
+    package_match = re.search(
+        r"^[ \t]*PKG_VERSION[ \t]*:=[ \t]*([^ \t\r\n#]+)",
+        makefile,
+        re.MULTILINE,
+    )
+    fallback_match = re.search(
+        r"^[ \t]*var PROJECT_VERSION = '([^']+)';[ \t]*$",
+        overview,
+        re.MULTILINE,
+    )
+    if not package_match:
+        errors.append(f"{makefile_relative} does not declare PKG_VERSION")
+    if not fallback_match:
+        errors.append(f"{overview_relative} does not declare PROJECT_VERSION fallback")
+    if package_match and fallback_match and package_match.group(1) != fallback_match.group(1):
+        errors.append(
+            f"{overview_relative} PROJECT_VERSION {fallback_match.group(1)} "
+            f"does not match {makefile_relative} PKG_VERSION {package_match.group(1)}"
+        )
 
 
 def check_tree(root: Path) -> list[str]:
@@ -560,6 +594,7 @@ def check_tree(root: Path) -> list[str]:
         check_acl(root, errors)
         check_workflow(root, errors)
         check_signed_feed(root, errors)
+        check_version_parity(root, errors)
 
     return errors
 

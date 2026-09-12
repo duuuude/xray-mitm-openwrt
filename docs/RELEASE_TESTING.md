@@ -21,7 +21,45 @@ wsl.exe sh -lc 'cd /path/to/xray-mitm-openwrt && sh scripts/validate-release.sh'
 
 These checks are offline and do not connect to a router.
 
-## 2. Recovering from a failed CI run
+## 2. Reusable local AX4200 loop
+
+The repository includes `scripts/router-local-test.sh` for the lab-router loop.
+It uses SSH and `scp -O`; it does not require Docker, GitHub Actions, an APK
+build, or a router-side package feed. The script protects the original service,
+RPC, and LuCI candidate files once, stages the exact local candidate with the
+correct modes, and can restore those originals without restarting Xray or
+changing PassWall2 routing.
+
+**MAC:**
+
+```sh
+cd "/path/to/xray-mitm-openwrt"
+sh scripts/router-local-test.sh validate
+sh scripts/router-local-test.sh config-validate
+sh scripts/router-local-test.sh stage
+sh scripts/router-local-test.sh check
+sh scripts/router-local-test.sh restore
+sh scripts/router-local-test.sh check
+```
+
+`stage` runs the offline validator again by default. After a separate successful
+validation, `ROUTER_SKIP_VALIDATE=1` may be used only when the candidate has not
+changed. The default connection is `root@192.168.1.1` with
+`~/.ssh/xray-mitm-ax4200`; set `ROUTER_HOST`, `ROUTER_USER`, `ROUTER_SSH_KEY`, or
+`ROUTER_BACKUP_DIR` when the lab setup differs. The protected backup stays on
+the router and contains code only; certificates, private keys, credentials, and
+router configuration are never copied into the repository.
+
+After `stage`, reload every affected LuCI page in the real desktop browser,
+exercise the controls, and inspect the browser console. Run `check` while the
+candidate is staged, then run `restore` and `check` again. Apply a live routing
+preview only as a separate, deliberate test after the candidate has passed the
+browser gate.
+
+This file-level staging loop is for fast LuCI and service-interface testing. A
+public release still needs the protected APK build and signed-feed checks below.
+
+## 3. Recovering from a failed CI run
 
 When GitHub Actions fails, read the failed step before changing code. Reproduce
 the named test locally, make the smallest fix, and run the complete validation
@@ -39,7 +77,7 @@ Check the remote before pushing. The repository may contain a local mirror in
 repeat the applicable local tests and obtain explicit project-owner approval
 before pushing it.
 
-## 3. Local LuCI browser gate
+## 4. Local LuCI browser gate
 
 This gate is required for every change that can affect a LuCI page, including its
 JavaScript, templates, styles, RPC data, and ACL access.
@@ -63,7 +101,7 @@ A syntax check, mocked frontend test, successful APK build, or green GitHub Acti
 run is insufficient by itself. The owner's silence is not UI approval. Do not push,
 merge, tag, or publish until both the browser test and visual approval pass.
 
-## 4. Signed publishing checks
+## 5. Signed publishing checks
 
 Before the tag:
 
@@ -72,6 +110,7 @@ Before the tag:
 3. Review the full diff and confirm only `keys/xray-mitm-feed-v1.pem` is public-key material.
 4. Confirm the private key exists only in protected storage and the `signed-feed` environment secret.
 5. Confirm required environment reviewers and GitHub Pages are configured.
+6. From the clean, synchronized `main` branch, run `sh scripts/release-preflight.sh`.
 
 After approving the tagged workflow:
 
@@ -81,11 +120,11 @@ After approving the tagged workflow:
 4. Confirm Pages serves the key and `feed/25.12/all/packages.adb` over HTTPS.
 5. Independently verify key SHA-256 `3e0dc07ffef69d1512500b6add486381d8c261a8ec3fcce54fa403b35320df8a`.
 
-## 5. Clean-router installation
+## 6. Clean-router installation
 
 Use a disposable or lab router:
 
-1. Confirm official OpenWrt 25.12.5 or a later 25.12 maintenance release and APK.
+1. Confirm official OpenWrt 25.12.x with APK; use 25.12.5 for the public clean-router baseline.
 2. Run the public one-command installer.
 3. Confirm the expected fingerprint and that `--allow-untrusted` is absent.
 4. Confirm the project key and repository list exist under `/etc/apk/`.
@@ -98,12 +137,13 @@ Use a disposable or lab router:
 11. Confirm a MITM domain shows `CN=MITM-DomainFronting` while a control domain shows its public issuer.
 12. Reboot and repeat service, routing, health, and client checks.
 
-## 6. Existing-router update
+## 7. Existing-router update
 
 1. Start with a working prior version, active CA, boot setting, and known PassWall2 routing.
 2. Run the same one-command installer.
 3. Confirm APK migrates both packages to named feed-managed entries and installs the new version.
-4. Confirm `/root/xray-mitm-before-install-*.tar.gz` exists with mode `0600`.
+4. Confirm only the three newest `/root/xray-mitm-before-install-*.tar.gz`
+   project backups are retained and each has mode `0600`.
 5. Confirm the CA pair, service state, boot state, PassWall2 rules, node selection, and recovery state are unchanged.
 6. Repeat health, route, and reboot checks.
 

@@ -112,19 +112,29 @@ passwall2_state() {
 	setup_route_gemini="$(json_boolean "$(jsonfilter -s "$output" -e '@.routing_state.gemini' 2>/dev/null || true)")"
 	setup_route_android="$(json_boolean "$(jsonfilter -s "$output" -e '@.routing_state.android_check' 2>/dev/null || true)")"
 	setup_route_youtube="$(json_boolean "$(jsonfilter -s "$output" -e '@.routing_state.youtube_control' 2>/dev/null || true)")"
+	setup_route_google_play="$(json_boolean "$(jsonfilter -s "$output" -e '@.routing_state.google_play' 2>/dev/null || true)")"
 	setup_route_google="$(json_boolean "$(jsonfilter -s "$output" -e '@.routing_state.google_mitm' 2>/dev/null || true)")"
+	setup_route_google_meet="$(json_boolean "$(jsonfilter -s "$output" -e '@.routing_state.google_meet' 2>/dev/null || true)")"
 	setup_route_meta="$(json_boolean "$(jsonfilter -s "$output" -e '@.routing_state.meta_mitm' 2>/dev/null || true)")"
 	setup_route_fastly="$(json_boolean "$(jsonfilter -s "$output" -e '@.routing_state.fastly_mitm' 2>/dev/null || true)")"
 	setup_route_iran="$(json_boolean "$(jsonfilter -s "$output" -e '@.routing_state.iran_direct' 2>/dev/null || true)")"
 	setup_route_accounts="$(json_boolean "$(jsonfilter -s "$output" -e '@.routing_state.accounts_google' 2>/dev/null || true)")"
+	setup_route_default_vpn="$(json_boolean "$(jsonfilter -s "$output" -e '@.routing_state.set_default_vpn' 2>/dev/null || true)")"
 	setup_route_localhost="$(json_boolean "$(jsonfilter -s "$output" -e '@.routing_state.set_localhost_proxy_zero' 2>/dev/null || true)")"
-	if [ "$setup_route_gemini" = true ] && [ "$setup_route_google" = true ] &&
-		[ "$setup_route_iran" = true ] && [ "$setup_route_localhost" = true ]; then
+	if [ "$setup_route_gemini" = true ] || [ "$setup_route_android" = true ] ||
+		[ "$setup_route_youtube" = true ] || [ "$setup_route_google_play" = true ] ||
+		[ "$setup_route_google" = true ] || [ "$setup_route_google_meet" = true ] ||
+		[ "$setup_route_meta" = true ] || [ "$setup_route_fastly" = true ] ||
+		[ "$setup_route_iran" = true ] || [ "$setup_route_accounts" = true ] ||
+		[ "$setup_route_default_vpn" = true ] || [ "$setup_route_localhost" = true ]; then
 		setup_routing_configured=true
 	fi
-	if [ "$setup_routing_configured" = true ] && [ "$setup_route_android" = false ] &&
-		[ "$setup_route_youtube" = false ] && [ "$setup_route_meta" = false ] &&
-		[ "$setup_route_fastly" = false ] && [ "$setup_route_accounts" = false ]; then
+	if [ "$setup_route_gemini" = true ] && [ "$setup_route_android" = true ] &&
+		[ "$setup_route_youtube" = true ] && [ "$setup_route_google_play" = true ] &&
+		[ "$setup_route_google" = true ] && [ "$setup_route_google_meet" = true ] &&
+		[ "$setup_route_meta" = false ] && [ "$setup_route_fastly" = false ] &&
+		[ "$setup_route_iran" = true ] && [ "$setup_route_accounts" = true ] &&
+		[ "$setup_route_default_vpn" = true ] && [ "$setup_route_localhost" = true ]; then
 		setup_routing_recommended=true
 	fi
 }

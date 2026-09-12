@@ -1,14 +1,4 @@
 {
-  "__Credits__": {
-    "creator": "@patterniha",
-    "donate1": "USDT (BEP20): 0x76a768B53Ca77B43086946315f0BDF21156bF424",
-    "donate2": "USDT (TRC20): TU5gKvKqcXPn8itp1DouBCwcqGHMemBm8o",
-    "donate3": "TON (TON): UQAc-mZB3y7uxWHKiMmq0ORZEYgycWDWZ4V1k73HsXvTJx-i"
-  },
-
-
-  "remarks": "MITM-DomainFronting_v23",
-
   "version": {
     "min": "26.2.6"
   },
@@ -33,7 +23,6 @@
 
   "dns":{
     "hosts": {
-      "geosite:category-ads-all": "#3",
 	  "fastly.redirect": "github.githubassets.com",
       "dns.redirect": ["1.1.1.1", "1.0.0.1"]
     },
@@ -173,28 +162,6 @@
       }
     },
     {
-      "tag": "tls-repack-frommitm",
-      "protocol": "direct",
-      "streamSettings": {
-        "security": "tls",
-        "tlsSettings": {
-          "serverName": "fromMitM",
-          "verifyPeerCertByName": "fromMitM",
-          "alpn": ["fromMitM"],
-          "fingerprint": "chrome"
-        },
-		"sockopt": {
-          "domainStrategy": "ForceIP",
-          "happyEyeballs": {
-            "tryDelayMs": 300,
-            "prioritizeIPv6": false,
-            "interleave": 2,
-            "maxConcurrentTry": 20
-          }
-        }
-      }
-    },
-    {
       "tag": "tls-repack-dns",
       "protocol": "direct",
       "settings": {
@@ -294,10 +261,6 @@
     "domainStrategy": "IPOnDemand",
     "rules": [
       {
-	   "outboundTag": "block",
-       "domain": ["geosite:category-ads-all"]
-      },
-      {
 	   "outboundTag": "tls-repack-dns",
        "inboundTag": ["no-filter-dns"]
       },
@@ -307,7 +270,7 @@
       },
       {
 	   "outboundTag": "direct",
-       "domain": ["domain:ir", "geosite:private", "geosite:category-ir", "geosite:khanacademy"]
+       "domain": ["domain:ir", "geosite:private", "geosite:category-ir"]
       },
       {
 	   "outboundTag": "tls-repack-google",
