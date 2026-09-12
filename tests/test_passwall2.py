@@ -113,7 +113,7 @@ DEFAULT_REQUEST = {
     "youtube_control": True,
     "google_play": True,
     "google_mitm": True,
-    "google_meet": False,
+    "google_meet": True,
     "meta_mitm": False,
     "fastly_mitm": False,
     "iran_direct": True,
@@ -420,7 +420,9 @@ class PassWall2Fixture(unittest.TestCase):
 
     def test_apply_without_google_route_allows_stopped_mitm(self) -> None:
         _, plan = self.helper(
-            "plan", str(self.request_file({"google_mitm": False}))
+            "plan", str(self.request_file({
+                "google_mitm": False, "google_meet": False
+            }))
         )
         self.assertFalse(plan["requires_mitm_running"])
         (self.root / "tmp/mitm-running").unlink()
@@ -559,6 +561,7 @@ class PassWall2Fixture(unittest.TestCase):
     def test_meta_and_fastly_bundles_require_mitm_and_use_one_rule(self) -> None:
         _, plan = self.helper("plan", str(self.request_file({
             "google_mitm": False,
+            "google_meet": False,
             "meta_mitm": True,
             "fastly_mitm": True,
         })))

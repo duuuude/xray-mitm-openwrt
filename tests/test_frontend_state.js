@@ -106,6 +106,16 @@ function testRouteStatusAndProgress() {
 	assert.deepStrictEqual(state.routeStatus('existing', false), { kind: 'existing', tone: 'info' });
 	assert.deepStrictEqual(state.routeStatus('managed', false), { kind: 'managed', tone: 'muted' });
 	assert.deepStrictEqual(state.routeStatus(undefined, true), { kind: 'active', tone: 'good' });
+	assert.deepStrictEqual(state.deriveBasicRoutingStatus({ configured: true, recommended_matches_current: true }),
+		{ kind: 'recommended', tone: 'good' });
+	assert.deepStrictEqual(state.deriveBasicRoutingStatus({ configured: true, recommended_matches_current: false }),
+		{ kind: 'custom', tone: 'good' });
+	assert.deepStrictEqual(state.deriveBasicRoutingStatus({ configured: false, recommended_matches_current: true }),
+		{ kind: 'not_configured', tone: 'warn' });
+	assert.deepStrictEqual(state.deriveBasicRoutingStatus({}, state.recommendedChoices()),
+		{ kind: 'recommended', tone: 'good' });
+	assert.deepStrictEqual(state.deriveBasicRoutingStatus({}, Object.assign({}, state.recommendedChoices(), { google_meet: false })),
+		{ kind: 'custom', tone: 'good' });
 
 	const progress = state.setupProgress({ configured: true, running: true }, {
 		slots: { current: { present: true } }

@@ -616,6 +616,11 @@ return view.extend({
 		var vpn = vpnControl ? vpnControl.value : (this.passwall.selected_vpn || (vpns[0] && vpns[0].id));
 		var output = document.getElementById('xray-mitm-simple-routing-preview');
 		var button = ev.currentTarget;
+		var currentRouting = this.passwall.routing_state || {};
+		var hiddenRouting = this.simpleHiddenRouting || {
+			set_default_vpn: currentRouting.set_default_vpn === true,
+			set_localhost_proxy_zero: currentRouting.set_localhost_proxy_zero === true
+		};
 		var values = {
 			gemini: false,
 			android_check: false,
@@ -627,8 +632,8 @@ return view.extend({
 			fastly_mitm: false,
 			iran_direct: false,
 			accounts_google: false,
-			set_default_vpn: false,
-			set_localhost_proxy_zero: true
+			set_default_vpn: hiddenRouting.set_default_vpn,
+			set_localhost_proxy_zero: hiddenRouting.set_localhost_proxy_zero
 		};
 		[ 'gemini', 'android_check', 'youtube_control', 'google_play', 'google_mitm', 'google_meet', 'meta_mitm',
 			'fastly_mitm', 'iran_direct', 'accounts_google' ].forEach(function(name) {
@@ -677,22 +682,11 @@ return view.extend({
 	},
 
 	useSimpleRecommendedRouting: function() {
-		var choices = state.recommendedChoices();
-		// A browser can retain a prior state.js after an in-place LuCI update.
-		// Keep the recommended route complete during that short cache transition.
-		choices.gemini = true;
-		choices.android_check = true;
-		choices.youtube_control = true;
-		choices.google_play = true;
-		choices.google_mitm = true;
-		choices.google_meet = true;
-		choices.meta_mitm = false;
-		choices.fastly_mitm = false;
-		choices.iran_direct = true;
-		choices.accounts_google = true;
-		choices.set_default_vpn = true;
-		choices.set_localhost_proxy_zero = true;
-		this.setSimpleRoutingChoices(choices);
+		this.simpleHiddenRouting = {
+			set_default_vpn: true,
+			set_localhost_proxy_zero: true
+		};
+		this.setSimpleRoutingChoices(state.recommendedChoices());
 	},
 
 	generateCandidate: function(ev) {
@@ -923,20 +917,7 @@ return view.extend({
 	},
 
 	useRecommendedRouting: function() {
-		var choices = state.recommendedChoices();
-		choices.gemini = true;
-		choices.android_check = true;
-		choices.youtube_control = true;
-		choices.google_play = true;
-		choices.google_mitm = true;
-		choices.google_meet = true;
-		choices.meta_mitm = false;
-		choices.fastly_mitm = false;
-		choices.iran_direct = true;
-		choices.accounts_google = true;
-		choices.set_default_vpn = true;
-		choices.set_localhost_proxy_zero = true;
-		this.setRoutingChoices(choices);
+		this.setRoutingChoices(state.recommendedChoices());
 	},
 
 	restoreCurrentRouting: function() {
@@ -1108,6 +1089,7 @@ return view.extend({
 		var passwallState = setup.passwall2 || {};
 		var routingState = passwall.routing_state || setup.routing || {};
 		var routingMeta = setup.routing || {};
+		var basicRoutingStatus = state.deriveBasicRoutingStatus(routingMeta, passwall.routing_state);
 		var shunts = optionList(passwall.shunt_nodes || passwall.shunts);
 		var vpns = optionList(passwall.vpn_nodes || passwall.vpns);
 		var selectedVpn = passwall.selected_vpn || (vpns[0] && vpns[0].id);
@@ -1205,9 +1187,9 @@ return view.extend({
 				'data-dashboard-panel-mode': 'basic', 'data-dashboard-panel-page': 'status', style: pageStyle('status') }, [
 				E('h3', {}, _('Status')),
 				this.simpleStateRow(_('MITM'), status.running === true ? _('Running') : _('Stopped'), status.running === true ? 'good' : 'warn'),
-				this.simpleStateRow(_('Routing'), routingState.recommended_matches_current === true ? _('Recommended') :
-					(routingState.configured === true ? _('Custom') : _('Not configured')),
-					routingState.configured === true ? 'good' : 'warn'),
+				this.simpleStateRow(_('Routing'), basicRoutingStatus.kind === 'recommended' ? _('Recommended') :
+					(basicRoutingStatus.kind === 'custom' ? _('Custom') : _('Not configured')),
+					basicRoutingStatus.tone),
 				this.simpleStateRow(_('PassWall2'), passwallState.compatible === true ? _('Working') : _('Needs attention'),
 					passwallState.compatible === true ? 'good' : 'warn'),
 				E('div', {

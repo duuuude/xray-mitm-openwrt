@@ -156,6 +156,53 @@ function routeStatus(source, active) {
 	return { kind: 'new', tone: 'warn' };
 }
 
+var ROUTING_FIELDS = [
+	'gemini', 'android_check', 'youtube_control', 'google_play',
+	'google_mitm', 'google_meet', 'meta_mitm', 'fastly_mitm',
+	'iran_direct', 'accounts_google', 'set_default_vpn',
+	'set_localhost_proxy_zero'
+];
+
+function routingIsConfigured(routing) {
+	for (var i = 0; i < ROUTING_FIELDS.length; i++)
+		if (routing[ROUTING_FIELDS[i]] === true)
+			return true;
+
+	return false;
+}
+
+function routingMatchesRecommended(routing) {
+	var recommended = recommendedChoices();
+
+	for (var i = 0; i < ROUTING_FIELDS.length; i++) {
+		var name = ROUTING_FIELDS[i];
+
+		if ((routing[name] === true) !== (recommended[name] === true))
+			return false;
+	}
+
+	return true;
+}
+
+function deriveBasicRoutingStatus(routing, fallback) {
+	routing = routing || {};
+	fallback = fallback || {};
+	var configured = routing.configured;
+	var recommended = routing.recommended_matches_current;
+
+	if (configured === undefined)
+		configured = routingIsConfigured(fallback);
+	if (recommended === undefined && configured === true)
+		recommended = routingMatchesRecommended(fallback);
+
+	if (configured !== true)
+		return { kind: 'not_configured', tone: 'warn' };
+	if (recommended === true)
+		return { kind: 'recommended', tone: 'good' };
+
+	return { kind: 'custom', tone: 'good' };
+}
+
 function setupProgress(status, certificates, passwall) {
 	status = status || {};
 	var current = certificateSlot(certificates, 'current');
@@ -177,6 +224,7 @@ return baseclass.extend({
 	nodeItems: nodeItems,
 	passwallSelection: passwallSelection,
 	recommendedChoices: recommendedChoices,
+	deriveBasicRoutingStatus: deriveBasicRoutingStatus,
 	routeStatus: routeStatus,
 	routingArguments: routingArguments,
 	routingChoices: routingChoices,

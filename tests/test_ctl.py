@@ -264,6 +264,56 @@ class ControlFixture(unittest.TestCase):
             ],
         )
 
+    def test_setup_status_uses_complete_routing_recommendation(self) -> None:
+        self.ctl("setup-recommended")
+        helper = self.root / "usr/libexec/xray-mitm/passwall2"
+        routing = {
+            "gemini": True,
+            "android_check": True,
+            "youtube_control": True,
+            "google_play": True,
+            "google_mitm": True,
+            "google_meet": True,
+            "meta_mitm": False,
+            "fastly_mitm": False,
+            "iran_direct": True,
+            "accounts_google": True,
+            "set_default_vpn": True,
+            "set_localhost_proxy_zero": True,
+        }
+
+        def set_inspection(values: dict[str, bool]) -> None:
+            inspection = {
+                "available": True,
+                "compatible": True,
+                "shunt_available": True,
+                "vpn_available": True,
+                "recovery_pending": False,
+                "routing_state": values,
+            }
+            helper.write_text(
+                "#!/bin/sh\n"
+                f"printf '%s\\n' '{json.dumps(inspection, separators=(',', ':'))}'\n",
+                encoding="utf-8",
+            )
+            helper.chmod(0o755)
+
+        set_inspection(routing)
+        status = json.loads(self.ctl("setup-status-json").stdout)
+        self.assertTrue(status["routing"]["configured"])
+        self.assertTrue(status["routing"]["recommended_matches_current"])
+
+        custom = dict(routing, google_meet=False)
+        set_inspection(custom)
+        status = json.loads(self.ctl("setup-status-json").stdout)
+        self.assertTrue(status["routing"]["configured"])
+        self.assertFalse(status["routing"]["recommended_matches_current"])
+
+        set_inspection({name: False for name in routing})
+        status = json.loads(self.ctl("setup-status-json").stdout)
+        self.assertFalse(status["routing"]["configured"])
+        self.assertFalse(status["routing"]["recommended_matches_current"])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -315,7 +315,7 @@ const methods = {
 			youtube_control: true,
 			google_play: true,
 			google_mitm: true,
-			google_meet: false,
+			google_meet: true,
 			meta_mitm: false,
 			fastly_mitm: false,
 			iran_direct: true,
