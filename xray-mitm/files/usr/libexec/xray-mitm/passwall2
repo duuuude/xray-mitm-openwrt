@@ -35,9 +35,10 @@ MAX_INSPECT_NODES=128
 REQUEST_BASENAME='request.json'
 ERROR_EMITTED=0
 RECOVERY_RESTART_ATTEMPTED=0
-# LuCI’s ubus RPC request window is 20 seconds. Keep enough time for a
-# candidate restart and a restored-config restart to both complete on failure.
-PASSWALL_RESTART_TIMEOUT=7
+# Routing activation runs outside LuCI's short RPC request window. Keep its
+# own bounded deadline so a stuck PassWall2 start is rolled back, while normal
+# dnsmasq/proxy activation has enough time to finish.
+PASSWALL_RESTART_TIMEOUT=45
 
 case "${XRAY_MITM_PASSWALL_RESTART_TIMEOUT:-}" in
 	''|*[!0-9]*) ;;
@@ -81,6 +82,7 @@ STATE_DIR="$ROOT/etc/xray-mitm/passwall2-routing"
 PLAN_DIR="$ROOT/tmp/xray-mitm-passwall2-plans"
 BACKUP_DIR="$STATE_DIR/backups"
 TX_DIR="$STATE_DIR/transactions"
+ACTIVATION_DIR="$STATE_DIR/activations"
 RECOVERY_MARKER="$STATE_DIR/recovery"
 LOCK_DIR="$ROOT/var/lock/xray-mitm"
 LOCK_FILE="$LOCK_DIR/passwall2.lock"
@@ -165,6 +167,7 @@ ensure_state_dirs() {
 	ensure_private_dir "$PLAN_DIR"
 	ensure_private_dir "$BACKUP_DIR"
 	ensure_private_dir "$TX_DIR"
+	ensure_private_dir "$ACTIVATION_DIR"
 }
 
 clear_existing_plans() {
@@ -462,11 +465,13 @@ inspect() {
 	legacy_youtube=$(resolve_live_rule "$OLD_RULE_YOUTUBE" "$LEGACY_YOUTUBE" YouTube_Control_VPN || true)
 	legacy_google=$(resolve_live_rule "$OLD_RULE_GOOGLE" "$LEGACY_GOOGLE" Google_MITM || true)
 	legacy_iran=$(resolve_live_rule "$OLD_RULE_IR" "$LEGACY_IR" IR_Direct || true)
-	printf '"routing_state":{"gemini":%s,"android_check":%s,"youtube_control":%s,"google_mitm":%s,"meta_mitm":%s,"fastly_mitm":%s,"iran_direct":%s,"accounts_google":%s,"set_default_vpn":%s,"set_localhost_proxy_zero":%s},' \
+	printf '"routing_state":{"gemini":%s,"android_check":%s,"youtube_control":%s,"google_play":%s,"google_mitm":%s,"google_meet":%s,"meta_mitm":%s,"fastly_mitm":%s,"iran_direct":%s,"accounts_google":%s,"set_default_vpn":%s,"set_localhost_proxy_zero":%s},' \
 		"$(json_bool routing_bundle_active "$live_vpn" domain:gemini.google.com "$legacy_gemini" "$selected_vpn" "$selected_shunt")" \
 		"$(json_bool routing_bundle_active "$live_vpn" domain:connectivitycheck.gstatic.com "$legacy_android" "$selected_vpn" "$selected_shunt")" \
 		"$(json_bool routing_bundle_active "$live_vpn" domain:www.youtube.com "$legacy_youtube" "$selected_vpn" "$selected_shunt")" \
-		"$(json_bool routing_bundle_active "$live_services" geosite:google "$legacy_google" "$live_mitm" "$selected_shunt")" \
+		"$(json_bool routing_bundle_active "$live_vpn" domain:play.googleapis.com "$legacy_gemini" "$selected_vpn" "$selected_shunt")" \
+		"$(json_bool routing_bundle_active "$live_services" domain:googlevideo.com "$legacy_google" "$live_mitm" "$selected_shunt")" \
+		"$(json_bool option_has_line "$live_services" domain_list domain:meet.google.com)" \
 		"$(json_bool option_has_line "$live_services" domain_list geosite:meta)" \
 		"$(json_bool option_has_line "$live_services" domain_list geosite:fastly)" \
 		"$(json_bool routing_bundle_active "$live_direct" geosite:ir "$legacy_iran" _direct "$selected_shunt")" \
@@ -685,9 +690,9 @@ recognized_legacy_rule() {
 }
 
 build_stage() {
-	shunt=$1; vpn=$2; gemini=$3; android=$4; youtube=$5; accounts_google=$6
-	google=$7; meta_mitm=$8; fastly_mitm=$9
-	shift 9
+	shunt=$1; vpn=$2; gemini=$3; android=$4; youtube=$5; accounts_google=$6; google_play=$7
+	google=$8; meet=$9; meta_mitm=${10}; fastly_mitm=${11}
+	shift 11
 	iran=$1; set_default=$2; force_localhost=$3
 
 	group=$(stage_get "$shunt" shunt_group)
@@ -698,10 +703,24 @@ build_stage() {
 	[ "$android" = 0 ] || { vpn_domains=$(append_line "$vpn_domains" domain:connectivitycheck.gstatic.com); vpn_domains=$(append_line "$vpn_domains" domain:connectivitycheck.android.com); vpn_domains=$(append_line "$vpn_domains" domain:clients3.google.com); }
 	[ "$youtube" = 0 ] || { vpn_domains=$(append_line "$vpn_domains" domain:www.youtube.com); vpn_domains=$(append_line "$vpn_domains" domain:youtubei.googleapis.com); vpn_domains=$(append_line "$vpn_domains" domain:youtube.googleapis.com); vpn_domains=$(append_line "$vpn_domains" domain:accounts.youtube.com); }
 	[ "$accounts_google" = 0 ] || vpn_domains=$(append_line "$vpn_domains" domain:accounts.google.com)
+	if [ "$google_play" = 1 ]; then
+		for line in domain:play.google.com domain:play.googleapis.com domain:play-fe.googleapis.com domain:android.clients.google.com domain:android.googleapis.com domain:checkin.googleapis.com domain:firebaseinstallations.googleapis.com domain:oauth2.googleapis.com domain:mtalk.google.com domain:dl.google.com domain:update.googleapis.com domain:clientservices.googleapis.com domain:clients4.google.com domain:optimizationguide-pa.googleapis.com domain:ssl.gstatic.com domain:redirector.gvt1.com domain:play-lh.googleusercontent.com domain:dns.google domain:dns.google.com; do
+			vpn_domains=$(append_line "$vpn_domains" "$line")
+		done
+	fi
 
 	mitm_domains=''
 	mitm_ips=''
-	[ "$google" = 0 ] || mitm_domains=$(append_line "$mitm_domains" geosite:google)
+	if [ "$google" = 1 ]; then
+		for line in domain:drive.google.com domain:drive.usercontent.google.com domain:www.googleapis.com domain:content.googleapis.com domain:googlevideo.com; do
+			mitm_domains=$(append_line "$mitm_domains" "$line")
+		done
+	fi
+	if [ "$meet" = 1 ]; then
+		for line in domain:meet.google.com domain:meetings.googleapis.com domain:hangouts.googleapis.com domain:meetings.clients6.google.com domain:stream.meet.google.com; do
+			mitm_domains=$(append_line "$mitm_domains" "$line")
+		done
+	fi
 	[ "$meta_mitm" = 0 ] || mitm_domains=$(append_line "$mitm_domains" geosite:meta)
 	if [ "$fastly_mitm" = 1 ]; then
 		for line in geosite:fastly geosite:reddit geosite:cnn domain:buzzfeed.com; do mitm_domains=$(append_line "$mitm_domains" "$line"); done
@@ -772,6 +791,7 @@ plan() {
 	safe_request_path "$request" || die invalid_request_file 'The plan request must be a root-owned 0600 regular file in the private temporary namespace.' 65
 	ensure_state_dirs
 	acquire_lock
+	activation_pending && die activation_in_progress 'A PassWall2 routing activation is already running. Wait for its recorded result.' 73
 	recover_interrupted || die recovery_failed 'An interrupted routing transaction could not restore the prior PassWall2 file.' 70
 	schema_check || die unsupported_schema 'PassWall2 changed while the routing preview was being prepared.' 69
 	pending_changes && die pending_changes 'Save or revert existing PassWall2 or firewall UCI changes before planning.' 73
@@ -781,7 +801,9 @@ plan() {
 	gemini=$(as_bool "$(request_value "$request" '@.gemini')") || die invalid_request 'gemini must be a boolean.' 65
 	android=$(as_bool "$(request_value "$request" '@.android_check')") || die invalid_request 'android_check must be a boolean.' 65
 	youtube=$(as_bool "$(request_value "$request" '@.youtube_control')") || die invalid_request 'youtube_control must be a boolean.' 65
+	google_play=$(as_bool "$(request_value "$request" '@.google_play')") || die invalid_request 'google_play must be a boolean.' 65
 	google=$(as_bool "$(request_value "$request" '@.google_mitm')") || die invalid_request 'google_mitm must be a boolean.' 65
+	meet=$(as_bool "$(request_value "$request" '@.google_meet')") || die invalid_request 'google_meet must be a boolean.' 65
 	meta_mitm=$(as_bool "$(request_value "$request" '@.meta_mitm')") || die invalid_request 'meta_mitm must be a boolean.' 65
 	fastly_mitm=$(as_bool "$(request_value "$request" '@.fastly_mitm')") || die invalid_request 'fastly_mitm must be a boolean.' 65
 	iran=$(as_bool "$(request_value "$request" '@.iran_direct')") || die invalid_request 'iran_direct must be a boolean.' 65
@@ -815,7 +837,7 @@ plan() {
 	export STAGE_CONFIG_DIR STAGE_DELTA_DIR
 
 	stage_status=0
-	build_stage "$shunt" "$vpn" "$gemini" "$android" "$youtube" "$accounts_google" "$google" "$meta_mitm" "$fastly_mitm" "$iran" "$set_default" "$force_localhost" || stage_status=$?
+	build_stage "$shunt" "$vpn" "$gemini" "$android" "$youtube" "$accounts_google" "$google_play" "$google" "$meet" "$meta_mitm" "$fastly_mitm" "$iran" "$set_default" "$force_localhost" || stage_status=$?
 	if [ "$stage_status" -ne 0 ]; then
 		rm -rf "$stage"
 		if [ "$stage_status" -eq 5 ]; then
@@ -846,7 +868,9 @@ plan() {
 		printf 'gemini=%s\n' "$gemini"
 		printf 'android=%s\n' "$android"
 		printf 'youtube=%s\n' "$youtube"
-		printf 'google=%s\n' "$google"
+		printf 'google_play=%s\n' "$google_play"
+	printf 'google=%s\n' "$google"
+	printf 'meet=%s\n' "$meet"
 		printf 'meta_mitm=%s\n' "$meta_mitm"
 		printf 'fastly_mitm=%s\n' "$fastly_mitm"
 		printf 'iran=%s\n' "$iran"
@@ -897,7 +921,9 @@ load_meta() {
 	META_GEMINI=''
 	META_ANDROID=''
 	META_YOUTUBE=''
+	META_GOOGLE_PLAY=''
 	META_GOOGLE=''
+	META_MEET=''
 	META_META_MITM=''
 	META_FASTLY_MITM=''
 	META_IRAN=''
@@ -919,7 +945,9 @@ load_meta() {
 			gemini) META_GEMINI=$value ;;
 			android) META_ANDROID=$value ;;
 			youtube) META_YOUTUBE=$value ;;
+			google_play) META_GOOGLE_PLAY=$value ;;
 			google) META_GOOGLE=$value ;;
+			meet) META_MEET=$value ;;
 			meta_mitm) META_META_MITM=$value ;;
 			fastly_mitm) META_FASTLY_MITM=$value ;;
 			iran) META_IRAN=$value ;;
@@ -941,7 +969,7 @@ validate_plan_meta() {
 	valid_token "$META_SEMANTIC_HASH" || return 1
 	valid_id "$META_SHUNT" || return 1
 	valid_id "$META_VPN" || return 1
-	for value in "$META_GEMINI" "$META_ANDROID" "$META_YOUTUBE" "$META_GOOGLE" "$META_META_MITM" "$META_FASTLY_MITM" "$META_IRAN" "$META_ACCOUNTS_GOOGLE" "$META_SET_DEFAULT" "$META_FORCE_LOCALHOST" "$META_NO_CHANGE"; do
+	for value in "$META_GEMINI" "$META_ANDROID" "$META_YOUTUBE" "$META_GOOGLE_PLAY" "$META_GOOGLE" "$META_META_MITM" "$META_FASTLY_MITM" "$META_IRAN" "$META_ACCOUNTS_GOOGLE" "$META_SET_DEFAULT" "$META_FORCE_LOCALHOST" "$META_NO_CHANGE"; do
 		case "$value" in 0|1) ;; *) return 1 ;; esac
 	done
 	return 0
@@ -1180,6 +1208,21 @@ terminate_tree() {
 	kill -"$signal" "$pid" 2>/dev/null || true
 }
 
+passwall_runtime_ready() {
+	# Some PassWall2 releases finish starting their proxy, DNS, monitor, and
+	# firewall processes but return status 1 from app.sh. Do not roll a valid
+	# transaction back solely because of that misleading final status.
+	if [ -n "$TEST_ROOT" ]; then
+		[ -f "$ROOT/tmp/passwall-runtime-ready" ]
+		return
+	fi
+	busybox pgrep -f "$ROOT/tmp/etc/passwall2/bin/" >/dev/null 2>&1 || return 1
+	if command -v fw4 >/dev/null 2>&1; then
+		nft list table inet passwall2 >/dev/null 2>&1 || return 1
+	fi
+	return 0
+}
+
 run_passwall_restart() {
 	local restart_pid elapsed status
 	# PassWall2 26.9.2's init wrapper holds fd 999 while it invokes app.sh.
@@ -1187,6 +1230,9 @@ run_passwall_restart() {
 	# and make later `init.d/passwall2 restart` calls exit without reloading.
 	# Run the same stop/start lifecycle directly under our private transaction
 	# lock, and close that lock before child processes are created.
+	# PassWall2 may restart dnsmasq and rebuild proxy/firewall state. This runs
+	# in a background routing transaction, so LuCI polls its recorded result
+	# instead of holding the browser request open during that work.
 	(
 		"$PW_APP" stop &&
 		"$PW_APP" start
@@ -1215,6 +1261,10 @@ run_passwall_restart() {
 		return 0
 	else
 		status=$?
+		if passwall_runtime_ready; then
+			log_event "passwall restart returned status=$status but runtime is ready"
+			return 0
+		fi
 		log_event "passwall restart failed pid=$restart_pid status=$status"
 		return "$status"
 	fi
@@ -1233,8 +1283,8 @@ restart_if_enabled() {
 
 restart_restored_config() {
 	# If this bounded restart also fails, the EXIT trap must not retry it a
-	# third time and outlast LuCI's RPC window. The recovery marker remains so
-	# the exact restored file can be recovered explicitly later.
+	# third time. The recovery marker remains so the exact restored file can be
+	# recovered explicitly later.
 	RECOVERY_RESTART_ATTEMPTED=1
 	log_event 'routing recovery restarting restored PassWall2 configuration'
 	restart_if_enabled
@@ -1341,9 +1391,9 @@ verify_live_order() {
 }
 
 verify_managed_live() {
-	shunt=$1; vpn=$2; gemini=$3; android=$4; youtube=$5; accounts_google=$6
-	google=$7; meta_mitm=$8; fastly_mitm=$9
-	shift 9
+	shunt=$1; vpn=$2; gemini=$3; android=$4; youtube=$5; accounts_google=$6; google_play=$7
+	google=$8; meet=$9; meta_mitm=${10}; fastly_mitm=${11}
+	shift 11
 	iran=$1; set_default=$2; force_localhost=$3
 
 	[ "$(section_type "$shunt")" = nodes ] || return 1
@@ -1358,8 +1408,22 @@ verify_managed_live() {
 	[ "$android" = 0 ] || { vpn_domains=$(append_line "$vpn_domains" domain:connectivitycheck.gstatic.com); vpn_domains=$(append_line "$vpn_domains" domain:connectivitycheck.android.com); vpn_domains=$(append_line "$vpn_domains" domain:clients3.google.com); }
 	[ "$youtube" = 0 ] || { vpn_domains=$(append_line "$vpn_domains" domain:www.youtube.com); vpn_domains=$(append_line "$vpn_domains" domain:youtubei.googleapis.com); vpn_domains=$(append_line "$vpn_domains" domain:youtube.googleapis.com); vpn_domains=$(append_line "$vpn_domains" domain:accounts.youtube.com); }
 	[ "$accounts_google" = 0 ] || vpn_domains=$(append_line "$vpn_domains" domain:accounts.google.com)
+	if [ "$google_play" = 1 ]; then
+		for line in domain:play.google.com domain:play.googleapis.com domain:play-fe.googleapis.com domain:android.clients.google.com domain:android.googleapis.com domain:checkin.googleapis.com domain:firebaseinstallations.googleapis.com domain:oauth2.googleapis.com domain:mtalk.google.com domain:dl.google.com domain:update.googleapis.com domain:clientservices.googleapis.com domain:clients4.google.com domain:optimizationguide-pa.googleapis.com domain:ssl.gstatic.com domain:redirector.gvt1.com domain:play-lh.googleusercontent.com domain:dns.google domain:dns.google.com; do
+			vpn_domains=$(append_line "$vpn_domains" "$line")
+		done
+	fi
 	mitm_domains=''; mitm_ips=''
-	[ "$google" = 0 ] || mitm_domains=$(append_line "$mitm_domains" geosite:google)
+	if [ "$google" = 1 ]; then
+		for line in domain:drive.google.com domain:drive.usercontent.google.com domain:www.googleapis.com domain:content.googleapis.com domain:googlevideo.com; do
+			mitm_domains=$(append_line "$mitm_domains" "$line")
+		done
+	fi
+	if [ "$meet" = 1 ]; then
+		for line in domain:meet.google.com domain:meetings.googleapis.com domain:hangouts.googleapis.com domain:meetings.clients6.google.com domain:stream.meet.google.com; do
+			mitm_domains=$(append_line "$mitm_domains" "$line")
+		done
+	fi
 	[ "$meta_mitm" = 0 ] || mitm_domains=$(append_line "$mitm_domains" geosite:meta)
 	if [ "$fastly_mitm" = 1 ]; then
 		for line in geosite:fastly geosite:reddit geosite:cnn domain:buzzfeed.com; do mitm_domains=$(append_line "$mitm_domains" "$line"); done
@@ -1394,7 +1458,7 @@ verify_managed_live() {
 	return 0
 }
 
-apply_plan() {
+apply_plan_now() {
 	token=${1:-}
 	[ "$#" -eq 1 ] || die invalid_arguments 'Apply requires one plan token.' 64
 	valid_token "$token" || die invalid_token 'The plan token is invalid.' 65
@@ -1444,7 +1508,7 @@ apply_plan() {
 	install_config "$stage" "$token" ||
 		die install_failed 'The staged PassWall2 file could not be installed safely.' 70
 
-	if [ "$(file_hash "$PW_CONFIG")" != "$META_STAGED_HASH" ] || ! verify_managed_live "$META_SHUNT" "$META_VPN" "$META_GEMINI" "$META_ANDROID" "$META_YOUTUBE" "$META_ACCOUNTS_GOOGLE" "$META_GOOGLE" "$META_META_MITM" "$META_FASTLY_MITM" "$META_IRAN" "$META_SET_DEFAULT" "$META_FORCE_LOCALHOST"; then
+	if [ "$(file_hash "$PW_CONFIG")" != "$META_STAGED_HASH" ] || ! verify_managed_live "$META_SHUNT" "$META_VPN" "$META_GEMINI" "$META_ANDROID" "$META_YOUTUBE" "$META_ACCOUNTS_GOOGLE" "$META_GOOGLE_PLAY" "$META_GOOGLE" "$META_MEET" "$META_META_MITM" "$META_FASTLY_MITM" "$META_IRAN" "$META_SET_DEFAULT" "$META_FORCE_LOCALHOST"; then
 		if ! restore_config_checked "$backup" "$token" "$META_SOURCE_HASH"; then
 			die restore_failed 'PassWall2 verification failed and the prior file could not be restored exactly.' 70
 		fi
@@ -1465,7 +1529,7 @@ apply_plan() {
 		release_lock
 		die service_restart_failed 'PassWall2 restart failed; the exact prior file was restored.' 70
 	fi
-	if ! verify_managed_live "$META_SHUNT" "$META_VPN" "$META_GEMINI" "$META_ANDROID" "$META_YOUTUBE" "$META_ACCOUNTS_GOOGLE" "$META_GOOGLE" "$META_META_MITM" "$META_FASTLY_MITM" "$META_IRAN" "$META_SET_DEFAULT" "$META_FORCE_LOCALHOST"; then
+	if ! verify_managed_live "$META_SHUNT" "$META_VPN" "$META_GEMINI" "$META_ANDROID" "$META_YOUTUBE" "$META_ACCOUNTS_GOOGLE" "$META_GOOGLE_PLAY" "$META_GOOGLE" "$META_MEET" "$META_META_MITM" "$META_FASTLY_MITM" "$META_IRAN" "$META_SET_DEFAULT" "$META_FORCE_LOCALHOST"; then
 		if ! restore_config_checked "$backup" "$token" "$META_SOURCE_HASH"; then
 			die restore_failed 'PassWall2 changed during activation and the prior file could not be restored exactly.' 70
 		fi
@@ -1563,8 +1627,115 @@ recover_only() {
 	printf '{"ok":true,"recovery_pending":%s,"recovered":%s}\n' "$pending" "$pending"
 }
 
+activation_pending() {
+	local pending
+	[ -d "$ACTIVATION_DIR" ] || return 1
+	for pending in "$ACTIVATION_DIR"/*.pending; do
+		[ -f "$pending" ] || continue
+		return 0
+	done
+	return 1
+}
+
+write_activation_result() {
+	local token result temporary
+	token=$1
+	result=$2
+	valid_token "$token" || return 1
+	case "$result" in
+		\{*\}) ;;
+		*) result='{"ok":false,"error":"activation_failed","message":"The routing activation did not return a valid result."}' ;;
+	esac
+	temporary="$ACTIVATION_DIR/$token.$$.result"
+	printf '{"ok":true,"pending":false,"transaction":"%s","result":%s}\n' "$token" "$result" >"$temporary" || return 1
+	chmod 0600 "$temporary" || { rm -f "$temporary"; return 1; }
+	mv -f "$temporary" "$ACTIVATION_DIR/$token.result" || { rm -f "$temporary"; return 1; }
+}
+
+apply_worker() {
+	local token result status
+	token=${1:-}
+	valid_token "$token" || exit 64
+	if result=$(sh "$0" apply-now "$token" 2>/dev/null); then
+		status=0
+	else
+		status=$?
+	fi
+	if [ "$status" -ne 0 ] && [ -z "$result" ]; then
+		result='{"ok":false,"error":"activation_failed","message":"The routing activation stopped before it could report a result."}'
+	fi
+	write_activation_result "$token" "$result" || exit 70
+	rm -f "$ACTIVATION_DIR/$token.pending"
+	log_event "routing activation completed token=$token status=$status"
+	exit 0
+}
+
+start_apply() {
+	local token meta stage pending worker_pid
+	token=${1:-}
+	[ "$#" -eq 1 ] || die invalid_arguments 'Apply requires one plan token.' 64
+	valid_token "$token" || die invalid_token 'The plan token is invalid.' 65
+	ensure_state_dirs
+	acquire_lock
+	if activation_pending; then
+		release_lock
+		die activation_in_progress 'A PassWall2 routing activation is already running. Wait for its recorded result.' 73
+	fi
+	[ ! -e "$RECOVERY_MARKER" ] && [ ! -L "$RECOVERY_MARKER" ] || {
+		release_lock
+		die recovery_pending 'An interrupted routing transaction must be recovered before applying a new preview.' 73
+	}
+	meta="$PLAN_DIR/$token.meta"
+	stage="$PLAN_DIR/$token.stage/config/passwall2"
+	[ -f "$meta" ] && [ -f "$stage" ] || {
+		release_lock
+		die plan_not_found 'The plan does not exist or was already consumed.' 66
+	}
+	pending="$ACTIVATION_DIR/$token.pending"
+	[ ! -e "$pending" ] && [ ! -L "$pending" ] || {
+		release_lock
+		die activation_in_progress 'This routing activation is already running.' 73
+	}
+	printf 'pending\n' >"$pending" || { release_lock; die activation_start_failed 'The routing activation could not be recorded.' 70; }
+	chmod 0600 "$pending" || { rm -f "$pending"; release_lock; die activation_start_failed 'The routing activation could not be secured.' 70; }
+	# Do not fork while the request owns the flock. A child inherits that file
+	# descriptor, then its own transaction lock acquisition reports a false
+	# "busy" result and exits before applying anything.
+	release_lock
+	(sh "$0" apply-worker "$token") >/dev/null 2>&1 &
+	worker_pid=$!
+	printf 'pid=%s\n' "$worker_pid" >"$pending" || { kill "$worker_pid" 2>/dev/null || true; rm -f "$pending"; die activation_start_failed 'The routing activation could not be recorded.' 70; }
+	log_event "routing activation queued token=$token pid=$worker_pid"
+	printf '{"ok":true,"pending":true,"transaction":"%s","service_action":"restarting"}\n' "$token"
+}
+
+activation_status() {
+	local token pending pid
+	token=${1:-}
+	[ "$#" -eq 1 ] || die invalid_arguments 'Activation status requires one transaction token.' 64
+	valid_token "$token" || die invalid_token 'The transaction token is invalid.' 65
+	ensure_state_dirs
+	if [ -f "$ACTIVATION_DIR/$token.result" ]; then
+		cat "$ACTIVATION_DIR/$token.result"
+		return 0
+	fi
+	pending="$ACTIVATION_DIR/$token.pending"
+	if [ -f "$pending" ]; then
+		pid=$(sed -n 's/^pid=\([0-9][0-9]*\)$/\1/p' "$pending" 2>/dev/null || true)
+		if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then
+			write_activation_result "$token" '{"ok":false,"error":"activation_interrupted","message":"The routing activation stopped before completion. The recovery marker, if present, must be recovered before another change."}' || die activation_status_failed 'The interrupted activation could not be recorded.' 70
+			rm -f "$pending"
+			cat "$ACTIVATION_DIR/$token.result"
+			return 0
+		fi
+		printf '{"ok":true,"pending":true,"transaction":"%s","service_action":"restarting"}\n' "$token"
+		return 0
+	fi
+	die transaction_not_found 'The routing activation was not found.' 66
+}
+
 usage() {
-	json_error invalid_arguments 'Use inspect, plan REQUEST_JSON, apply TOKEN, rollback TRANSACTION, or recover.'
+	json_error invalid_arguments 'Use inspect, plan REQUEST_JSON, apply TOKEN, activation-status TOKEN, rollback TRANSACTION, or recover.'
 	exit 64
 }
 
@@ -1574,7 +1745,10 @@ shift
 case "$command" in
 	inspect) [ "$#" -eq 0 ] || usage; inspect ;;
 	plan) plan "$@" ;;
-	apply) apply_plan "$@" ;;
+	apply) start_apply "$@" ;;
+	apply-now) apply_plan_now "$@" ;;
+	apply-worker) apply_worker "$@" ;;
+	activation-status) activation_status "$@" ;;
 	rollback) rollback "$@" ;;
 	recover) recover_only "$@" ;;
 	*) usage ;;

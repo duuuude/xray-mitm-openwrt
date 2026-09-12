@@ -123,7 +123,7 @@ function validPlanRequest(args) {
 		return false;
 
 	let flags = [
-		'gemini', 'android_check', 'youtube_control', 'google_mitm',
+		'gemini', 'android_check', 'youtube_control', 'google_play', 'google_mitm', 'google_meet',
 		'meta_mitm', 'fastly_mitm',
 		'iran_direct', 'accounts_google', 'set_default_vpn',
 		'set_localhost_proxy_zero'
@@ -311,14 +311,16 @@ const methods = {
 			shunt_node: '',
 			vpn_node: '',
 			gemini: true,
-			android_check: false,
-			youtube_control: false,
+			android_check: true,
+			youtube_control: true,
+			google_play: true,
 			google_mitm: true,
+			google_meet: false,
 			meta_mitm: false,
 			fastly_mitm: false,
 			iran_direct: true,
-			accounts_google: false,
-			set_default_vpn: false,
+			accounts_google: true,
+			set_default_vpn: true,
 			set_localhost_proxy_zero: true
 		},
 		call: function(request) {
@@ -351,6 +353,17 @@ const methods = {
 				return resultError('Invalid or expired routing preview token.');
 
 			return runJson([ CTL, 'passwall2', 'apply', request.args.token ]);
+		}
+	},
+
+	passWall2Activation: {
+		args: { transaction: '' },
+		call: function(request) {
+			if (type(request.args.transaction) != 'string' ||
+				!match(request.args.transaction, /^[a-f0-9]{64}$/))
+				return resultError('Invalid routing activation transaction.');
+
+			return runJson([ CTL, 'passwall2', 'activation-status', request.args.transaction ]);
 		}
 	},
 

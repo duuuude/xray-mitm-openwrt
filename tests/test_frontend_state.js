@@ -94,8 +94,8 @@ function testRoutingArguments() {
 	values.vpn_node = 'vpn-a';
 
 	assert.deepStrictEqual(state.routingArguments(values), [
-		'shunt-a', 'vpn-a', true, false, false, true,
-		false, false, true, false, false, true
+		'shunt-a', 'vpn-a', true, true, true, true, true, true,
+		false, false, true, true, true, true
 	]);
 
 	assert.strictEqual(state.routingChoices({ google_mitm: 1 }).google_mitm, false);
@@ -168,12 +168,18 @@ function testOverviewLoadsAndRendersWithLuCIStateDependency() {
 		'Basic routing preview applies the selected choices');
 	assert.match(overviewSource, /Saved rule found \(inactive\)/,
 		'Inactive existing rules are distinguishable from active assignments');
-	assert.match(overviewSource, /Automatic setup prepares the MITM service only/,
+	assert.match(overviewSource, /Automatic setup prepares only the MITM service/,
 		'Basic routing explains why automatic setup leaves assignments clear');
 	assert.match(overviewSource, /useSimpleRecommendedRouting/,
 		'Basic routing provides a recommended setup action');
-	assert.match(overviewSource, /New to PassWall2\? Start with the recommended choices/,
+	assert.match(overviewSource, /New to PassWall2\? Select the recommended choices/,
 		'Basic routing explains the new-user setup flow');
+	assert.match(overviewSource, /not all Google services/,
+		'Google MITM option clearly states that it is a selective bundle');
+	assert.match(overviewSource, /Google Meet web and signaling/,
+		'Google Meet is exposed as a separate MITM-compatible routing group');
+	assert.match(overviewSource, /audio\/video media may use UDP or separate media IPs/,
+		'Google Meet explains the media transport limitation');
 
 	const overview = loadLuciModule(overviewSource, modules, {
 		E: fakeElement,
@@ -238,6 +244,10 @@ function testClientSideDashboardTabs() {
 		}
 	};
 	const overviewSource = fs.readFileSync(overviewPath, 'utf8');
+	assert.ok(overviewSource.includes("method: 'passWall2Activation'"),
+		'overview polls background routing activation');
+	assert.ok(overviewSource.includes('pollRoutingActivation'),
+		'overview records routing activation completion');
 	const overview = loadLuciModule(overviewSource, {
 		view: { extend: function(methods) { return methods; } },
 		rpc: { declare: function() { return function() {}; } },

@@ -444,7 +444,7 @@ case "${1:-}" in
 		case "${2:-}" in
 			inspect|recover) [ "$#" -eq 2 ] ;;
 			plan) [ "$#" -eq 3 ] && [ -f "$3" ] ;;
-			apply|rollback) [ "$#" -eq 3 ] && xray_mitm_valid_fingerprint "$3" ;;
+			apply|activation-status|rollback) [ "$#" -eq 3 ] && xray_mitm_valid_fingerprint "$3" ;;
 			*) false ;;
 		esac || { json_error "invalid passwall2 command or arguments"; exit 1; }
 		[ -x "$PASSWALL_HELPER" ] || { json_error "PassWall2 integration is unavailable"; exit 1; }

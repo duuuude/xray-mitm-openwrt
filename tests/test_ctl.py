@@ -237,6 +237,7 @@ class ControlFixture(unittest.TestCase):
         self.assertNotIn("/usr/libexec/xray-mitm/passwall2", rpc)
         self.assertIn("[ CTL, 'passwall2', 'inspect' ]", rpc)
         self.assertIn("[ CTL, 'passwall2', 'plan'", rpc)
+        self.assertIn("[ CTL, 'passwall2', 'activation-status'", rpc)
 
     def test_passwall2_namespace_dispatches_every_supported_operation(self) -> None:
         helper = self.root / "usr/libexec/xray-mitm/passwall2"
@@ -251,14 +252,14 @@ class ControlFixture(unittest.TestCase):
         request.write_text("{}\n", encoding="utf-8")
         token = "a" * 64
         for args in (
-            ("inspect",), ("plan", str(request)), ("apply", token),
+            ("inspect",), ("plan", str(request)), ("apply", token), ("activation-status", token),
             ("rollback", token), ("recover",),
         ):
             self.assertTrue(json.loads(self.ctl("passwall2", *args).stdout)["ok"])
         self.assertEqual(
             (self.root / "tmp/passwall-calls").read_text().splitlines(),
             [
-                "inspect", f"plan {request}", f"apply {token}",
+                "inspect", f"plan {request}", f"apply {token}", f"activation-status {token}",
                 f"rollback {token}", "recover",
             ],
         )

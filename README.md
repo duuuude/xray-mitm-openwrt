@@ -83,7 +83,7 @@ If you do not need PassWall2 routing, skip this step. Otherwise open **Basic →
 - **Main routing profile** — the shunt profile already active in PassWall2.
 - **Working VPN connection** — an existing VPN node that already works.
 
-Select **Review selected routing**, inspect the destinations, and then select **Apply recommended routing**. MITM-compatible routes require the service to be running; start it in **Advanced → Service** if necessary. The assistant validates the preview and preserves unrelated PassWall2 rules.
+Select **Use recommended choices**, then **Preview selected routing**, inspect the destinations, and select **Apply selected routing**. MITM-compatible routes require the service to be running; start it in **Advanced → Service** if necessary. The assistant validates the preview and preserves unrelated PassWall2 rules.
 
 ### 4. Check that it works
 
@@ -97,14 +97,14 @@ The default model is based on traffic purpose:
 
 | Traffic | Destination | Purpose |
 | --- | --- | --- |
-| Google services | MITM | Use the local MITM service for the selected Google bundle. |
+| Google Drive, YouTube video, and Meet web/signaling | MITM | Use the local MITM service for explicit Drive, `googlevideo.com`, and Meet web/signaling domains. Meet media may use UDP or separate media IPs and must be tested on each device. |
 | Gemini app and API | Selected VPN | Send Gemini traffic through the working VPN. |
 | Iranian websites and IP addresses | Direct | Avoid the VPN and MITM for selected local traffic. |
 
 Optional service groups are available in **Basic → Routing**:
 
-- **VPN Overrides** can include Android connectivity checks, YouTube sign-in and controls, and Google Account sign-in. `googlevideo.com` is excluded so high-speed YouTube video delivery can use MITM.
-- **MITM-Compatible Services** can include Google, Meta, and Fastly-backed website groups. Google is the recommended starting point; test Meta and Fastly before relying on native applications.
+- **VPN Overrides** can include Gemini, Android connectivity checks, YouTube sign-in and controls, Google Play and Android services, and Google Account sign-in. `googlevideo.com` is excluded so high-speed YouTube video delivery can use MITM.
+- **MITM-Compatible Services** can include Google Drive, YouTube video, Google Meet web/signaling, Meta, and Fastly-backed website groups. The Google bundle uses explicit Drive API/upload and `googlevideo.com` domains; the Meet bundle uses explicit Meet web/signaling hostnames. Neither bundle routes all Google services. Meet audio/video media may use UDP or separate media IPs, so test a real call on each device before relying on MITM. Google Play and Android services remain in **VPN Overrides**.
 - **Regional Direct Access** uses the packaged Iranian domain and IP groups.
 
 Each checkbox enables a service group inside one of these assignments; it does not create a separate rule. Most users can keep the recommended choices unchanged.
