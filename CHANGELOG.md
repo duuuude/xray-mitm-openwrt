@@ -17,6 +17,8 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   unvalidated release families out of scope.
 - Keep only the three newest project installer backups and point post-install
   guidance to the Basic setup and routing flow.
+- Retain only the three newest completed PassWall2 routing activation results
+  while preserving live activation state for safe browser polling.
 
 ## [0.4.3] - 2026-09-12
 
