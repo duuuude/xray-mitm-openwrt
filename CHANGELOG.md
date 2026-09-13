@@ -7,6 +7,8 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.4] - 2026-09-13
+
 ### Changed
 
 - Lock the dashboard and show elapsed progress while PassWall2 routing changes
@@ -182,7 +184,8 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - LuCI service, certificate lifecycle, health-check, and optional PassWall2 controls.
 - English and Persian installation and operating instructions.
 
-[Unreleased]: https://github.com/duuuude/xray-mitm-openwrt/compare/v0.4.3...HEAD
+[Unreleased]: https://github.com/duuuude/xray-mitm-openwrt/compare/v0.4.4...HEAD
+[0.4.4]: https://github.com/duuuude/xray-mitm-openwrt/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/duuuude/xray-mitm-openwrt/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/duuuude/xray-mitm-openwrt/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/duuuude/xray-mitm-openwrt/compare/v0.4.0...v0.4.1
