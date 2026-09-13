@@ -7,7 +7,7 @@
 'require xray-mitm.ui as uiHelpers';
 
 /* Keep this fallback synchronized with xray-mitm/Makefile PKG_VERSION. */
-var PROJECT_VERSION = '0.4.3';
+var PROJECT_VERSION = '0.4.4';
 
 var callGetStatus = rpc.declare({
 	object: 'luci.xray-mitm',
