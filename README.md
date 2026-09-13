@@ -13,6 +13,10 @@ For most users:
 5. Choose your existing VPN and review the recommended routing.
 6. Apply the routing and select **Run check**.
 
+## Dashboard
+
+![MITM Domain Fronting dashboard overview](docs/images/dashboard-overview-v0.4.4-public.png)
+
 > [!CAUTION]
 > MITM software can decrypt HTTPS traffic from devices that trust its certificate. Use it only on networks and devices you own or are authorized to manage. Install only `mycert.crt` on clients. Keep `mycert.key` on the router and in protected backups.
 
