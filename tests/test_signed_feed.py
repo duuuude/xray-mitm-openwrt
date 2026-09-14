@@ -12,6 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 INSTALLER = ROOT / "install.sh"
 WORKFLOW = ROOT / ".github/workflows/publish-feed.yml"
+CANDIDATE_WORKFLOW = ROOT / ".github/workflows/sign-candidate.yml"
 PUBLIC_KEY = ROOT / "keys/xray-mitm-feed-v1.pem"
 VERSION_CHECK = ROOT / "scripts/check-release-version.sh"
 RELEASE_NOTES = ROOT / "scripts/release-notes.sh"
@@ -48,6 +49,58 @@ class SignedFeedTests(unittest.TestCase):
         self.assertIn('INDEX: "1"', text)
         self.assertIn("actions/deploy-pages@", text)
         self.assertNotIn("--allow-untrusted", text)
+
+    def test_candidate_workflow_is_manual_exact_head_and_nonpublishing(self) -> None:
+        text = CANDIDATE_WORKFLOW.read_text(encoding="utf-8")
+
+        self.assertRegex(text, r"(?m)^\s+workflow_dispatch:\s*$")
+        self.assertNotRegex(text, r"(?m)^\s+push:\s*$")
+        self.assertNotRegex(text, r"(?m)^\s+pull_request:\s*$")
+        self.assertNotRegex(text, r"(?m)^\s+tags:\s*$")
+        self.assertIn("contents: read", text)
+        self.assertIn("pull-requests: read", text)
+        self.assertIn("environment: signed-feed", text)
+        self.assertEqual(text.count("secrets.XRAY_MITM_APK_PRIVATE_KEY"), 2)
+        self.assertIn("pr_number", text)
+        self.assertIn("candidate_sha", text)
+        self.assertIn('test "$GITHUB_REF" = "refs/heads/main"', text)
+        self.assertIn(
+            'test "$(jq -r \'.head.sha\' <<<"$pr_json")" = "$CANDIDATE_SHA"',
+            text,
+        )
+        self.assertIn(
+            'test "$(jq -r \'.head.repo.full_name\' <<<"$pr_json")" = "$GITHUB_REPOSITORY"',
+            text,
+        )
+        self.assertIn('BASE_SHA: ${{ steps.verify_pr.outputs.base_sha }}', text)
+        self.assertIn('git diff --check "$BASE_SHA" "$CANDIDATE_SHA"', text)
+        self.assertNotRegex(text, r"(?m)^\s+git diff --check\s*$")
+        self.assertIn("test \"$(git rev-parse HEAD)\" = \"$CANDIDATE_SHA\"", text)
+        self.assertIn("git merge-base --is-ancestor", text)
+        self.assertIn('INDEX: "1"', text)
+        self.assertIn("packages.adb", text)
+        self.assertIn("SOURCE_COMMIT", text)
+        self.assertIn("BASE_COMMIT", text)
+        self.assertIn("PUBLIC_KEY_SHA256", text)
+        self.assertIn("actions/upload-artifact@", text)
+        self.assertIn("retention-days: 7", text)
+        self.assertNotIn("gh release", text)
+        self.assertNotIn("upload-pages-artifact@", text)
+        self.assertNotIn("deploy-pages@", text)
+        self.assertNotIn("--allow-untrusted", text)
+
+        protected_job = text.split("  build-and-sign:\n", 1)[1]
+        recheck_start = protected_job.index(
+            "      - name: Revalidate PR identity after protected gate"
+        )
+        secret_start = protected_job.index(
+            "secrets.XRAY_MITM_APK_PRIVATE_KEY", recheck_start
+        )
+        recheck = protected_job[recheck_start:secret_start]
+        self.assertIn("gh api", recheck)
+        for field in (".state", ".base.ref", ".head.sha", ".head.repo.full_name"):
+            self.assertIn(field, recheck)
+        self.assertIn('test "$GITHUB_REF" = "refs/heads/main"', recheck)
 
     def test_public_bootstrap_is_published_and_checksum_pinned(self) -> None:
         workflow = WORKFLOW.read_text(encoding="utf-8")

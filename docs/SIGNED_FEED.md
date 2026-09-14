@@ -19,7 +19,7 @@ The trust chain is:
 2. The installer accepts only the public key with the hard-coded fingerprint.
 3. APK stores that key in `/etc/apk/keys/xray-mitm-feed-v1.pem`.
 4. APK verifies the signed `packages.adb` index and packages on every install or update.
-5. The tag-only workflow receives the signing key only after the `signed-feed` environment gate.
+5. The tag-only publishing workflow receives the signing key only after the `signed-feed` environment gate. The separate protected candidate workflow uses that same gate for an owner-approved lab artifact and does not publish it.
 
 Never put the private feed key in the repository, a pull-request secret, workflow artifact, release, router image, or command transcript.
 
@@ -32,6 +32,16 @@ Never put the private feed key in the repository, a pull-request secret, workflo
 5. Protect `main` and require the normal build checks.
 
 The workflow derives a public key from the secret and compares it with the committed public key before building. It never prints private-key material.
+
+## Protected PR candidate validation
+
+The `Sign protected PR candidate APKs` workflow is a manual, non-publishing path for validating one exact pull-request head on a real test router. It is intentionally fixed to the supported OpenWrt `25.12.5` and `aarch64_generic` build target.
+
+Dispatch it from `main` only after the owner has approved the candidate and the router-validation scope. Supply the open PR number and its exact 40-character head SHA. Before the protected job receives the signing secret, the workflow verifies that the PR is open, targets `main`, belongs to this repository, and still points to that exact head. It then checks out and validates that commit. After the environment gate, the protected job repeats the same PR identity check before it checks out source or references the signing secret.
+
+After the `signed-feed` environment gate is approved, the workflow builds the two APKs and signed `packages.adb`, then uploads a seven-day audit artifact containing the package files, checksums, source and base commits, PR number, and public key fingerprint. The artifact is for controlled lab validation only. This workflow creates no tag, GitHub Release, Pages deployment, or release feed publication.
+
+The private key remains only in the protected environment and the short-lived runner workspace. Never copy it into the repository, pull-request data, artifact, router, or command transcript. If the candidate head changes, dispatch a new run for the new exact SHA rather than reusing an older artifact.
 
 ## Publish a release
 
