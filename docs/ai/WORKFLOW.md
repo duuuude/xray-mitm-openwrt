@@ -100,9 +100,21 @@ When the PR is merged:
 ```text
 confirm merge
 record evidence
-remove associated Git worktree
-remove the temporary Implementation Work
 ```
+
+Before removing the associated Git worktree, follow `AGENTS.md`:
+
+```text
+confirm merge state
+check dirty files
+check untracked files
+confirm no unique work would be lost
+```
+
+Remove the worktree only when those checks are clean and unambiguous. If it is
+dirty or ambiguous, stop; do not remove it automatically.
+
+Then remove the temporary Implementation Work.
 
 Then create a fresh Implementation Work for the next PR.
 
@@ -145,12 +157,21 @@ Owner approval
 PR / merge
     ↓
 
-remove implementation worktree
+confirm merge state
+check dirty files
+check untracked files
+confirm no unique work would be lost
+    ↓
+
+remove implementation worktree only when clean and unambiguous
 remove temporary Implementation Work
     ↓
 
 Coordinator updates MASTER_PLAN.md
 ```
+
+If any check fails, stop and do not remove a dirty or ambiguous worktree
+automatically. See `AGENTS.md`.
 
 ---
 

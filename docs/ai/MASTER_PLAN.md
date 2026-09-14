@@ -22,21 +22,22 @@ checkout-status claim, local branch/worktree inventory, or local-only commit
 identifier. Every agent must verify the live repository path, branch, commit,
 remotes, upstream, and status before acting.
 
-Workspace consolidation is complete. Future work uses one canonical clone and
-temporary task worktrees under `worktrees/`; any locally retained historical
-material is outside this public roadmap and is not a prerequisite for future
-work.
+Use one canonical clone for repository work and create isolated task worktrees
+only under `<workspace-root>/worktrees/`. Any destructive cleanup must follow
+the safety rules in `AGENTS.md`; ambiguous work is not removed automatically.
 
 The product currently targets official OpenWrt 25.12.x with APK packages.
 The public feed and CI use the 25.12.5 `aarch64_generic` SDK baseline, and
 the AX4200 is the tested physical router. OPKG/24.10 support is not an open
 task; it is outside the current support contract unless explicitly revisited.
 
-The current offline validation is green: the release validator, PassWall2,
-certificate, configuration, control, installer, signed-feed, and startup
-suites pass. The bundled Node runtime also passes JavaScript syntax checks and
-`tests/test_frontend_state.js`. No generated `__pycache__`, `.apk`, or `.adb`
-artifacts are present in the canonical checkout.
+The 2026-09-14 audit of baseline
+`e78f1d9f62b9bca01eb91f369f44b373844e69e4` recorded passing offline
+validation: the release validator, PassWall2, certificate, configuration,
+control, installer, signed-feed, and startup suites passed. That audit also
+recorded successful bundled-Node JavaScript syntax checks and
+`tests/test_frontend_state.js`. These are dated audit evidence, not validation
+performed by this documentation correction.
 
 ## Governing principles
 
@@ -180,7 +181,7 @@ status.
    GitHub repository in `origin`, but `scripts/release-preflight.sh` defaults
    to a remote named `github`. Its tests model that obsolete name, and
    `docs/RELEASE_TESTING.md` still describes `origin` as a local mirror. The
-   default preflight therefore cannot run against the consolidated checkout.
+   default preflight therefore cannot run against the canonical checkout.
    This is the immediate workflow correctness defect.
 
 2. **Safe PR/worktree start helper.** `scripts/start-pr.sh` does not yet
@@ -236,7 +237,7 @@ in parallel with an active PR.
 
 | Priority | One coherent PR / initiative | Type | Reason |
 | --- | --- | --- | --- |
-| 1 | Reconcile release preflight with canonical GitHub `origin` | Workflow correctness | The existing release gate fails on the consolidated remote topology. |
+| 1 | Reconcile release preflight with canonical GitHub `origin` | Workflow correctness | The existing release gate fails on the canonical remote topology. |
 | 2 | Make setup-guide routing readiness cover every supported service bundle | Product correctness | A valid current configuration can be shown as incomplete. |
 | 3 | Define and enforce truthful partial-bundle inspection | Product correctness | Read-only status can overstate a partially edited rule. |
 | 4 | Establish repeatable official OpenWrt 25.12.x compatibility evidence | Compatibility/testing | The support claim is broader than the current automated proof. |
@@ -244,17 +245,13 @@ in parallel with an active PR.
 | 6 | Add change-aware checks and a machine-readable evidence report | Workflow/tooling | Makes the correct validation and manual gates auditable. |
 | 7 | Build once and promote the exact tested artifact | Release workflow | Removes the remaining PR-build/tag-build provenance gap. |
 
-Local historical work is intentionally outside this public queue. It is not a
-reason to delete anything, and it must not be reintroduced without a separate
-owner-approved scope.
-
 ## Recommended next PR
 
 ### `fix: make release preflight use the canonical GitHub remote`
 
 Scope one workflow defect only:
 
-- Make the default path work with the consolidated checkout's verified
+- Make the default path work with the canonical checkout's verified
   `origin`, or safely discover the exact verified GitHub remote.
 - Keep exact URL validation and synchronization checks.
 - Update `tests/test_release_preflight.py` to model the real remote name and
