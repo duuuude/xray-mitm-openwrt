@@ -11,7 +11,7 @@ The authoritative source is:
 
 - Repository: `https://github.com/duuuude/xray-mitm-openwrt.git`
 - Public branch: `main`
-- Review/audit baseline: `e78f1d9f62b9bca01eb91f369f44b373844e69e4`, the main
+- Review/audit baseline: `ddf9aaa82cc42538564306803587790957fe2a7f`, the main
   commit inspected when this plan was refreshed
 - Observed package baseline: `0.4.4-r1`
 - Canonical clone root: `<repo-root>`
@@ -104,9 +104,10 @@ They are complete in current `main` and must not remain as pending tasks.
 ### Release, configuration, and documentation
 
 - Version parity checks, release-note checks, signed-feed checks, and the
-  non-destructive `scripts/release-preflight.sh` exist. The old task to add
-  release preflight is complete; a new remote-topology defect in that script
-  remains below.
+  non-destructive `scripts/release-preflight.sh` exist. Preflight now defaults
+  to the canonical `origin` remote while still validating the exact GitHub URL
+  before fetch; its local-fixture tests cover missing, incorrect, and explicit
+  override remotes without network access.
 - The packaged Xray configuration audit is documented in
   `docs/CONFIG_AUDIT.md`, with tests for removed and retained behavior. The
   old broad-rule debate, audit-isolation task, and generic maintainability
@@ -177,29 +178,22 @@ status.
 
 ### Missing or incomplete automation
 
-1. **Release preflight topology.** The canonical checkout has the verified
-   GitHub repository in `origin`, but `scripts/release-preflight.sh` defaults
-   to a remote named `github`. Its tests model that obsolete name, and
-   `docs/RELEASE_TESTING.md` still describes `origin` as a local mirror. The
-   default preflight therefore cannot run against the canonical checkout.
-   This is the immediate workflow correctness defect.
-
-2. **Safe PR/worktree start helper.** `scripts/start-pr.sh` does not yet
+1. **Safe PR/worktree start helper.** `scripts/start-pr.sh` does not yet
    exist. The intended helper should validate the canonical repository and
    remote, create one branch and worktree under `worktrees/`, and refuse
    ambiguous or dirty source state. It must not delete or reset user work.
 
-3. **Change-aware PR check.** `scripts/check-pr.sh` does not yet exist. It
+2. **Change-aware PR check.** `scripts/check-pr.sh` does not yet exist. It
    should classify changed files, select the relevant offline tests, report
    required manual gates, and fail closed when a category needs evidence that
    is missing. It must not imply that static tests prove router behavior.
 
-4. **Machine-readable evidence.** No standard artifact records base/head,
+3. **Machine-readable evidence.** No standard artifact records base/head,
    changed files, exact commands, test results, built-artifact checksums, and
    browser/router gate ownership. This should follow the change-aware check,
    not replace human approval.
 
-5. **Build-once promotion.** The PR build and tag-triggered signed-feed build
+4. **Build-once promotion.** The PR build and tag-triggered signed-feed build
    currently build separately. The long-term workflow should prove that the
    tested package bytes, metadata, and source commit are the exact bytes later
    signed and published. Signing remains protected and owner-controlled.
@@ -237,45 +231,43 @@ in parallel with an active PR.
 
 | Priority | One coherent PR / initiative | Type | Reason |
 | --- | --- | --- | --- |
-| 1 | Reconcile release preflight with canonical GitHub `origin` | Workflow correctness | The existing release gate fails on the canonical remote topology. |
-| 2 | Make setup-guide routing readiness cover every supported service bundle | Product correctness | A valid current configuration can be shown as incomplete. |
-| 3 | Define and enforce truthful partial-bundle inspection | Product correctness | Read-only status can overstate a partially edited rule. |
-| 4 | Establish repeatable official OpenWrt 25.12.x compatibility evidence | Compatibility/testing | The support claim is broader than the current automated proof. |
-| 5 | Add safe `start-pr.sh` worktree/branch setup | Workflow/tooling | Prevents recurrence of unmanaged sibling workspaces. |
-| 6 | Add change-aware checks and a machine-readable evidence report | Workflow/tooling | Makes the correct validation and manual gates auditable. |
-| 7 | Build once and promote the exact tested artifact | Release workflow | Removes the remaining PR-build/tag-build provenance gap. |
+| 1 | Make setup-guide routing readiness cover every supported service bundle | Product correctness | A valid current configuration can be shown as incomplete. |
+| 2 | Define and enforce truthful partial-bundle inspection | Product correctness | Read-only status can overstate a partially edited rule. |
+| 3 | Establish repeatable official OpenWrt 25.12.x compatibility evidence | Compatibility/testing | The support claim is broader than the current automated proof. |
+| 4 | Add safe `start-pr.sh` worktree/branch setup | Workflow/tooling | Prevents recurrence of unmanaged sibling workspaces. |
+| 5 | Add change-aware checks and a machine-readable evidence report | Workflow/tooling | Makes the correct validation and manual gates auditable. |
+| 6 | Build once and promote the exact tested artifact | Release workflow | Removes the remaining PR-build/tag-build provenance gap. |
 
 ## Recommended next PR
 
-### `fix: make release preflight use the canonical GitHub remote`
+### `fix: make setup-guide routing readiness cover every supported service bundle`
 
-Scope one workflow defect only:
+Scope one LuCI correctness defect only:
 
-- Make the default path work with the canonical checkout's verified
-  `origin`, or safely discover the exact verified GitHub remote.
-- Keep exact URL validation and synchronization checks.
-- Update `tests/test_release_preflight.py` to model the real remote name and
-  to reject a wrong URL before fetch.
-- Update `docs/RELEASE_TESTING.md` so it no longer describes `origin` as a
-  local mirror.
-- Preserve the non-destructive behavior: no tag, push, reset, clean, force,
-  signing-key, router, or product-code changes.
+- Centralize the setup-guide predicate for the existing service-bundle
+  selections in `state.js`.
+- Treat each supported service bundle as sufficient routing readiness.
+- Keep `set_default_vpn` and other advanced policy toggles from satisfying the
+  step by themselves.
+- Add focused frontend-state coverage for every supported service selection and
+  the no-selection case.
+- Preserve existing routing choices, recommended defaults, PassWall2 rules,
+  certificates, installer behavior, and service activation behavior.
 
 Acceptance criteria:
 
-- In a clean product checkout with only the verified GitHub `origin`, the
-  default preflight reaches and passes its existing version, changelog, tag,
-  synchronization, and full-validation checks.
-- A missing or non-authoritative remote fails closed before fetch or release
-  checks; an explicit remote override, if retained, is also URL-validated.
-- Tests cover success, wrong URL, missing remote, divergence, local/remote tag
-  collisions, dirty state, and the no-push/no-tag contract using a local test
-  fixture or equivalent network-safe remapping.
-- `sh scripts/validate-release.sh`, bundled Node syntax/frontend tests, and
-  `git diff --check` pass on the candidate branch.
-- The PR changes only the preflight script, its tests, the directly affected
-  release-testing documentation, and necessary test fixtures. It does not
-  modify product behavior or signing material.
+- A configuration with exactly one supported service bundle selected is shown
+  as routing-ready for every current bundle.
+- No service selection remains not-ready, and advanced policy toggles alone do
+  not make the step ready.
+- The predicate has one source of truth and does not duplicate routing-field
+  knowledge across setup-guide renderers.
+- Focused frontend-state tests, `sh scripts/validate-release.sh`, bundled Node
+  syntax/frontend checks, and `git diff --check` pass on the candidate branch.
+- The exact candidate passes the required AX4200 desktop-browser gate: reload
+  the affected LuCI page, exercise the relevant state transitions, inspect the
+  browser console, verify no unintended router state changed, and obtain owner
+  visual approval before merge.
 
 ## Validation and release gates for future work
 
@@ -305,6 +297,7 @@ owner-controlled release sequence.
 - No merge, tag, release, force-push, or signing action merely because tests
   are green.
 
-The next state change should be the single preflight-topology PR above. After
-that PR is reviewed and accepted, revalidate this plan against the resulting
-main commit before selecting the next queued item.
+The next implementation state change should be the single setup-guide
+routing-readiness PR above. After that PR is reviewed and accepted, revalidate
+this plan against the resulting main commit before selecting the next queued
+item.
