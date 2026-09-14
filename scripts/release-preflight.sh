@@ -2,7 +2,7 @@
 set -eu
 
 project_dir="${1:-$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)}"
-github_remote="${RELEASE_GITHUB_REMOTE:-github}"
+github_remote="${RELEASE_GITHUB_REMOTE:-origin}"
 makefile="$project_dir/xray-mitm/Makefile"
 changelog="$project_dir/CHANGELOG.md"
 validate_command="${RELEASE_PREFLIGHT_VALIDATE_CMD:-$project_dir/scripts/validate-release.sh}"

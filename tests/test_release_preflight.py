@@ -61,7 +61,7 @@ class ReleasePreflightTests(unittest.TestCase):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
-        self.git("remote", "add", "github", "https://github.com/duuuude/xray-mitm-openwrt.git")
+        self.git("remote", "add", "origin", "https://github.com/duuuude/xray-mitm-openwrt.git")
         self.git(
             "config",
             f"url.{self.remote}.insteadOf",
@@ -89,11 +89,15 @@ class ReleasePreflightTests(unittest.TestCase):
         return result.stdout.strip()
 
     def sync_remote(self) -> None:
-        self.git("push", "github", "HEAD:refs/heads/main")
+        self.git("push", "origin", "HEAD:refs/heads/main")
 
-    def run_preflight(self) -> subprocess.CompletedProcess[str]:
+    def run_preflight(
+        self, extra_env: dict[str, str] | None = None
+    ) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
         env["RELEASE_PREFLIGHT_VALIDATE_CMD"] = str(self.validator)
+        if extra_env:
+            env.update(extra_env)
         return subprocess.run(
             ["sh", str(PREFLIGHT), str(self.project)],
             cwd=self.project,
@@ -133,13 +137,38 @@ class ReleasePreflightTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("worktree is not clean", result.stderr)
 
-    def test_requires_verified_github_remote(self) -> None:
-        self.git("remote", "set-url", "github", "https://example.invalid/project.git")
+    def test_requires_canonical_remote(self) -> None:
+        self.git("remote", "remove", "origin")
+
+        result = self.run_preflight()
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Verified GitHub remote 'origin' was not found", result.stderr)
+
+    def test_rejects_wrong_remote_url_before_fetch(self) -> None:
+        self.git("remote", "set-url", "origin", "https://example.invalid/project.git")
 
         result = self.run_preflight()
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("verified duuuude/xray-mitm-openwrt GitHub repository", result.stderr)
+        self.assertNotIn("Could not fetch", result.stderr)
+
+    def test_allows_verified_remote_override(self) -> None:
+        self.git("remote", "add", "github", "https://github.com/duuuude/xray-mitm-openwrt.git")
+
+        result = self.run_preflight({"RELEASE_GITHUB_REMOTE": "github"})
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_rejects_wrong_remote_override_before_fetch(self) -> None:
+        self.git("remote", "add", "mirror", "https://example.invalid/project.git")
+
+        result = self.run_preflight({"RELEASE_GITHUB_REMOTE": "mirror"})
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("verified duuuude/xray-mitm-openwrt GitHub repository", result.stderr)
+        self.assertNotIn("Could not fetch", result.stderr)
 
     def test_requires_synchronized_main(self) -> None:
         (self.project / "CHANGELOG.md").write_text(
