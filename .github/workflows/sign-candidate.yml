@@ -67,12 +67,13 @@ jobs:
       - name: Validate the exact candidate source
         shell: bash
         env:
+          BASE_SHA: ${{ steps.verify_pr.outputs.base_sha }}
           CANDIDATE_SHA: ${{ inputs.candidate_sha }}
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
           test -z "$(git status --porcelain)"
-          git diff --check
+          git diff --check "$BASE_SHA" "$CANDIDATE_SHA"
           sh scripts/validate-release.sh
 
   build-and-sign:
@@ -81,6 +82,21 @@ jobs:
     timeout-minutes: 45
     environment: signed-feed
     steps:
+      - name: Revalidate PR identity after protected gate
+        shell: bash
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/main"
+          pr_json="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}")"
+          test "$(jq -r '.state' <<<"$pr_json")" = "open"
+          test "$(jq -r '.base.ref' <<<"$pr_json")" = "main"
+          test "$(jq -r '.head.sha' <<<"$pr_json")" = "$CANDIDATE_SHA"
+          test "$(jq -r '.head.repo.full_name' <<<"$pr_json")" = "$GITHUB_REPOSITORY"
+
       - name: Check out the exact candidate source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

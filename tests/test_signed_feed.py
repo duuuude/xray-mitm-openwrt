@@ -72,6 +72,9 @@ class SignedFeedTests(unittest.TestCase):
             'test "$(jq -r \'.head.repo.full_name\' <<<"$pr_json")" = "$GITHUB_REPOSITORY"',
             text,
         )
+        self.assertIn('BASE_SHA: ${{ steps.verify_pr.outputs.base_sha }}', text)
+        self.assertIn('git diff --check "$BASE_SHA" "$CANDIDATE_SHA"', text)
+        self.assertNotRegex(text, r"(?m)^\s+git diff --check\s*$")
         self.assertIn("test \"$(git rev-parse HEAD)\" = \"$CANDIDATE_SHA\"", text)
         self.assertIn("git merge-base --is-ancestor", text)
         self.assertIn('INDEX: "1"', text)
@@ -85,6 +88,19 @@ class SignedFeedTests(unittest.TestCase):
         self.assertNotIn("upload-pages-artifact@", text)
         self.assertNotIn("deploy-pages@", text)
         self.assertNotIn("--allow-untrusted", text)
+
+        protected_job = text.split("  build-and-sign:\n", 1)[1]
+        recheck_start = protected_job.index(
+            "      - name: Revalidate PR identity after protected gate"
+        )
+        secret_start = protected_job.index(
+            "secrets.XRAY_MITM_APK_PRIVATE_KEY", recheck_start
+        )
+        recheck = protected_job[recheck_start:secret_start]
+        self.assertIn("gh api", recheck)
+        for field in (".state", ".base.ref", ".head.sha", ".head.repo.full_name"):
+            self.assertIn(field, recheck)
+        self.assertIn('test "$GITHUB_REF" = "refs/heads/main"', recheck)
 
     def test_public_bootstrap_is_published_and_checksum_pinned(self) -> None:
         workflow = WORKFLOW.read_text(encoding="utf-8")
