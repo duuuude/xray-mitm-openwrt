@@ -18,7 +18,8 @@ AI should make engineering judgments. Automation should verify repeatable facts.
 
 After verifying the canonical repository, remotes, and current state, add a
 safe helper for starting a PR. If the helper participates in release work,
-complete the release-preflight canonical-remote fix first.
+verify that the existing canonical-remote release-preflight behavior remains
+present.
 
 Target command:
 
@@ -49,7 +50,8 @@ Before implementation, require:
 
 1. verification of the canonical repository, remotes, current branch, commit,
    upstream, and status
-2. completion of the release-preflight canonical-remote fix where relevant
+2. verification of the existing canonical-remote release-preflight behavior
+   where relevant
 3. creation of any new task worktree only under
    `<workspace-root>/worktrees/`
 

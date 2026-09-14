@@ -1,28 +1,21 @@
 # AI Workflow
 
-This document explains how the project owner should use AI agents without accumulating a large number of permanent Works.
+This document explains how the project owner and AI Works operate the project
+without accumulating duplicate implementation contexts.
 
 ## Recommended number of active Works
 
-Keep only **3 persistent Works**:
+Keep exactly **3 normal persistent Works**:
 
 ```text
-1. Project Coordinator
+1. Development Lead — Owner Console
 2. PR Reviewer
 3. Router & Release Validation
 ```
 
-Create **one temporary Implementation Work** only while a PR is actively being built.
-
-So the normal maximum is:
-
-```text
-3 persistent Works
-+ 1 active Implementation Work
-= 4 Works
-```
-
-After a PR is merged and its evidence is recorded, the Implementation Work can be removed. Do not keep one Implementation Work per historical PR.
+The Development Lead performs normal implementation. Do not create a separate
+Implementation Work for every PR. A temporary specialist Work is appropriate
+only when a concrete task needs separate context or isolation.
 
 The reusable agent roles in `PROMPTS.md` are **prompt templates**, not permanent Works.
 
@@ -32,26 +25,33 @@ For example, “Release Agent”, “Git Audit Agent”, and “Compatibility Ag
 
 ## What each persistent Work does
 
-### Project Coordinator
+### Development Lead — Owner Console
 
 Persistent.
 
-Use it to:
+It is the single project control tower and combines:
 
 ```text
-read current main
-read MASTER_PLAN.md
-check recent changes
-decide the single next PR
-write acceptance criteria
-update the plan after a merge
+project coordination
+normal implementation
+roadmap maintenance
+routine Git/worktree operations
+Owner Gatekeeper
+GitHub issue and community triage
 ```
 
-It should not implement code.
+It may select one approved PR, define scope, implement the smallest coherent
+change, run validation, commit, and normally fast-forward push the approved
+feature branch. It may evaluate reviewer findings and implement accepted
+ordinary corrections.
+
+It must never independently approve its own implementation for merge. Every
+merge candidate returns to the independent PR Reviewer after implementation
+and after accepted corrections.
 
 ### PR Reviewer
 
-Persistent or periodically refreshed.
+Persistent and independent.
 
 Use it to:
 
@@ -63,11 +63,13 @@ check scope creep
 identify missing tests
 ```
 
-It should review before seeing the implementer's reasoning where practical.
+It reports evidence and findings back to Development Lead — Owner Console. It
+does not modify the implementation, route follow-up work, or approve an owner-
+gated action.
 
 ### Router & Release Validation
 
-Persistent.
+Persistent and independent.
 
 Use it for:
 
@@ -79,70 +81,49 @@ release preflight
 release evidence
 ```
 
-Router mutations remain owner-gated.
+Use it only when real OpenWrt, AX4200, browser, runtime, release, rollback,
+certificate, PassWall2, or similar evidence is required. It reports back to
+Development Lead — Owner Console and does not route another Work.
+
+Router mutations and protected signing/release actions remain owner-gated.
 
 ---
 
-## Temporary Implementation Work
+## Temporary specialist Works
 
-Create one when a PR scope has been approved.
-
-Example:
-
-```text
-Implementation — routing state parity
-```
-
-Give it the Implementation Agent prompt from `PROMPTS.md`.
-
-When the PR is merged:
-
-```text
-confirm merge
-record evidence
-```
-
-Before removing the associated Git worktree, follow `AGENTS.md`:
-
-```text
-confirm merge state
-check dirty files
-check untracked files
-confirm no unique work would be lost
-```
-
-Remove the worktree only when those checks are clean and unambiguous. If it is
-dirty or ambiguous, stop; do not remove it automatically.
-
-Then remove the temporary Implementation Work.
-
-Then create a fresh Implementation Work for the next PR.
-
-This keeps context small and prevents unrelated tasks from accumulating.
+Reusable roles in `PROMPTS.md`, including Implementation, Release,
+Compatibility, Verification, and Git Audit, are specialist templates rather
+than normal persistent Works. Create a temporary specialist Work only when the
+task has a concrete need for separate context or isolation. Its report returns
+to Development Lead — Owner Console; it must not select or prompt the next
+Work.
 
 ---
 
 ## Normal cycle
 
 ```text
-Coordinator
+Development Lead
     ↓
-one PR brief
+select one approved PR
+define scope and acceptance criteria
+create branch/worktree
+implement + validate + normal feature-branch push
+    ↓
+complete self-contained handoff
 
-Owner approves scope
+PR Reviewer
+    ↓
+independent evidence + findings
+return to Development Lead
     ↓
 
-Temporary Implementation Work
+Development Lead
     ↓
-code + tests + stop
-
-Reviewer
+evaluate findings
+implement accepted corrections only
+return for independent review as needed
     ↓
-findings only
-
-Implementation Work
-    ↓
-approved fixes only
 
 Automated validation / CI
     ↓
@@ -150,11 +131,13 @@ Automated validation / CI
 Router & Release Validation
     ↓
 only if required
-
-Owner approval
+return to Development Lead
     ↓
 
-PR / merge
+owner gate for merge or another high-risk action
+    ↓
+
+owner-approved merge
     ↓
 
 confirm merge state
@@ -163,15 +146,146 @@ check untracked files
 confirm no unique work would be lost
     ↓
 
-remove implementation worktree only when clean and unambiguous
-remove temporary Implementation Work
+remove worktree only when clean and unambiguous
     ↓
 
-Coordinator updates MASTER_PLAN.md
+Development Lead updates MASTER_PLAN.md
 ```
 
 If any check fails, stop and do not remove a dirty or ambiguous worktree
 automatically. See `AGENTS.md`.
+
+---
+
+## Routine actions and owner gates
+
+Development Lead may handle routine, reversible work without interrupting the
+owner:
+
+```text
+choose the next approved PR
+create a normal feature branch/worktree
+edit inside approved scope
+run non-destructive tests
+make local commits
+normally fast-forward push the approved feature branch
+request independent review
+implement accepted ordinary review corrections
+update documentation inside approved scope
+```
+
+A normal feature-branch push is routine only when the branch is the approved
+current PR branch, implementation stayed in scope, required validation ran or
+skipped checks were reported, no unexpected files are present, and the push is
+a non-force fast-forward push to a branch other than `main`.
+
+Development Lead must stop for owner approval before:
+
+```text
+merge to main
+tag or release
+production signing-material operations
+live router routing, firewall, DNS, CA/certificate, PassWall2, reboot, reset,
+or restore mutations
+force-push or shared-history rewrite
+deleting a branch with unique work
+removing a dirty or ambiguous worktree
+deleting backups or user data
+materially expanding approved PR scope
+changing product, security, or support policy
+accepting a significant architectural or security tradeoff
+overriding a BLOCK or HIGH-severity safety finding
+acting when rollback is unclear or material evidence is missing
+```
+
+---
+
+## Handoff and routing protocol
+
+Development Lead is the only routing layer. When another Work returns a
+report, the Lead decides the next project action and produces a complete,
+copy-ready handoff. The owner must not have to assemble prompts, copy findings,
+infer Git permissions, decide manual gates, or select the next Work.
+
+Normal handoffs use exactly:
+
+```text
+Next Work:
+<exact Work name>
+
+Owner action before handoff:
+YES or NO
+
+Owner action:
+<only when YES; exact decision or MAC command>
+
+Complete message to send:
+<fully self-contained copy-ready message>
+
+Why this is next:
+<brief reason>
+```
+
+The complete message includes the repository, branch, head and base when
+relevant, exact scope, accepted findings, acceptance criteria, validation and
+skipped checks, manual OpenWrt/AX4200/browser gates, Git and push permissions,
+and stop condition.
+
+When an owner gate is reached, Development Lead asks for the exact decision
+before routing or performing the gated action, using:
+
+```text
+OWNER DECISION REQUIRED
+
+Decision:
+<exact decision>
+
+Why my approval is required:
+<brief explanation>
+
+Recommended option:
+<recommendation>
+
+Alternatives:
+<only meaningful alternatives>
+
+Risk if approved:
+<brief>
+
+Risk if declined:
+<brief>
+
+Exact action after approval:
+<complete handoff or MAC command>
+```
+
+PR Reviewer and Router & Release Validation report their evidence and
+recommendation to:
+
+```text
+Development Lead — Owner Console
+```
+
+They do not choose, authorize, or prompt the next Work.
+
+---
+
+## GitHub issue and community triage
+
+Development Lead handles ordinary issue triage without creating an
+implementation task. It first inspects the actual issue and current `main`,
+documentation, and relevant code, then classifies the report as support or
+question, confirmed bug, likely bug needing reproduction, documentation
+problem, feature or compatibility request, or unsupported configuration.
+
+Support questions and clarifications may be answered directly. Bug replies
+separate known facts from unproven behavior and request only the minimum useful
+non-secret diagnostics. Feature and compatibility replies describe current
+support without promising implementation or timing.
+
+Filing an issue does not authorize implementation. Adding or prioritizing new
+roadmap work, or changing product, security, or support policy, remains an
+owner decision unless already approved.
 
 ---
 
@@ -259,8 +373,8 @@ Before adding this helper:
 
 1. verify the canonical repository, remotes, current branch, commit, upstream,
    and status
-2. complete the release-preflight canonical-remote fix when the helper is used
-   for release-related work
+2. verify the existing canonical-remote release-preflight behavior remains
+   present when the helper is used for release-related work
 3. create new task worktrees only under
    `<workspace-root>/worktrees/`
 
