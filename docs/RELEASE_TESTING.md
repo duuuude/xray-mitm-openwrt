@@ -72,10 +72,10 @@ executable explicitly:
 NODE_BIN=/path/to/node sh scripts/validate-release.sh
 ```
 
-Check the remote before pushing. The repository may contain a local mirror in
-`origin`; push to the verified GitHub remote only. After every follow-up commit,
-repeat the applicable local tests and obtain explicit project-owner approval
-before pushing it.
+Check the remote before pushing. The canonical checkout uses `origin` for the
+verified GitHub repository; confirm its exact URL before pushing. After every
+follow-up commit, repeat the applicable local tests and obtain explicit
+project-owner approval before pushing it.
 
 ## 4. Local LuCI browser gate
 
