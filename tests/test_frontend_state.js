@@ -180,6 +180,28 @@ function testRouteStatusAndProgress() {
 	assert.deepStrictEqual(state.deriveBasicRoutingStatus({}, Object.assign({}, state.recommendedChoices(), { google_meet: false })),
 		{ kind: 'custom', tone: 'good' });
 
+	const serviceFields = [
+		'gemini', 'android_check', 'youtube_control', 'google_play',
+		'google_mitm', 'google_meet', 'meta_mitm', 'fastly_mitm',
+		'iran_direct', 'accounts_google'
+	];
+	serviceFields.forEach(function(name) {
+		const routing = {};
+		routing[name] = true;
+		assert.strictEqual(state.routingHasServiceSelection(routing), true,
+			name + ' satisfies routing readiness');
+		assert.strictEqual(state.setupProgress({ configured: true }, {}, {
+			routing_state: routing
+		}).routingReady, true, name + ' completes setup progress');
+	});
+	assert.strictEqual(state.routingHasServiceSelection({}), false);
+	assert.strictEqual(state.routingHasServiceSelection({ set_default_vpn: true }), false);
+	assert.strictEqual(state.routingHasServiceSelection({ set_localhost_proxy_zero: true }), false);
+	assert.strictEqual(state.setupProgress({}, {}, { routing_state: {} }).routingReady, false);
+	assert.strictEqual(state.setupProgress({}, {}, {
+		routing_state: { set_default_vpn: true, set_localhost_proxy_zero: true }
+	}).routingReady, false);
+
 	const progress = state.setupProgress({ configured: true, running: true }, {
 		slots: { current: { present: true } }
 	}, { routing_state: { iran_direct: true } });
