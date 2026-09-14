@@ -1,0 +1,174 @@
+name: Sign protected PR candidate APKs
+
+# This workflow must be dispatched from main. It signs one exact, owner-approved
+# open PR head for lab validation; it never publishes a release or deploys Pages.
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Open pull request number approved for candidate validation
+        required: true
+        type: string
+      candidate_sha:
+        description: Exact 40-character head commit of that pull request
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: signed-candidate-${{ inputs.pr_number }}-${{ inputs.candidate_sha }}
+  cancel-in-progress: false
+
+env:
+  OPENWRT_RELEASE: "25.12.5"
+  SDK_ARCH: aarch64_generic
+  FEED_NAME: xray_mitm
+
+jobs:
+  validate_candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      base_sha: ${{ steps.verify_pr.outputs.base_sha }}
+    steps:
+      - name: Verify dispatch context and exact pull request head
+        id: verify_pr
+        shell: bash
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/main"
+          if ! [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]; then
+            exit 1
+          fi
+          if ! [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            exit 1
+          fi
+
+          pr_json="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}")"
+          test "$(jq -r '.state' <<<"$pr_json")" = "open"
+          test "$(jq -r '.base.ref' <<<"$pr_json")" = "main"
+          test "$(jq -r '.head.sha' <<<"$pr_json")" = "$CANDIDATE_SHA"
+          test "$(jq -r '.head.repo.full_name' <<<"$pr_json")" = "$GITHUB_REPOSITORY"
+          printf 'base_sha=%s\n' "$(jq -r '.base.sha' <<<"$pr_json")" >> "$GITHUB_OUTPUT"
+
+      - name: Check out the exact candidate source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.candidate_sha }}
+          fetch-depth: 0
+
+      - name: Validate the exact candidate source
+        shell: bash
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test -z "$(git status --porcelain)"
+          git diff --check
+          sh scripts/validate-release.sh
+
+  build-and-sign:
+    needs: validate_candidate
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: signed-feed
+    steps:
+      - name: Check out the exact candidate source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.candidate_sha }}
+          fetch-depth: 0
+
+      - name: Verify the checked-out candidate and base ancestry
+        shell: bash
+        env:
+          BASE_SHA: ${{ needs.validate_candidate.outputs.base_sha }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/main"
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          git cat-file -e "$BASE_SHA^{commit}"
+          git merge-base --is-ancestor "$BASE_SHA" "$CANDIDATE_SHA"
+
+      - name: Verify the protected signing key matches the committed public key
+        shell: bash
+        env:
+          APK_PRIVATE_KEY: ${{ secrets.XRAY_MITM_APK_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$APK_PRIVATE_KEY"
+          umask 077
+          printf '%s\n' "$APK_PRIVATE_KEY" > "$RUNNER_TEMP/xray-mitm-feed-private.pem"
+          openssl pkey -in "$RUNNER_TEMP/xray-mitm-feed-private.pem" -pubout \
+            -out "$RUNNER_TEMP/xray-mitm-feed-derived.pem"
+          openssl pkey -pubin -in keys/xray-mitm-feed-v1.pem -outform DER \
+            -out "$RUNNER_TEMP/xray-mitm-feed-committed.der"
+          openssl pkey -pubin -in "$RUNNER_TEMP/xray-mitm-feed-derived.pem" -outform DER \
+            -out "$RUNNER_TEMP/xray-mitm-feed-derived.der"
+          cmp "$RUNNER_TEMP/xray-mitm-feed-committed.der" \
+            "$RUNNER_TEMP/xray-mitm-feed-derived.der"
+
+      - name: Build packages and signed OpenWrt index
+        uses: openwrt/gh-action-sdk@7fc2640243284ecc44f4a9c3f749a61746ee02cb # v11
+        env:
+          ARCH: ${{ env.SDK_ARCH }}-${{ env.OPENWRT_RELEASE }}
+          BUILD_LOG: "1"
+          FEEDNAME: ${{ env.FEED_NAME }}
+          INDEX: "1"
+          PACKAGES: xray-mitm luci-app-xray-mitm
+          PRIVATE_KEY: ${{ secrets.XRAY_MITM_APK_PRIVATE_KEY }}
+          V: s
+
+      - name: Assemble candidate artifact and checksums
+        shell: bash
+        env:
+          BASE_SHA: ${{ needs.validate_candidate.outputs.base_sha }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        run: |
+          set -euo pipefail
+          mapfile -t core_apks < <(find bin -type f -name 'xray-mitm-*.apk' | LC_ALL=C sort)
+          mapfile -t luci_apks < <(find bin -type f -name 'luci-app-xray-mitm-*.apk' | LC_ALL=C sort)
+          mapfile -t indexes < <(find bin -type f -path "*/$FEED_NAME/packages.adb" | LC_ALL=C sort)
+          test "${#core_apks[@]}" -eq 1
+          test "${#luci_apks[@]}" -eq 1
+          test "${#indexes[@]}" -eq 1
+
+          mkdir -p dist
+          cp "${core_apks[0]}" "${luci_apks[0]}" "${indexes[0]}" dist/
+          cp keys/xray-mitm-feed-v1.pem dist/
+          printf '%s\n' "$CANDIDATE_SHA" > dist/SOURCE_COMMIT
+          printf '%s\n' "$BASE_SHA" > dist/BASE_COMMIT
+          printf '%s\n' "$PR_NUMBER" > dist/PR_NUMBER
+          printf '%s\n' 'protected PR candidate validation; not a release' \
+            > dist/ARTIFACT_PURPOSE
+          printf '%s  %s\n' \
+            '3e0dc07ffef69d1512500b6add486381d8c261a8ec3fcce54fa403b35320df8a' \
+            'xray-mitm-feed-v1.pem' > dist/PUBLIC_KEY_SHA256
+          printf '%s\n' \
+            "$(basename "${core_apks[0]}")" \
+            "$(basename "${luci_apks[0]}")" > dist/PACKAGES
+
+          (
+            cd dist
+            sha256sum ./*.apk packages.adb xray-mitm-feed-v1.pem > SHA256SUMS
+            sha256sum -c SHA256SUMS
+            sha256sum -c PUBLIC_KEY_SHA256
+          )
+
+      - name: Upload protected candidate artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: xray-mitm-pr-${{ inputs.pr_number }}-${{ inputs.candidate_sha }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
