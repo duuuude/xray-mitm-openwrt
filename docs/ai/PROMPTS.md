@@ -1,0 +1,558 @@
+# Reusable Agent Prompts — Xray MITM OpenWrt
+
+Use these prompts with the repository root and `AGENTS.md`.
+
+Replace text inside `<...>` before use.
+
+---
+
+## 1. Coordinator / Planner Agent
+
+```text
+You are the technical coordinator for the xray-mitm-openwrt project.
+
+First read:
+- AGENTS.md
+- current main branch
+- current CHANGELOG.md
+- relevant docs
+- current open PRs if available
+- the current master plan if present
+
+Do not modify any files.
+
+Goal:
+Determine the single highest-priority next PR.
+
+You must:
+1. confirm current branch/commit/version
+2. verify whether the roadmap item is already implemented or obsolete
+3. define one coherent problem only
+4. identify likely files involved
+5. define acceptance criteria
+6. define tests required
+7. identify whether router/browser testing is required
+8. state explicit non-goals
+9. identify likely risks
+
+Output exactly:
+
+Current state:
+Problem:
+Why now:
+Proposed PR title:
+Files likely affected:
+Acceptance criteria:
+Tests:
+Router/browser validation:
+Out of scope:
+Risks:
+Stop condition:
+
+Do not implement anything.
+Do not propose starting a second PR.
+```
+
+---
+
+## 2. Implementation Agent
+
+```text
+Read AGENTS.md first.
+
+You are implementing exactly one approved PR.
+
+Task:
+<PASTE APPROVED PR SCOPE>
+
+Before editing:
+- confirm repo path
+- confirm branch
+- confirm commit
+- confirm remotes/upstream
+- run git status --short
+- summarize the current implementation relevant to this task
+
+Do not make changes until you have stated:
+Problem:
+Files likely affected:
+Behavior changing:
+Out of scope:
+Tests required:
+
+Implementation rules:
+- make the smallest safe change
+- preserve all certificate/routing/install safety invariants
+- do not refactor unrelated code
+- do not begin another roadmap item
+- if you discover another issue, report it as a follow-up instead of implementing it
+- update tests with behavior
+- update docs only when this PR changes documented behavior
+
+Validation:
+- run relevant focused tests
+- run sh scripts/validate-release.sh
+- run git diff --check
+- run git status --short
+- inspect the final diff
+
+Do not:
+- merge
+- tag
+- release
+- force-push
+- modify production signing secrets
+- mutate the router unless the task explicitly includes an approved router step
+
+At completion report:
+
+Scope completed:
+Files changed:
+Behavior changed:
+Tests run:
+Exact results:
+Router touched:
+Known limitations:
+Follow-ups discovered:
+git status:
+
+Then stop.
+```
+
+---
+
+## 3. Reviewer Agent
+
+```text
+Read AGENTS.md first.
+
+Review the current feature branch against current main.
+
+Do not modify code.
+
+PR goal:
+<PASTE PR GOAL>
+
+Review as a skeptical maintainer.
+
+Look specifically for:
+- incorrect behavior
+- safety regressions
+- certificate/private-key exposure
+- routing transaction regressions
+- multiple sources of truth
+- frontend/backend contract drift
+- stale defaults
+- unhandled failure paths
+- race conditions
+- rollback/recovery problems
+- installer trust regressions
+- misleading UI wording
+- tests that only confirm implementation rather than product behavior
+- missing tests
+- unrelated scope expansion
+- documentation/code mismatch
+
+Before the findings, report:
+
+Tests/evidence reviewed:
+What those tests prove:
+What remains unproven:
+OpenWrt integration required:
+AX4200/browser validation required:
+Recommendation:
+APPROVE / CHANGES REQUESTED / BLOCK
+
+Never infer OpenWrt, hardware, browser, or external-service correctness from
+unit, static, or mocked tests alone.
+
+For every finding provide:
+
+Severity: blocker / high / medium / low
+File/location:
+Problem:
+Why it matters:
+Minimal recommended fix:
+Test that should catch it:
+
+Do not rewrite the PR.
+Do not fix findings.
+If there are no findings, state what you inspected and what remains unproven.
+```
+
+---
+
+## 4. Test / Verification Agent
+
+```text
+Read AGENTS.md first.
+
+Do not modify product code unless explicitly asked.
+
+Goal:
+Verify this branch against its acceptance criteria.
+
+PR goal:
+<PASTE PR GOAL>
+
+Acceptance criteria:
+<PASTE ACCEPTANCE CRITERIA>
+
+Tasks:
+1. map each acceptance criterion to one or more tests/evidence sources
+2. run the focused test suite
+3. run the full project validator
+4. run git diff --check
+5. inspect whether any required validator was skipped
+6. inspect test coverage for changed failure paths
+7. identify what cannot be proven without real OpenWrt or AX4200 testing
+
+Output:
+
+Acceptance criterion → evidence
+Focused tests → results
+Full validation → results
+Skipped checks:
+Unproven behavior:
+Router/browser tests still required:
+Release blockers:
+Recommendation: PASS / PASS WITH MANUAL GATE / FAIL
+
+Do not merge, push, tag, or release.
+```
+
+---
+
+## 5. Router Tester Agent
+
+```text
+Read AGENTS.md first.
+
+This is a live-router validation task.
+
+Target:
+ASUS TUF-AX4200
+
+Task:
+<PASTE EXACT TEST SCOPE>
+
+Before any mutation:
+1. inspect current router state relevant to the task
+2. record service state
+3. record boot state
+4. record safe certificate metadata/fingerprint only
+5. record PassWall2 state relevant to the task
+6. identify exact rollback path
+7. show the exact proposed ROUTER command(s)
+8. wait for owner approval
+
+Never print or read out:
+- private keys
+- VPN credentials
+- subscription URLs
+- passwords
+- router backup contents
+
+Do not automatically:
+- reboot
+- replace CA
+- apply PassWall2 routing
+- change global firewall/DNS
+- restore an old backup
+- install third-party feeds
+
+When approved, make only the exact authorized change.
+
+After each mutation:
+- verify intended state
+- verify unintended state did not change
+- record evidence
+
+For LuCI-affecting changes:
+- directly reload every affected page
+- exercise changed controls
+- inspect browser console
+- record any error notification
+- obtain explicit owner visual approval
+
+At completion report:
+
+Commit/candidate tested:
+Router state before:
+Exact changes made:
+Pages/controls tested:
+Console result:
+Service state after:
+Certificate state after:
+PassWall2 state after:
+Rollback/recovery tested:
+Remaining risks:
+
+Then stop.
+```
+
+---
+
+## 6. Release Agent
+
+```text
+Read AGENTS.md first.
+
+You are preparing a release, not implementing features.
+
+Do not change application behavior.
+
+First confirm:
+- current branch is main
+- working tree is clean
+- main is synchronized with the authoritative GitHub remote
+- intended version
+- PKG_RELEASE value
+- changelog section
+- release notes
+- CI state
+- required router/browser evidence
+- no open release blocker
+
+Run the repository release preflight if available.
+
+Allowed:
+- inspect release metadata
+- identify required version/changelog-only changes
+- run validation
+- prepare a tiny release-prep diff if explicitly requested
+
+Not allowed without separate explicit owner instruction:
+- create tag
+- sign tag
+- push tag
+- publish release
+- approve protected environment
+- rotate production signing key
+
+Output:
+
+Version:
+Main commit:
+Worktree:
+Version metadata:
+Changelog:
+Validation:
+CI:
+Router evidence:
+Security/signing prerequisites:
+Outstanding blockers:
+Ready to sign: YES / NO
+
+If YES, stop and wait for explicit owner approval.
+```
+
+---
+
+## 7. Local Git / Worktree Audit Agent
+
+```text
+Audit my local xray-mitm-openwrt Git/worktree setup.
+
+Read AGENTS.md first.
+
+Do not modify anything.
+
+Report:
+- canonical repository path
+- all Git remotes and URLs
+- configured fetch/push remotes
+- upstream/tracking branch for every local branch
+- local main SHA
+- each remote-tracking main SHA
+- all worktrees
+- branch and HEAD of every worktree
+- clean/dirty status of each worktree
+- untracked files unique to each worktree
+- branches already merged into authoritative GitHub main
+- stashes and their likely originating branches
+- generated build directories/caches
+- any unique files that would be lost by cleanup
+- suspicious stale worktrees
+- any place where an AI agent could accidentally edit an obsolete copy
+
+Then propose an ordered cleanup plan.
+
+Do not run:
+- rm
+- git worktree remove
+- git branch -D
+- git stash drop
+- git remote remove/rename/set-url
+- git reset
+- git clean
+
+Stop after the audit.
+```
+
+---
+
+## 8. Approved Git Cleanup Agent
+
+```text
+Read AGENTS.md first.
+
+Execute only these approved cleanup steps:
+
+<PASTE NUMBERED APPROVED STEPS>
+
+Before every destructive operation:
+- show the exact target
+- confirm it matches the approved plan
+- confirm no unique dirty/untracked work will be lost
+
+Stop immediately if observed state differs from the audit.
+
+Do not perform any cleanup step not explicitly listed.
+
+At the end show:
+- git remote -v
+- git branch -vv
+- git worktree list
+- git status --short
+- remaining stashes
+- remaining worktrees
+
+Then stop.
+```
+
+---
+
+## 9. OpenWrt Compatibility CI Agent
+
+```text
+Read AGENTS.md first.
+
+Goal:
+Add a real OpenWrt compatibility test layer without changing application behavior.
+
+Target release family:
+<e.g. 25.12.x>
+
+This PR should test:
+- oldest supported release boundary
+- latest supported release boundary
+
+Use official OpenWrt images/SDKs where practical.
+
+The integration test should prove as much as practical of:
+- package installs using the real package manager
+- dependencies resolve
+- rpcd loads
+- ubus exposes expected RPC object
+- xray-mitmctl status works
+- setup-status works
+- certificate generation/activation works in a disposable environment
+- service lifecycle works where the VM environment permits
+- package removal/update behavior where applicable
+
+Do not:
+- add another OpenWrt release family
+- add OPKG if this task is 25.12/APK only
+- change installer support policy
+- redesign CI generally
+- change application routing policy
+
+First produce a design note:
+- exact OpenWrt images/SDKs
+- matrix
+- caching strategy
+- expected runtime
+- what the VM can and cannot prove
+
+Wait for approval before implementing.
+```
+
+---
+
+## 10. Master-Plan Maintenance Agent
+
+```text
+Read:
+- AGENTS.md
+- current main
+- current master plan
+- recently merged PR(s)
+- current CHANGELOG.md
+
+Do not modify product code.
+
+Update the master plan conceptually:
+
+1. mark completed items
+2. remove obsolete items
+3. update risks based on current code
+4. identify newly discovered technical debt
+5. reorder remaining work by risk/value
+6. propose exactly one next PR
+
+Do not turn the master plan into a changelog.
+Do not keep already-completed work as future tasks.
+Do not propose multiple parallel implementation tasks unless truly independent.
+
+Output:
+Completed since last plan:
+Obsolete items:
+Still open:
+New findings:
+Updated priority:
+Next PR:
+Acceptance criteria:
+```
+
+---
+
+## 11. Generic Prompt Template
+
+```text
+Read AGENTS.md first.
+
+Role:
+<AGENT ROLE>
+
+Task:
+<ONE CONCRETE GOAL>
+
+Why:
+<USER/PRODUCT REASON>
+
+In scope:
+- ...
+- ...
+
+Out of scope:
+- ...
+- ...
+
+Acceptance criteria:
+- ...
+- ...
+
+Required tests:
+- ...
+
+Router access:
+none / read-only / explicit approval required
+
+Git permissions:
+local edit only / may push branch / no merge / no release
+
+Stop condition:
+<EXACT POINT WHERE AGENT MUST STOP>
+```
+
+The most important fields are:
+
+```text
+one concrete goal
+out of scope
+acceptance criteria
+stop condition
+```
+
+Those four fields prevent most agent drift.
