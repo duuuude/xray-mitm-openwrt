@@ -16,12 +16,14 @@ AI should make engineering judgments. Automation should verify repeatable facts.
 
 ## Stage 1 — Local repository safety
 
-After the current Git/remotes/worktrees are cleaned up, add a safe helper for starting a PR.
+After verifying the canonical repository, remotes, and current state, add a
+safe helper for starting a PR. If the helper participates in release work,
+complete the release-preflight canonical-remote fix first.
 
 Target command:
 
 ```text
-scripts/start-pr.sh <branch-name> <worktree-directory>
+scripts/start-pr.sh <branch-name> <workspace-root>/worktrees/<task>
 ```
 
 It should:
@@ -43,7 +45,13 @@ It must never:
 - force-push
 - clean untracked files
 
-Do not implement until the current remote topology is cleaned up.
+Before implementation, require:
+
+1. verification of the canonical repository, remotes, current branch, commit,
+   upstream, and status
+2. completion of the release-preflight canonical-remote fix where relevant
+3. creation of any new task worktree only under
+   `<workspace-root>/worktrees/`
 
 ---
 

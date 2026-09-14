@@ -153,6 +153,19 @@ Look specifically for:
 - unrelated scope expansion
 - documentation/code mismatch
 
+Before the findings, report:
+
+Tests/evidence reviewed:
+What those tests prove:
+What remains unproven:
+OpenWrt integration required:
+AX4200/browser validation required:
+Recommendation:
+APPROVE / CHANGES REQUESTED / BLOCK
+
+Never infer OpenWrt, hardware, browser, or external-service correctness from
+unit, static, or mocked tests alone.
+
 For every finding provide:
 
 Severity: blocker / high / medium / low

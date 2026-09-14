@@ -1,31 +1,31 @@
 # Xray MITM OpenWrt — Master Plan
 
-Status: current source of truth as of 2026-09-14
+Status: current roadmap; last audited 2026-09-14
 
 This plan is based on the actual canonical repository, not on an earlier plan
 or historical checkout.
 
-## Authority and current baseline
+## Authority and review baseline
 
 The authoritative source is:
 
 - Repository: `https://github.com/duuuude/xray-mitm-openwrt.git`
-- Canonical checkout: `/Users/dude/Documents/ChatGPT Projects/Network Lab — OpenWrt & PassWall2/xray-mitm-openwrt`
-- Branch: `main`
-- Current main and `origin/main`: `e78f1d9f62b9bca01eb91f369f44b373844e69e4`
-- Package baseline: `0.4.4-r1`
+- Public branch: `main`
+- Review/audit baseline: `e78f1d9f62b9bca01eb91f369f44b373844e69e4`, the main
+  commit inspected when this plan was refreshed
+- Observed package baseline: `0.4.4-r1`
+- Canonical clone root: `<repo-root>`
+- Temporary task worktrees: `<workspace-root>/worktrees/`
 
-The canonical checkout has no tracked product changes. Its only untracked
-paths are the intentionally local workspace-governance files `AGENTS.md` and
-`docs/ai/`. A release preflight must therefore run from a clean product
-checkout or from a worktree where those files have been intentionally handled.
+This public plan intentionally contains no personal filesystem path, live
+checkout-status claim, local branch/worktree inventory, or local-only commit
+identifier. Every agent must verify the live repository path, branch, commit,
+remotes, upstream, and status before acting.
 
-The workspace consolidation is complete. The registered worktrees are the
-canonical checkout and the two explicitly preserved, clean, unmerged salvage
-worktrees:
-
-- `salvage/local-build-tooling` at `a8fbe64159f1cbd4f76b04f567ff88f6741315d5`
-- `salvage/dashboard-preview` at `42d74e8bc9bfb63f14a42c2db3590e88827bb9be`
+Workspace consolidation is complete. Future work uses one canonical clone and
+temporary task worktrees under `worktrees/`; any locally retained historical
+material is outside this public roadmap and is not a prerequisite for future
+work.
 
 The product currently targets official OpenWrt 25.12.x with APK packages.
 The public feed and CI use the 25.12.5 `aarch64_generic` SDK baseline, and
@@ -229,46 +229,6 @@ architecture strings while the publish workflow is fixed to one baseline.
 The compatibility initiative must decide whether to enforce a documented
 matrix or clearly label manual inputs as unsupported experiments.
 
-## Salvage branch disposition
-
-### `salvage/local-build-tooling`
-
-This branch is useful, unique workflow/tooling work and should remain
-unmerged until separately reviewed. It is based directly on current `main`
-and contains only the coherent local-build feature rather than a wholesale
-copy of the old repository.
-
-Its exact changed paths are:
-
-- `scripts/build-local.sh`
-- `ci/validate_release.py`
-- `scripts/validate-release.sh`
-- `tests/test_signed_feed.py`
-- `CHANGELOG.md`
-- `CONTRIBUTING.md`
-- `README.md`
-- `README.fa.md`
-
-The new script uses Docker, the pinned OpenWrt SDK action revision, the
-25.12.5/aarch64 baseline, offline validation, and checksum generation. The
-branch is clean and unpushed, but the exact Docker build has not yet been
-executed. It is a candidate for one later workflow/tooling PR after the
-preflight topology is corrected and the real build plus artifact checks pass.
-It must remain unmerged and uncombined with product-status, compatibility,
-or release-signing changes until then.
-
-### `salvage/dashboard-preview`
-
-This branch is optional documentation work: `README.md` plus the public
-`docs/images/dashboard-routing.png` preview. The current main branch already
-contains the canonical public dashboard screenshot and current product
-documentation, so this branch does not close a correctness or release gap.
-
-It may remain available for an explicit, separate docs decision. It is not a
-priority task and must not be bundled with local-build, compatibility, or
-product changes. The former dashboard stash is not a dependency of the
-current plan.
-
 ## Priority order and PR discipline
 
 Only the first item is active. The rest are queued; do not start a later item
@@ -280,14 +240,13 @@ in parallel with an active PR.
 | 2 | Make setup-guide routing readiness cover every supported service bundle | Product correctness | A valid current configuration can be shown as incomplete. |
 | 3 | Define and enforce truthful partial-bundle inspection | Product correctness | Read-only status can overstate a partially edited rule. |
 | 4 | Establish repeatable official OpenWrt 25.12.x compatibility evidence | Compatibility/testing | The support claim is broader than the current automated proof. |
-| 5 | Review and, if accepted, land the local-build salvage | Workflow/tooling | Useful unique work exists, but the exact Docker build is unverified. |
-| 6 | Add safe `start-pr.sh` worktree/branch setup | Workflow/tooling | Prevents recurrence of unmanaged sibling workspaces. |
-| 7 | Add change-aware checks and a machine-readable evidence report | Workflow/tooling | Makes the correct validation and manual gates auditable. |
-| 8 | Build once and promote the exact tested artifact | Release workflow | Removes the remaining PR-build/tag-build provenance gap. |
+| 5 | Add safe `start-pr.sh` worktree/branch setup | Workflow/tooling | Prevents recurrence of unmanaged sibling workspaces. |
+| 6 | Add change-aware checks and a machine-readable evidence report | Workflow/tooling | Makes the correct validation and manual gates auditable. |
+| 7 | Build once and promote the exact tested artifact | Release workflow | Removes the remaining PR-build/tag-build provenance gap. |
 
-The dashboard preview is intentionally outside this queue unless its owner
-requests a docs-only PR. No task in this queue authorizes deletion of either
-salvage worktree.
+Local historical work is intentionally outside this public queue. It is not a
+reason to delete anything, and it must not be reintroduced without a separate
+owner-approved scope.
 
 ## Recommended next PR
 

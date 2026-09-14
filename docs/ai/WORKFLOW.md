@@ -216,7 +216,7 @@ existing GitHub Actions
 
 Agents follow the documented workflow.
 
-### Phase 2 — after Git/worktree cleanup
+### Phase 2 — after canonical-state verification
 
 Add a small local helper such as:
 
@@ -234,7 +234,14 @@ create one branch/worktree
 print the new worktree path
 ```
 
-Do not add this until the current remote/upstream layout has been cleaned up and made unambiguous.
+Before adding this helper:
+
+1. verify the canonical repository, remotes, current branch, commit, upstream,
+   and status
+2. complete the release-preflight canonical-remote fix when the helper is used
+   for release-related work
+3. create new task worktrees only under
+   `<workspace-root>/worktrees/`
 
 ### Phase 3
 
