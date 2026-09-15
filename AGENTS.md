@@ -409,13 +409,18 @@ read current main
 → implement smallest change
 → test
 → inspect diff
-→ independent review
+→ normal feature-branch push if qualified
+→ open one PR and run CI
+→ independent review of the exact candidate
 → router/browser test if required
-→ owner approval
-→ PR
-→ CI
-→ merge
-→ remove worktree
+→ owner approval to merge
+→ merge only after approval
+→ remove worktree only when clean and unambiguous
 ```
+
+Independent review may occur before or after PR creation, but both review and
+CI must apply to the current candidate before the owner merge decision. A
+changed candidate requires fresh applicable validation and independent review.
+Creating a normal PR or running CI is not itself an owner merge approval.
 
 Apply the same transactional discipline to development that the project already applies to routing.

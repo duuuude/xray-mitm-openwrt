@@ -162,6 +162,22 @@ status.
 
 ## Workflow and tooling work
 
+### Approved scheduling focus — staged autonomous PR workflow
+
+The owner has chosen the zero-additional-spend autonomous PR initiative as
+the current workflow priority. Stage 0 is one documentation/process PR; the
+later stages are separately scoped and reviewed, not one platform build.
+`docs/ai/AUTONOMOUS_PR.md` records the stage order, Stage 3 execution
+go/no-go, independence, cost boundary, and owner gates. The first pilot targets
+an approved low-risk task reaching an open, reviewed, CI-green PR without the
+owner transporting agent messages. No runtime, controller, or unattended
+router/release authority is approved by this scheduling decision.
+
+The truthful partial-bundle inspection defect remains a genuine P1 product
+correctness item. It is queued while this workflow initiative is active; its
+inspection contract has not been decided or implemented. Recheck the roadmap
+after every owner-approved stage merge before selecting another PR.
+
 ### Present automation
 
 - `scripts/validate-release.sh` runs the offline validator and layered shell,
@@ -225,19 +241,40 @@ matrix or clearly label manual inputs as unsupported experiments.
 ## Priority order and PR discipline
 
 Only the first item is active. The rest are queued; do not start a later item
-in parallel with an active PR.
+in parallel with an active PR. The priority order reflects the owner's
+workflow scheduling choice, not a claim that the P1 product defect is fixed.
 
 | Priority | One coherent PR / initiative | Type | Reason |
 | --- | --- | --- | --- |
-| 1 | Define and enforce truthful partial-bundle inspection | Product correctness | Read-only status can overstate a partially edited rule. |
-| 2 | Establish repeatable official OpenWrt 25.12.x compatibility evidence | Compatibility/testing | The support claim is broader than the current automated proof. |
-| 3 | Add safe `start-pr.sh` worktree/branch setup | Workflow/tooling | Prevents recurrence of unmanaged sibling workspaces. |
-| 4 | Add change-aware checks and a machine-readable evidence report | Workflow/tooling | Makes the correct validation and manual gates auditable. |
-| 5 | Build once and promote the exact tested artifact | Release workflow | Removes the remaining PR-build/tag-build provenance gap. |
+| 1 | Stage 0: authorize the staged autonomous PR workflow | Process documentation | Record the approved direction, zero-extra-spend boundary, and unchanged safety gates first. |
+| 2 | Stage 1: add safe repository-state and PR-start helpers | Workflow/tooling | First deterministic prerequisite; select only after Stage 0 is merged and the plan is rechecked. |
+| 3 | Stage 2: add change-aware checks and exact-head evidence | Workflow/tooling | Make validation and conditional gates auditable before a controller. |
+| 4 | Define and enforce truthful partial-bundle inspection | Product correctness, P1 defect | Read-only status can overstate a partially edited rule; queued, not resolved. |
+| 5 | Establish repeatable official OpenWrt 25.12.x compatibility evidence | Compatibility/testing | The support claim is broader than the current automated proof. |
+| 6 | Build once and promote the exact tested artifact | Release workflow | Removes the remaining PR-build/tag-build provenance gap. |
 
 ## Recommended next PR
 
-### `fix: make read-only routing state truthful for partial rules`
+### `docs: authorize staged autonomous PR workflow`
+
+Scope only the Stage 0 durable-process reconciliation: document the goal,
+single-PR stage order, Plus-only/zero-additional-spend constraint, Stage 3
+go/no-go, independent review and conditional real-system gates, and unchanged
+owner decisions. Correct the inaccurate `AGENTS.md` PR/CI/merge sequence.
+Do not add a controller, Git helper, package/CI workflow, product behavior, or
+router action in this PR.
+
+Acceptance criteria:
+
+- A maintainer can reconstruct the staged initiative and its first low-risk
+  pilot without assuming the entire roadmap is one implementation task.
+- The partial-bundle P1 defect stays queued with its contract unresolved.
+- PR creation and CI are routine; merge remains explicitly owner-approved.
+- No independent review, AX4200/browser, signing, release, or rollback gate is
+  weakened. `sh scripts/validate-release.sh`, a documentation consistency
+  scan, and `git diff --check` pass; independent PR review is required.
+
+### Queued product PR: `fix: make read-only routing state truthful for partial rules`
 
 Scope one PassWall2 inspection correctness defect only:
 
@@ -290,7 +327,7 @@ owner-controlled release sequence.
 - No merge, tag, release, force-push, or signing action merely because tests
   are green.
 
-The next implementation state change should be the single truthful
-partial-bundle inspection PR above. After that PR is reviewed and accepted,
-revalidate this plan against the resulting main commit before selecting the
-next queued item.
+The next state change is the single Stage 0 documentation PR above. After
+that PR is independently reviewed and owner-approved for merge, revalidate
+this plan against resulting `main` before selecting Stage 1 or any queued
+product item. Do not begin either in the Stage 0 branch.

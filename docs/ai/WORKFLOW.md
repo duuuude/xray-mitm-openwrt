@@ -157,6 +157,24 @@ automatically. See `AGENTS.md`.
 
 ---
 
+## Staged autonomous PR initiative
+
+`docs/ai/AUTONOMOUS_PR.md` records the owner's current workflow priority:
+reduce manual message transport for one approved, low-risk PR while preserving
+the three independent Works and all owner gates. Each stage is a separate PR;
+Stage 0 changes documentation only. Stage 3 must prove a qualifying
+zero-additional-spend, subscription-authenticated scriptable runtime before
+any unattended controller is built. A semi-autonomous three-Work process
+remains the fallback if that pilot fails.
+
+Normal PR creation and CI are routine, reversible steps; the owner decision
+is whether to merge after current-candidate independent review, required CI,
+and any conditional real-system gate. Review may precede PR creation, but it
+must be repeated when the candidate changes. Neither an AI review nor CI
+alone replaces the owner merge decision.
+
+---
+
 ## Routine actions and owner gates
 
 Development Lead may handle routine, reversible work without interrupting the

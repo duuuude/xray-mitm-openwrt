@@ -14,7 +14,30 @@ AI should make engineering judgments. Automation should verify repeatable facts.
 
 ---
 
-## Stage 1 — Local repository safety
+## Current initiative and stage boundary
+
+`docs/ai/AUTONOMOUS_PR.md` defines the owner's staged, zero-additional-spend
+autonomous PR initiative. Its Stage 0 reconciles durable documentation only.
+The safe repository helper below is that initiative's Stage 1, and change-
+aware PR verification/evidence follows as Stage 2; neither belongs in the
+Stage 0 branch. Stage 3 then pilots a qualifying local, ChatGPT-subscription-
+authenticated scriptable runtime. Do not begin an unattended controller
+without its recorded invocation, authentication, billing, permission, and
+task-replay go/no-go evidence. Preserve the current three-Work process as a
+fallback and keep all owner and real-system gates.
+
+Existing GitHub Actions may run within their available free allowance.
+Do not use separately billed model APIs, paid runners, or a ChatGPT login
+session in CI merely to make the loop autonomous.
+
+The numbered workstreams below describe reusable automation capabilities,
+not the Stage 0–8 PR order of the autonomous initiative. In particular,
+OpenWrt integration is a separate compatibility workstream, not that
+initiative's Stage 3 runtime go/no-go.
+
+---
+
+## Workstream 1 — Local repository safety
 
 After verifying the canonical repository, remotes, and current state, add a
 safe helper for starting a PR. If the helper participates in release work,
@@ -57,7 +80,7 @@ Before implementation, require:
 
 ---
 
-## Stage 2 — PR verification
+## Workstream 2 — PR verification
 
 Target command:
 
@@ -105,7 +128,7 @@ Release test: not required
 
 ---
 
-## Stage 3 — OpenWrt integration CI
+## Workstream 3 — OpenWrt integration CI
 
 Add a real OpenWrt VM/QEMU compatibility layer.
 
@@ -134,7 +157,7 @@ The VM does not replace AX4200 network testing. It fills the missing integration
 
 ---
 
-## Stage 4 — Evidence generation
+## Workstream 4 — Evidence generation
 
 Have CI or a local script generate a PR evidence artifact containing:
 
@@ -152,7 +175,7 @@ This makes review evidence consistent.
 
 ---
 
-## Stage 5 — Release preflight
+## Workstream 5 — Release preflight
 
 `release-preflight.sh` should remain non-destructive.
 
@@ -182,7 +205,7 @@ production environment approval
 
 ---
 
-## Stage 6 — Build once, promote
+## Workstream 6 — Build once, promote
 
 Long-term release flow:
 
