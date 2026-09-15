@@ -1,6 +1,6 @@
 # Xray MITM OpenWrt — Master Plan
 
-Status: current roadmap; last audited 2026-09-14
+Status: current roadmap; last audited 2026-09-15
 
 This plan is based on the actual canonical repository, not on an earlier plan
 or historical checkout.
@@ -11,8 +11,8 @@ The authoritative source is:
 
 - Repository: `https://github.com/duuuude/xray-mitm-openwrt.git`
 - Public branch: `main`
-- Review/audit baseline: `ddf9aaa82cc42538564306803587790957fe2a7f`, the main
-  commit inspected when this plan was refreshed
+- Review/audit baseline: `eadc09544bee04131b598fd88fcf45a4b11add99`, the current
+  main commit inspected when this plan was refreshed
 - Observed package baseline: `0.4.4-r1`
 - Canonical clone root: `<repo-root>`
 - Temporary task worktrees: `<workspace-root>/worktrees/`
@@ -85,6 +85,11 @@ They are complete in current `main` and must not remain as pending tasks.
 - The tabbed Basic/Advanced LuCI structure, state loading, async activation
   lock, activation-result reporting, and current routing summary/table are
   implemented and tested.
+- Setup-guide routing readiness now uses one centralized service-selection
+  predicate. All ten supported service bundles satisfy readiness, while
+  `set_default_vpn` and `set_localhost_proxy_zero` alone do not. Focused
+  frontend-state coverage and the exact candidate's AX4200/browser gate closed
+  this correctness item.
 
 ### Safety, transaction, and installation behavior
 
@@ -130,23 +135,7 @@ future work.
 
 ### Product correctness
 
-#### P1 — Make setup-guide routing readiness cover the current contract
-
-`luci-app-xray-mitm/htdocs/luci-static/resources/xray-mitm/state.js:202-214`
-marks the setup-guide routing step ready only for `google_mitm`,
-`google_meet`, `gemini`, or `iran_direct`. The current contract has additional
-service bundles, so a valid configuration containing only Google Play,
-Android checks, YouTube, Google accounts, Meta, or Fastly can still be shown
-as incomplete.
-
-This is a real user-facing correctness issue, not a reason to weaken any
-safety check. The fix should define which service selections make the
-routing-assistant step complete, keep the two advanced policy toggles from
-being mistaken for service selection by themselves, centralize the predicate,
-and add a test for every supported service bundle plus the no-selection case.
-Because this changes LuCI behavior, it requires the real browser gate.
-
-#### P2 — Make read-only routing state truthful for partial rules
+#### P1 — Make read-only routing state truthful for partial rules
 
 PassWall2 inspection currently treats a bundle as active after finding a
 representative line, for example `domain:googlevideo.com`,
@@ -231,43 +220,38 @@ in parallel with an active PR.
 
 | Priority | One coherent PR / initiative | Type | Reason |
 | --- | --- | --- | --- |
-| 1 | Make setup-guide routing readiness cover every supported service bundle | Product correctness | A valid current configuration can be shown as incomplete. |
-| 2 | Define and enforce truthful partial-bundle inspection | Product correctness | Read-only status can overstate a partially edited rule. |
-| 3 | Establish repeatable official OpenWrt 25.12.x compatibility evidence | Compatibility/testing | The support claim is broader than the current automated proof. |
-| 4 | Add safe `start-pr.sh` worktree/branch setup | Workflow/tooling | Prevents recurrence of unmanaged sibling workspaces. |
-| 5 | Add change-aware checks and a machine-readable evidence report | Workflow/tooling | Makes the correct validation and manual gates auditable. |
-| 6 | Build once and promote the exact tested artifact | Release workflow | Removes the remaining PR-build/tag-build provenance gap. |
+| 1 | Define and enforce truthful partial-bundle inspection | Product correctness | Read-only status can overstate a partially edited rule. |
+| 2 | Establish repeatable official OpenWrt 25.12.x compatibility evidence | Compatibility/testing | The support claim is broader than the current automated proof. |
+| 3 | Add safe `start-pr.sh` worktree/branch setup | Workflow/tooling | Prevents recurrence of unmanaged sibling workspaces. |
+| 4 | Add change-aware checks and a machine-readable evidence report | Workflow/tooling | Makes the correct validation and manual gates auditable. |
+| 5 | Build once and promote the exact tested artifact | Release workflow | Removes the remaining PR-build/tag-build provenance gap. |
 
 ## Recommended next PR
 
-### `fix: make setup-guide routing readiness cover every supported service bundle`
+### `fix: make read-only routing state truthful for partial rules`
 
-Scope one LuCI correctness defect only:
+Scope one PassWall2 inspection correctness defect only:
 
-- Centralize the setup-guide predicate for the existing service-bundle
-  selections in `state.js`.
-- Treat each supported service bundle as sufficient routing readiness.
-- Keep `set_default_vpn` and other advanced policy toggles from satisfying the
-  step by themselves.
-- Add focused frontend-state coverage for every supported service selection and
-  the no-selection case.
-- Preserve existing routing choices, recommended defaults, PassWall2 rules,
-  certificates, installer behavior, and service activation behavior.
+- Define the inspection contract for partial, aggregate, legacy, and
+  wrong-target rules.
+- Make read-only status distinguish a complete managed bundle from a
+  representative or partial match.
+- Add focused regressions for partial lists, wrong targets, aggregate rules,
+  and compatible legacy rules.
+- Preserve apply-time verification, routing choices, certificates, installer
+  behavior, service activation behavior, and credential-safety boundaries.
 
 Acceptance criteria:
 
-- A configuration with exactly one supported service bundle selected is shown
-  as routing-ready for every current bundle.
-- No service selection remains not-ready, and advanced policy toggles alone do
-  not make the step ready.
-- The predicate has one source of truth and does not duplicate routing-field
-  knowledge across setup-guide renderers.
-- Focused frontend-state tests, `sh scripts/validate-release.sh`, bundled Node
-  syntax/frontend checks, and `git diff --check` pass on the candidate branch.
-- The exact candidate passes the required AX4200 desktop-browser gate: reload
-  the affected LuCI page, exercise the relevant state transitions, inspect the
-  browser console, verify no unintended router state changed, and obtain owner
-  visual approval before merge.
+- Read-only inspection reports a bundle as active only according to the
+  explicitly documented complete-bundle contract.
+- Partial lists, wrong targets, aggregate rules, and compatible legacy rules
+  have deterministic, tested results.
+- Apply-time verification and existing safety boundaries remain unchanged.
+- Focused tests, `sh scripts/validate-release.sh`, applicable bundled-Node
+  checks, and `git diff --check` pass on the candidate branch.
+- If LuCI behavior changes, the exact candidate passes the required AX4200
+  desktop-browser gate and receives owner visual approval before merge.
 
 ## Validation and release gates for future work
 
@@ -297,7 +281,7 @@ owner-controlled release sequence.
 - No merge, tag, release, force-push, or signing action merely because tests
   are green.
 
-The next implementation state change should be the single setup-guide
-routing-readiness PR above. After that PR is reviewed and accepted, revalidate
-this plan against the resulting main commit before selecting the next queued
-item.
+The next implementation state change should be the single truthful
+partial-bundle inspection PR above. After that PR is reviewed and accepted,
+revalidate this plan against the resulting main commit before selecting the
+next queued item.
