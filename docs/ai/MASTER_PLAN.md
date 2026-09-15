@@ -89,7 +89,16 @@ They are complete in current `main` and must not remain as pending tasks.
   predicate. All ten supported service bundles satisfy readiness, while
   `set_default_vpn` and `set_localhost_proxy_zero` alone do not. Focused
   frontend-state coverage and the exact candidate's AX4200/browser gate closed
-  this correctness item.
+  this correctness item. The 2026-09-15 manual check used candidate commit
+  `ab9107bccaf963c766965cfa748d6635749ddb35` and temporarily staged only its
+  packaged `state.js` on the AX4200. The Overview, Basic Routing, and Advanced
+  Routing pages rendered; all ten service selections, no-selection, and both
+  policy-only states were exercised; the browser console reported no errors or
+  warnings; no save/apply action occurred; and the original file plus recorded
+  service, certificate, PassWall2, routing, and unrelated-file state were
+  restored and verified. Owner visual approval was recorded. This proves the
+  staged LuCI/browser gate, not native APK installation or trusted APK
+  rollback.
 
 ### Safety, transaction, and installation behavior
 
