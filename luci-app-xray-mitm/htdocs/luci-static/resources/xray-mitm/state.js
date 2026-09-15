@@ -95,6 +95,11 @@ var ROUTING_FIELDS = [
 	'set_localhost_proxy_zero'
 ];
 
+var ROUTING_POLICY_FIELDS = {
+	set_default_vpn: true,
+	set_localhost_proxy_zero: true
+};
+
 function normalizeRoutingChoices(routing, fallback) {
 	routing = routing || {};
 	fallback = fallback || {};
@@ -166,6 +171,14 @@ function routingIsConfigured(routing) {
 	return false;
 }
 
+function routingHasServiceSelection(routing) {
+	routing = normalizeRoutingChoices(routing);
+
+	return ROUTING_FIELDS.some(function(name) {
+		return !ROUTING_POLICY_FIELDS[name] && routing[name] === true;
+	});
+}
+
 function routingMatchesRecommended(routing) {
 	routing = normalizeRoutingChoices(routing);
 	var recommended = recommendedChoices();
@@ -209,8 +222,7 @@ function setupProgress(status, certificates, passwall) {
 		serviceReady: status.configured === true,
 		certificateReady: slotPresent(current),
 		mitmRunning: status.running === true,
-		routingReady: routing.google_mitm === true || routing.google_meet === true || routing.gemini === true ||
-			routing.iran_direct === true
+		routingReady: routingHasServiceSelection(routing)
 	};
 }
 
@@ -220,6 +232,7 @@ return baseclass.extend({
 	nodeItems: nodeItems,
 	passwallSelection: passwallSelection,
 	normalizeRoutingChoices: normalizeRoutingChoices,
+	routingHasServiceSelection: routingHasServiceSelection,
 	recommendedChoices: recommendedChoices,
 	deriveBasicRoutingStatus: deriveBasicRoutingStatus,
 	routeStatus: routeStatus,
