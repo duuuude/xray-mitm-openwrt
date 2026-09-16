@@ -1,6 +1,6 @@
 # Xray MITM OpenWrt — Master Plan
 
-Status: current roadmap; last audited 2026-09-16
+Status: current roadmap; last audited 2026-09-17
 
 This plan is based on the actual canonical repository, not on an earlier plan
 or historical checkout.
@@ -11,8 +11,8 @@ The authoritative source is:
 
 - Repository: `https://github.com/duuuude/xray-mitm-openwrt.git`
 - Public branch: `main`
-- Review/audit baseline: `d76ae508fff070cf746a94ddbc5db915e9a85027`, the current
-  main commit inspected when this plan was refreshed
+- Review/audit baseline: `78da93324b6fa3d0ae8f42c717e1e5f7b85cb680`, the PR #39
+  squash merge and current main commit inspected when this plan was refreshed
 - Observed package baseline: `0.4.4-r1`
 - Canonical clone root: `<repo-root>`
 - Temporary task worktrees: `<workspace-root>/worktrees/`
@@ -141,6 +141,15 @@ They are complete in current `main` and must not remain as pending tasks.
   ancestry, path, branch, worktree, and inspection-error states, and creates
   one isolated feature worktree without destructive Git operations. Its
   focused regression suite is part of the full repository validator.
+- Stage 2 is complete in merged PR #39 and is present on `main` at
+  `78da93324b6fa3d0ae8f42c717e1e5f7b85cb680`. The current `main` includes
+  `scripts/check-pr.sh`, which binds evidence to exact base and candidate
+  commits, classifies changed files, runs applicable focused and full offline
+  checks, reports skipped checks and manual gates, suppresses candidate command
+  output, and rechecks the working tree and HEAD before returning a ready
+  result. Its focused regression suite is part of the full repository
+  validator. It does not prove live router, browser, release, signing, or
+  external-service behavior.
 
 ### Historical planning text removed as obsolete
 
@@ -178,14 +187,14 @@ the current workflow priority. Stage 0 was completed in PR #35 and is present
 on `main` at `c69239bb3b1dac04d2edbd2d73d126f2478b778c`. It reconciled the
 durable process documentation, PR/CI sequence, independent review boundary,
 owner gates, and zero-additional-spend constraint. Stage 1 was then completed
-in PR #37 and is present on `main` at
-`d76ae508fff070cf746a94ddbc5db915e9a85027`. Stage 2 is now the single active
-stage; later stages remain separately scoped and reviewed, not one platform
-build. `docs/ai/AUTONOMOUS_PR.md` records the stage order, Stage 3 execution
-go/no-go, independence, cost boundary, and owner gates. The first pilot targets
-an approved low-risk task reaching an open, reviewed, CI-green PR without the
-owner transporting agent messages. No runtime, controller, or unattended
-router/release authority is approved by this scheduling decision.
+in PR #37 and Stage 2 in PR #39; both are present in the current `main`.
+Stage 3 is now the single active stage: a zero-extra-spend execution go/no-go
+qualification. Later stages remain separately scoped and reviewed, not one
+platform build. `docs/ai/AUTONOMOUS_PR.md` records the stage order, Stage 3
+execution go/no-go, independence, cost boundary, and owner gates. The first
+pilot targets an approved low-risk task reaching an open, reviewed, CI-green
+PR without the owner transporting agent messages. No runtime, controller, or
+unattended router/release authority is approved by this scheduling decision.
 
 The truthful partial-bundle inspection defect remains a genuine P1 product
 correctness item. It is queued while this workflow initiative is active; its
@@ -203,23 +212,22 @@ after every owner-approved stage merge before selecting another PR.
 - `scripts/start-pr.sh` verifies repository and remote identity, clean and
   inspectable `main`, safe ancestry, path containment, and collision state
   before creating one isolated feature worktree.
+- `scripts/check-pr.sh` binds change-aware validation evidence to exact base
+  and candidate commits, runs relevant offline checks, reports manual gates,
+  and fails closed on missing evidence or post-validation state changes.
 - `scripts/router-local-test.sh` provides controlled manual staging and
   restoration. The physical-router and desktop-browser gates remain manual by
   design.
 
 ### Missing or incomplete automation
 
-1. **Change-aware PR check.** `scripts/check-pr.sh` does not yet exist. It
-   should classify changed files, select the relevant offline tests, report
-   required manual gates, and fail closed when a category needs evidence that
-   is missing. It must not imply that static tests prove router behavior.
+1. **Machine-readable evidence artifact.** `scripts/check-pr.sh` now emits
+   machine-readable and human-readable commit-bound evidence, but no standard
+   committed or CI artifact records base/head, changed files, exact commands,
+   test results, built-artifact checksums, and browser/router gate ownership.
+   This should follow the change-aware check, not replace human approval.
 
-2. **Machine-readable evidence.** No standard artifact records base/head,
-   changed files, exact commands, test results, built-artifact checksums, and
-   browser/router gate ownership. This should follow the change-aware check,
-   not replace human approval.
-
-3. **Build-once promotion.** The PR build and tag-triggered signed-feed build
+2. **Build-once promotion.** The PR build and tag-triggered signed-feed build
    currently build separately. The long-term workflow should prove that the
    tested package bytes, metadata, and source commit are the exact bytes later
    signed and published. Signing remains protected and owner-controlled.
@@ -258,45 +266,46 @@ workflow scheduling choice, not a claim that the P1 product defect is fixed.
 
 | Priority | One coherent PR / initiative | Type | Reason |
 | --- | --- | --- | --- |
-| 1 | Stage 2: add change-aware checks and exact-head evidence | Workflow/tooling | Make validation and conditional gates auditable before a controller. |
+| 1 | Stage 3: zero-extra-spend execution go/no-go | Workflow qualification | Verify a qualifying local runtime before any unattended controller work. |
 | 2 | Define and enforce truthful partial-bundle inspection | Product correctness, P1 defect | Read-only status can overstate a partially edited rule; queued, not resolved. |
 | 3 | Establish repeatable official OpenWrt 25.12.x compatibility evidence | Compatibility/testing | The support claim is broader than the current automated proof. |
 | 4 | Build once and promote the exact tested artifact | Release workflow | Removes the remaining PR-build/tag-build provenance gap. |
 
-## Recommended next PR
+## Recommended next stage
 
-### `feat: add change-aware PR checks and exact-head evidence`
+### Stage 3 — zero-extra-spend execution go/no-go
 
-Scope only Stage 2 of the approved autonomous PR initiative:
+Scope only the runtime qualification gate in the approved autonomous PR
+initiative:
 
-- add the deterministic change-aware PR check described in the automation plan;
-- classify changed files and select the relevant offline validation;
-- bind evidence to the exact verified base and candidate commits;
-- report skipped checks, required manual gates, and behavior that static tests
-  cannot prove;
-- fail closed when required evidence for a changed category is missing.
+- verify current official documentation for Codex authentication, plan usage,
+  and any SDK or scripting interface;
+- pilot native Apple Silicon Codex CLI execution authenticated with the owner's
+  ChatGPT account;
+- record the invocation method, authentication mode, billing boundary,
+  sandbox/permission model, task quality, and measured resource usage;
+- replay one approved low-risk project task successfully;
+- make an explicit go/no-go decision for a qualifying scriptable runtime.
 
-Do not add a controller or unattended runtime, product behavior, package or
-release behavior, router actions, signing, OpenWrt compatibility work, or any
-Stage 3+ work in this PR.
+Do not buy credits, use separately billed API inference, use paid runners or
+cloud VMs, place a ChatGPT login session in CI, add an unattended controller,
+change product behavior, alter package or release behavior, touch router or
+signing state, or begin Stage 4 in this qualification.
 
 Acceptance criteria:
 
-- Changed-file classification covers documentation, shell, Python, frontend,
-  package, PassWall2, installer, release, and workflow/security categories as
-  applicable to the repository.
-- The check selects the focused offline tests and full validator relevant to
-  the changed categories without claiming that static tests prove live-router
-  or browser behavior.
-- Evidence records the exact base commit, candidate commit, changed files,
-  commands, results, skipped checks, and required manual gates.
-- Missing required evidence causes a clear failure or blocked result rather
-  than a false pass.
-- The report distinguishes routine validation from OpenWrt, AX4200/browser,
-  release, signing, and owner-gated actions.
-- Focused tests, `sh scripts/validate-release.sh`, applicable bundled runtime
-  checks, and `git diff --check` pass on the candidate branch.
-- Independent PR review is required before an owner merge decision.
+- Current vendor documentation is checked and cited in the qualification
+  record.
+- The pilot uses the owner's existing ChatGPT Plus sign-in and no separately
+  billed model API, paid runner, cloud VM, or CI login session.
+- The exact invocation, authentication, billing, sandbox/permission, and
+  successful replay evidence is recorded without secrets or credentials.
+- The pilot measures Mac memory, swap, disk, native-arm64 execution time, and
+  included usage/capacity behavior where observable.
+- A qualifying runtime is required before Stage 4 begins. If none qualifies,
+  the initiative pauses at the current semi-autonomous workflow.
+- No controller, unattended merge, release, signing, or router authority is
+  granted by the qualification result.
 
 ### Queued product PR: `fix: make read-only routing state truthful for partial rules`
 
@@ -351,7 +360,8 @@ owner-controlled release sequence.
 - No merge, tag, release, force-push, or signing action merely because tests
   are green.
 
-The next state change is the single Stage 2 change-aware PR above. After that
-PR is independently reviewed and owner-approved for merge, revalidate this
-plan against the resulting `main` before selecting Stage 3 or any queued
-product item. Do not begin either in the Stage 2 branch.
+The next state change is the Stage 3 zero-extra-spend execution go/no-go
+qualification above. Complete and record that gate before selecting Stage 4
+or any queued product item. Revalidate this plan after the qualification and
+after every later owner-approved stage merge. Do not begin Stage 3 work in a
+completed Stage 2 branch.

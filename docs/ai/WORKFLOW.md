@@ -398,13 +398,13 @@ Before using or changing this helper:
 
 ### Phase 3
 
-Add:
+Use the implemented change-aware PR checker:
 
 ```text
 scripts/check-pr.sh
 ```
 
-that:
+It:
 
 ```text
 detects changed file categories
