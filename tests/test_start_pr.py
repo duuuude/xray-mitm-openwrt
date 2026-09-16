@@ -24,6 +24,9 @@ class StartPrTests(unittest.TestCase):
         self.project = self.root / "project"
         self.remote = self.root / "remote.git"
         self.worktrees = self.root / "worktrees"
+        self.real_git = shutil.which("git")
+        if self.real_git is None:
+            raise unittest.SkipTest("git is required for start-pr tests")
         self.worktrees.mkdir()
         (self.project / "scripts").mkdir(parents=True)
         shutil.copy2(START_PR, self.project / "scripts/start-pr.sh")
@@ -88,6 +91,51 @@ class StartPrTests(unittest.TestCase):
             check=False,
         )
 
+    def failing_git_env(self, failure: str) -> dict[str, str]:
+        fake_bin = self.root / "fake-bin"
+        fake_bin.mkdir(exist_ok=True)
+        fake_git = fake_bin / "git"
+        fake_git.write_text(
+            """#!/bin/sh
+set -eu
+
+real_git=${START_PR_REAL_GIT:?}
+failure=${START_PR_FAIL_GIT:?}
+saw_worktree=0
+saw_list=0
+
+for arg in "$@"; do
+    [ "$arg" = worktree ] && saw_worktree=1
+    [ "$arg" = list ] && saw_list=1
+done
+
+case "$failure" in
+    status)
+        for arg in "$@"; do
+            [ "$arg" = status ] && exit 42
+        done
+        ;;
+    worktree-list)
+        [ "$saw_worktree" -eq 1 ] && [ "$saw_list" -eq 1 ] && exit 42
+        ;;
+    show-ref)
+        for arg in "$@"; do
+            [ "$arg" = show-ref ] && exit 42
+        done
+        ;;
+esac
+
+exec "$real_git" "$@"
+""",
+            encoding="utf-8",
+        )
+        fake_git.chmod(0o755)
+        return {
+            "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+            "START_PR_FAIL_GIT": failure,
+            "START_PR_REAL_GIT": self.real_git,
+        }
+
     def test_success_fast_forwards_clean_main_and_creates_worktree(self) -> None:
         (self.project / "README.md").write_text("remote update\n", encoding="utf-8")
         self.git("add", "README.md")
@@ -122,6 +170,13 @@ class StartPrTests(unittest.TestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("main checkout is not clean", result.stderr)
+        self.assertFalse(self.ref_exists("refs/heads/feat/example"))
+
+    def test_rejects_git_status_inspection_failure(self) -> None:
+        result = self.run_start_pr(extra_env=self.failing_git_env("status"))
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Could not inspect the canonical main status", result.stderr)
         self.assertFalse(self.ref_exists("refs/heads/feat/example"))
 
     def test_rejects_non_main_checkout(self) -> None:
@@ -211,6 +266,20 @@ class StartPrTests(unittest.TestCase):
         self.assertIn("worktrees root must not be a symlink", result.stderr)
         self.assertFalse(self.ref_exists("refs/heads/feat/example"))
         self.assertFalse((escaped_root / "example").exists())
+
+    def test_rejects_git_worktree_list_inspection_failure(self) -> None:
+        result = self.run_start_pr(extra_env=self.failing_git_env("worktree-list"))
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Could not inspect registered worktrees", result.stderr)
+        self.assertFalse(self.ref_exists("refs/heads/feat/example"))
+
+    def test_rejects_git_show_ref_inspection_failure(self) -> None:
+        result = self.run_start_pr(extra_env=self.failing_git_env("show-ref"))
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Could not inspect local branch references", result.stderr)
+        self.assertFalse(self.ref_exists("refs/heads/feat/example"))
 
     def test_rejects_local_ahead_main_without_overwriting(self) -> None:
         (self.project / "README.md").write_text("unique local\n", encoding="utf-8")

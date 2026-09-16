@@ -45,7 +45,8 @@ git_at check-ref-format --branch "$branch_name" >/dev/null 2>&1 || die "Invalid 
 current_branch="$(git_at symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
 [ "$current_branch" = 'main' ] || die "The canonical checkout must be on main; current branch is ${current_branch:-detached HEAD}."
 
-[ -z "$(git_at status --porcelain --untracked-files=all)" ] || die 'The canonical main checkout is not clean.'
+main_status="$(git_at status --porcelain --untracked-files=all)" || die 'Could not inspect the canonical main status.'
+[ -z "$main_status" ] || die 'The canonical main checkout is not clean.'
 
 case "$worktree_path" in
 	/*)
@@ -144,18 +145,29 @@ if [ "$local_main" != "$remote_main" ]; then
 	fi
 fi
 
-[ -z "$(git_at status --porcelain --untracked-files=all)" ] || die 'The canonical main checkout became dirty during synchronization.'
+main_status="$(git_at status --porcelain --untracked-files=all)" || die 'Could not recheck the canonical main status after synchronization.'
+[ -z "$main_status" ] || die 'The canonical main checkout became dirty during synchronization.'
 base_commit="$(git_at rev-parse --verify refs/heads/main)"
 [ ! -L "$worktrees_root" ] || die "The worktrees root became a symlink: $worktrees_root"
 mkdir -p "$worktrees_root"
 canonical_worktrees_root="$(CDPATH= cd -- "$worktrees_root" 2>/dev/null && pwd -P)" || die 'The worktrees root could not be resolved after synchronization.'
 [ "$canonical_worktrees_root" = "$worktrees_root" ] || die "The worktrees root must not resolve outside $worktrees_root."
 
-if git_at show-ref --verify --quiet "refs/heads/$branch_name"; then
-	die "Local branch already exists: $branch_name"
-fi
+local_branch_status=0
+git_at show-ref --verify --quiet "refs/heads/$branch_name" >/dev/null 2>&1 || local_branch_status=$?
+case "$local_branch_status" in
+	0)
+		die "Local branch already exists: $branch_name"
+		;;
+	1)
+		;;
+	*)
+		die 'Could not inspect local branch references.'
+		;;
+esac
 
-if git_at worktree list --porcelain | awk -v target="$canonical_worktree_path" '$1 == "worktree" && substr($0, 10) == target { found = 1 } END { exit(found ? 0 : 1) }'; then
+registered_worktrees="$(git_at worktree list --porcelain)" || die 'Could not inspect registered worktrees.'
+if printf '%s\n' "$registered_worktrees" | awk -v target="$canonical_worktree_path" '$1 == "worktree" && substr($0, 10) == target { found = 1 } END { exit(found ? 0 : 1) }'; then
 	die "Worktree path is already registered: $canonical_worktree_path"
 fi
 
