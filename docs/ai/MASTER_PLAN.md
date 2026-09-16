@@ -11,7 +11,7 @@ The authoritative source is:
 
 - Repository: `https://github.com/duuuude/xray-mitm-openwrt.git`
 - Public branch: `main`
-- Review/audit baseline: `78da93324b6fa3d0ae8f42c717e1e5f7b85cb680`, the PR #39
+- Review/audit baseline: `0b1622c44c06731c65239dea5d64bcffe72c084a`, the PR #40
   squash merge and current main commit inspected when this plan was refreshed
 - Observed package baseline: `0.4.4-r1`
 - Canonical clone root: `<repo-root>`
@@ -150,6 +150,12 @@ They are complete in current `main` and must not remain as pending tasks.
   result. Its focused regression suite is part of the full repository
   validator. It does not prove live router, browser, release, signing, or
   external-service behavior.
+- Stage 3 has been qualified with a bounded local Codex CLI pilot. The result
+  is a GO for local, scriptable execution under explicit sandbox and owner
+  controls, and a NO-GO for an unattended controller, CI login, automatic
+  push/PR/merge, release, signing, or router authority. The qualification
+  record below is the durable evidence; it does not qualify the standard API
+  or Agents SDK under the Plus plan.
 
 ### Historical planning text removed as obsolete
 
@@ -187,14 +193,13 @@ the current workflow priority. Stage 0 was completed in PR #35 and is present
 on `main` at `c69239bb3b1dac04d2edbd2d73d126f2478b778c`. It reconciled the
 durable process documentation, PR/CI sequence, independent review boundary,
 owner gates, and zero-additional-spend constraint. Stage 1 was then completed
-in PR #37 and Stage 2 in PR #39; both are present in the current `main`.
-Stage 3 is now the single active stage: a zero-extra-spend execution go/no-go
-qualification. Later stages remain separately scoped and reviewed, not one
-platform build. `docs/ai/AUTONOMOUS_PR.md` records the stage order, Stage 3
-execution go/no-go, independence, cost boundary, and owner gates. The first
-pilot targets an approved low-risk task reaching an open, reviewed, CI-green
-PR without the owner transporting agent messages. No runtime, controller, or
-unattended router/release authority is approved by this scheduling decision.
+in PR #37, Stage 2 in PR #39, and Stage 3 was qualified in this documented
+pilot; the completed stages are present or recorded on current `main`.
+Stage 4 is now the single active stage: a local vertical slice using the
+qualified runtime. Later stages remain separately scoped and reviewed, not one
+platform build. `docs/ai/AUTONOMOUS_PR.md` records the stage order,
+independence, cost boundary, and owner gates. No unattended router/release
+authority is approved by this scheduling decision.
 
 The truthful partial-bundle inspection defect remains a genuine P1 product
 correctness item. It is queued while this workflow initiative is active; its
@@ -266,46 +271,93 @@ workflow scheduling choice, not a claim that the P1 product defect is fixed.
 
 | Priority | One coherent PR / initiative | Type | Reason |
 | --- | --- | --- | --- |
-| 1 | Stage 3: zero-extra-spend execution go/no-go | Workflow qualification | Verify a qualifying local runtime before any unattended controller work. |
+| 1 | Stage 4: local vertical slice | Workflow qualification | Exercise one approved low-risk task with the qualified local runtime before any PR automation. |
 | 2 | Define and enforce truthful partial-bundle inspection | Product correctness, P1 defect | Read-only status can overstate a partially edited rule; queued, not resolved. |
 | 3 | Establish repeatable official OpenWrt 25.12.x compatibility evidence | Compatibility/testing | The support claim is broader than the current automated proof. |
 | 4 | Build once and promote the exact tested artifact | Release workflow | Removes the remaining PR-build/tag-build provenance gap. |
 
+## Completed Stage 3 qualification record
+
+The qualification was performed on 2026-09-17 against `main` at
+`0b1622c44c06731c65239dea5d64bcffe72c084a`.
+
+Official documentation checked:
+
+- [Codex authentication](https://learn.chatgpt.com/docs/auth) states that
+  ChatGPT sign-in provides subscription access, API-key sign-in is
+  usage-based, and API-key usage is billed at standard API rates. It also
+  recommends API-key authentication for programmatic workflows such as CI/CD.
+- [Codex pricing](https://learn.chatgpt.com/docs/pricing) states that Codex is
+  included with ChatGPT plans, that Plus includes local Codex surfaces, and
+  that ChatGPT/Codex usage and limits are shared.
+- [Codex CLI](https://learn.chatgpt.com/docs/codex/cli) documents local
+  repository work and `codex exec` for repeatable workflows and pipelines.
+
+Pilot identity and invocation:
+
+- Native arm64 Apple M5 Mac with 24 GB RAM; no emulation or Docker runtime.
+- Codex CLI `0.154.0-alpha.6.2`.
+- `codex login status`: `Logged in using ChatGPT`.
+- `OPENAI_API_KEY`, `CODEX_API_KEY`, and `CODEX_ACCESS_TOKEN` were absent from
+  the pilot environment.
+- The pilot used an ephemeral `codex exec` session with JSON output and the
+  CLI `read-only` sandbox against the repository.
+- The task was a low-risk repository inspection: verify identity, branch,
+  HEAD, clean status, and the active Stage 3 roadmap section. The agent was
+  instructed not to edit files, use the network, commit, push, merge, or
+  touch router or release state.
+
+Pilot result and measurements:
+
+- The agent returned the expected repository, `main` branch, clean status,
+  exact HEAD, active Stage 3, and next-action report.
+- Repository state remained clean at the same commit; no repository, router,
+  or release files changed.
+- Wall time: 93.22 seconds.
+- Maximum resident memory: 222,265,344 bytes (about 212 MiB).
+- Swap operations: 0; observed system swap usage remained 0 MiB.
+- Available root-disk capacity remained about 463 GB before and after the run;
+  no disk-pressure concern was observed.
+- The CLI reported 137,710 input tokens, 117,248 cached input tokens, 3,836
+  output tokens, and 2,680 reasoning tokens for this pilot. Remaining Plus
+  capacity and any exact plan accounting were not observable from the CLI.
+- The first restricted outer-sandbox attempt could not open Codex local runtime
+  state. The successful retry granted only the local runtime permission needed
+  by Codex; the repository remained inside the CLI `read-only` sandbox.
+
+Qualification decision:
+
+- **GO:** bounded local, scriptable Codex CLI execution with ChatGPT sign-in,
+  an isolated worktree, explicit sandbox permissions, and owner-controlled
+  Git actions is qualified for Stage 4.
+- **NO-GO:** unattended CI/controller execution, ChatGPT login in GitHub
+  Actions, automatic push/PR/merge, release, signing, router, or certificate
+  authority is not qualified. The standard OpenAI API or Agents SDK was not
+  evaluated or assumed to be included with Plus.
+
 ## Recommended next stage
 
-### Stage 3 — zero-extra-spend execution go/no-go
+### Stage 4 — local vertical slice
 
-Scope only the runtime qualification gate in the approved autonomous PR
-initiative:
-
-- verify current official documentation for Codex authentication, plan usage,
-  and any SDK or scripting interface;
-- pilot native Apple Silicon Codex CLI execution authenticated with the owner's
-  ChatGPT account;
-- record the invocation method, authentication mode, billing boundary,
-  sandbox/permission model, task quality, and measured resource usage;
-- replay one approved low-risk project task successfully;
-- make an explicit go/no-go decision for a qualifying scriptable runtime.
-
-Do not buy credits, use separately billed API inference, use paid runners or
-cloud VMs, place a ChatGPT login session in CI, add an unattended controller,
-change product behavior, alter package or release behavior, touch router or
-signing state, or begin Stage 4 in this qualification.
+Use the qualified local runtime for one owner-approved, low-risk project task
+in one isolated worktree. Require current-main verification, focused tests,
+exact commit-bound evidence, complete diff inspection, and a separate
+read-only independent Reviewer context. Do not automatically push, create a
+PR, merge, tag, release, sign, mutate the router, or begin Stage 5 in this
+stage.
 
 Acceptance criteria:
 
-- Current vendor documentation is checked and cited in the qualification
-  record.
-- The pilot uses the owner's existing ChatGPT Plus sign-in and no separately
-  billed model API, paid runner, cloud VM, or CI login session.
-- The exact invocation, authentication, billing, sandbox/permission, and
-  successful replay evidence is recorded without secrets or credentials.
-- The pilot measures Mac memory, swap, disk, native-arm64 execution time, and
-  included usage/capacity behavior where observable.
-- A qualifying runtime is required before Stage 4 begins. If none qualifies,
-  the initiative pauses at the current semi-autonomous workflow.
-- No controller, unattended merge, release, signing, or router authority is
-  granted by the qualification result.
+- The task is explicitly approved and remains within a small docs/process or
+  similarly low-risk scope.
+- The runtime uses the recorded local authentication and sandbox boundary;
+  no API key, paid runner, cloud VM, CI login, or extra credits are used.
+- The worktree is clean before and after the task except for intended scoped
+  changes, and all changes are reviewed by the Development Lead.
+- Focused tests, full validation, exact diff evidence, and skipped-check
+  reporting are complete.
+- A separate read-only Reviewer reviews the exact candidate before any later
+  push or PR decision.
 
 ### Queued product PR: `fix: make read-only routing state truthful for partial rules`
 
@@ -360,8 +412,8 @@ owner-controlled release sequence.
 - No merge, tag, release, force-push, or signing action merely because tests
   are green.
 
-The next state change is the Stage 3 zero-extra-spend execution go/no-go
-qualification above. Complete and record that gate before selecting Stage 4
-or any queued product item. Revalidate this plan after the qualification and
-after every later owner-approved stage merge. Do not begin Stage 3 work in a
-completed Stage 2 branch.
+The next state change is the Stage 4 local vertical slice above. Complete and
+record that stage before selecting Stage 5 or any queued product item.
+Revalidate this plan after the qualification and after every later
+owner-approved stage merge. Do not begin Stage 4 work in a completed Stage 3
+qualification branch.
