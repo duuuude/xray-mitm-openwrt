@@ -112,7 +112,9 @@ installer changed
 → full validation
 
 docs only
-→ formatting/link/basic validation
+→ exact base/candidate diff check
+→ full repository validation
+→ report Markdown rendering/link validation as SKIPPED when unavailable
 ```
 
 Output should be machine-readable enough for an agent and human-readable enough for the owner.
