@@ -369,15 +369,15 @@ existing GitHub Actions
 
 Agents follow the documented workflow.
 
-### Phase 2 — after canonical-state verification
+### Phase 2 — canonical-state verification helper
 
-Add a small local helper such as:
+Use the implemented local helper:
 
 ```text
 scripts/start-pr.sh
 ```
 
-that can safely:
+The helper can safely:
 
 ```text
 verify canonical repo
@@ -387,7 +387,7 @@ create one branch/worktree
 print the new worktree path
 ```
 
-Before adding this helper:
+Before using or changing this helper:
 
 1. verify the canonical repository, remotes, current branch, commit, upstream,
    and status
