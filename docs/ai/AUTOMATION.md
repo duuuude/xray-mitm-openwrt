@@ -82,13 +82,17 @@ Before using or changing it, require:
 
 ## Workstream 2 — PR verification
 
-Target command:
+Implemented command on current `main`:
 
 ```text
 scripts/check-pr.sh
 ```
 
-It should detect changed file categories and select relevant validation.
+The Stage 2 capability was implemented in merged PR #39. It detects changed
+file categories, selects relevant validation, binds evidence to exact commits,
+reports skipped checks and manual gates, suppresses candidate command output,
+and rechecks the working-tree status and HEAD before returning a ready result.
+It remains read-only and does not prove live router or browser behavior.
 
 Examples:
 
@@ -108,7 +112,9 @@ installer changed
 → full validation
 
 docs only
-→ formatting/link/basic validation
+→ exact base/candidate diff check
+→ full repository validation
+→ report Markdown rendering/link validation as SKIPPED when unavailable
 ```
 
 Output should be machine-readable enough for an agent and human-readable enough for the owner.
