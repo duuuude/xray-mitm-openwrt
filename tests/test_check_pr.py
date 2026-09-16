@@ -50,7 +50,7 @@ class CheckPrTests(unittest.TestCase):
         path = self.project / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
-        self.git("add", relative)
+        self.git("add", ".")
         self.git("commit", "-m", f"change {relative}")
         return self.git("rev-parse", "HEAD")
 
@@ -95,6 +95,47 @@ class CheckPrTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertIn("Focused shell syntax: scripts/changed.sh", result.stdout)
         self.assertIn("CHECK_PR_RESULT=READY_FOR_REVIEW", result.stdout)
+
+    def test_failed_command_output_is_not_echoed(self) -> None:
+        sentinel = "CHECK_PR_FIXTURE_SECRET_SENTINEL"
+        (self.project / "scripts/validate-release.sh").write_text(
+            f"#!/bin/sh\nprintf '%s\\n' '{sentinel}'\nexit 23\n",
+            encoding="utf-8",
+        )
+        head = self.commit_file("docs/guide.md", "documentation\n")
+
+        result = self.run_check(head)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn(sentinel, result.stdout)
+        self.assertIn("command output suppressed", result.stdout)
+        self.assertIn("CHECK_PR_RESULT=FAILED", result.stdout)
+
+    def test_post_validation_dirty_state_is_not_reported_ready(self) -> None:
+        (self.project / "scripts/validate-release.sh").write_text(
+            "#!/bin/sh\nprintf '%s\\n' mutation > post-validation-marker\n",
+            encoding="utf-8",
+        )
+        head = self.commit_file("docs/guide.md", "documentation\n")
+
+        result = self.run_check(head)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Post-validation working-tree check: FAIL", result.stdout)
+        self.assertIn("CHECK_PR_RESULT=FAILED", result.stdout)
+
+    def test_post_validation_head_change_is_not_reported_ready(self) -> None:
+        (self.project / "scripts/validate-release.sh").write_text(
+            "#!/bin/sh\ngit commit --allow-empty -m validator-moved-head >/dev/null\n",
+            encoding="utf-8",
+        )
+        head = self.commit_file("docs/guide.md", "documentation\n")
+
+        result = self.run_check(head)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Post-validation HEAD check: FAIL", result.stdout)
+        self.assertIn("CHECK_PR_RESULT=FAILED", result.stdout)
 
     def test_frontend_changes_block_without_node_and_manual_gates(self) -> None:
         head = self.commit_file(

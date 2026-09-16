@@ -215,6 +215,13 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 
+safe_home="$temporary_dir/home"
+safe_git_config="$temporary_dir/gitconfig"
+mkdir -p "$safe_home"
+: >"$safe_git_config"
+safe_path=${PATH:-/usr/bin:/bin}
+safe_node_bin=${NODE_BIN:-}
+
 test_failures=0
 manual_blocked=0
 log_number=0
@@ -228,12 +235,36 @@ run_check() {
 	last_log="$temporary_dir/$log_number.log"
 	printf '%s\n' "$label"
 	printf 'Command: %s\n' "$display_command"
-	if "$@" >"$last_log" 2>&1; then
+	if [ -n "$safe_node_bin" ]; then
+		if env -i \
+			"PATH=$safe_path" \
+			"HOME=$safe_home" \
+			"TMPDIR=$temporary_dir" \
+			"LC_ALL=C" \
+			"NODE_BIN=$safe_node_bin" \
+			"GIT_CONFIG_GLOBAL=$safe_git_config" \
+			GIT_CONFIG_NOSYSTEM=1 \
+			GIT_TERMINAL_PROMPT=0 \
+			"$@" >"$last_log" 2>&1; then
+			printf '%s\n' 'Result: PASS'
+		else
+			run_status=$?
+			printf 'Result: FAIL (exit %s; command output suppressed)\n' "$run_status"
+			test_failures=1
+		fi
+	elif env -i \
+		"PATH=$safe_path" \
+		"HOME=$safe_home" \
+		"TMPDIR=$temporary_dir" \
+		"LC_ALL=C" \
+		"GIT_CONFIG_GLOBAL=$safe_git_config" \
+		GIT_CONFIG_NOSYSTEM=1 \
+		GIT_TERMINAL_PROMPT=0 \
+		"$@" >"$last_log" 2>&1; then
 		printf '%s\n' 'Result: PASS'
 	else
 		run_status=$?
-		printf 'Result: FAIL (exit %s)\n' "$run_status"
-		sed -n '1,160p' "$last_log"
+		printf 'Result: FAIL (exit %s; command output suppressed)\n' "$run_status"
 		test_failures=1
 	fi
 }
@@ -331,7 +362,7 @@ if [ "$focus_check_pr" -eq 1 ]; then
 	run_check 'Focused check-pr tests' 'PYTHONDONTWRITEBYTECODE=1 python3 tests/test_check_pr.py' env PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_check_pr.py"
 fi
 
-run_check 'Exact base/candidate whitespace check' "git diff --check $base_sha $candidate_sha" git_at diff --check "$base_sha" "$candidate_sha"
+run_check 'Exact base/candidate whitespace check' "git diff --check $base_sha $candidate_sha" git -C "$project_dir" diff --check "$base_sha" "$candidate_sha"
 
 run_check 'Full repository validation' 'sh scripts/validate-release.sh' sh "$project_dir/scripts/validate-release.sh"
 full_validation_log=$last_log
@@ -340,6 +371,32 @@ if grep -q 'LuCI JavaScript syntax check skipped' "$full_validation_log"; then
 	if [ "$frontend" -eq 1 ]; then
 		manual_blocked=1
 	fi
+fi
+
+post_status=''
+if post_status=$(git_at status --porcelain --untracked-files=all 2>/dev/null); then
+	if [ -n "$post_status" ]; then
+		printf '%s\n' 'Post-validation working-tree check: FAIL (changes detected; details suppressed)'
+		test_failures=1
+	else
+		printf '%s\n' 'Post-validation working-tree check: PASS'
+	fi
+else
+	printf '%s\n' 'Post-validation working-tree check: FAIL (Git status could not be inspected)'
+	test_failures=1
+fi
+
+post_head=''
+if post_head=$(git_at rev-parse --verify HEAD 2>/dev/null); then
+	if [ "$post_head" = "$candidate_sha" ]; then
+		printf '%s\n' 'Post-validation HEAD check: PASS'
+	else
+		printf 'Post-validation HEAD check: FAIL (expected candidate %s)\n' "$candidate_sha"
+		test_failures=1
+	fi
+else
+	printf '%s\n' 'Post-validation HEAD check: FAIL (HEAD could not be inspected)'
+	test_failures=1
 fi
 
 printf '%s\n' 'Manual gates:'
