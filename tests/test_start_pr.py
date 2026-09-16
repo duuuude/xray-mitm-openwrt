@@ -46,8 +46,11 @@ class StartPrTests(unittest.TestCase):
         self.git("push", "-u", "origin", "main")
 
     def git(self, *args: str) -> str:
+        return self.git_at(self.project, *args)
+
+    def git_at(self, directory: Path, *args: str) -> str:
         result = subprocess.run(
-            ["git", "-C", str(self.project), *args],
+            ["git", "-C", str(directory), *args],
             check=True,
             text=True,
             stdout=subprocess.PIPE,
@@ -103,8 +106,17 @@ class StartPrTests(unittest.TestCase):
         self.assertTrue((self.worktrees / "example" / "README.md").exists())
         self.assertTrue(self.ref_exists("refs/heads/feat/example"))
 
-    def test_rejects_dirty_or_untracked_main_before_fetch(self) -> None:
+    def test_rejects_untracked_main_before_fetch(self) -> None:
         (self.project / "untracked.txt").write_text("unique\n", encoding="utf-8")
+
+        result = self.run_start_pr()
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("main checkout is not clean", result.stderr)
+        self.assertFalse(self.ref_exists("refs/heads/feat/example"))
+
+    def test_rejects_tracked_dirty_main_before_fetch(self) -> None:
+        (self.project / "README.md").write_text("tracked change\n", encoding="utf-8")
 
         result = self.run_start_pr()
 
@@ -177,7 +189,30 @@ class StartPrTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("directly under", result.stderr)
 
-    def test_rejects_ahead_or_diverged_main_without_overwriting(self) -> None:
+    def test_accepts_a_logical_alias_for_the_physical_worktrees_root(self) -> None:
+        logical_root = self.root / "logical-workspace"
+        logical_root.symlink_to(self.root, target_is_directory=True)
+        target = logical_root / "worktrees" / "alias-example"
+
+        result = self.run_start_pr(path=target)
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue((self.worktrees / "alias-example" / "README.md").exists())
+
+    def test_rejects_a_symlinked_worktrees_root(self) -> None:
+        escaped_root = self.root / "escaped-worktrees"
+        escaped_root.mkdir()
+        self.worktrees.rmdir()
+        self.worktrees.symlink_to(escaped_root, target_is_directory=True)
+
+        result = self.run_start_pr()
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("worktrees root must not be a symlink", result.stderr)
+        self.assertFalse(self.ref_exists("refs/heads/feat/example"))
+        self.assertFalse((escaped_root / "example").exists())
+
+    def test_rejects_local_ahead_main_without_overwriting(self) -> None:
         (self.project / "README.md").write_text("unique local\n", encoding="utf-8")
         self.git("add", "README.md")
         self.git("commit", "-m", "unique local main work")
@@ -186,6 +221,34 @@ class StartPrTests(unittest.TestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("ahead of or diverged", result.stderr)
+        self.assertFalse(self.ref_exists("refs/heads/feat/example"))
+
+    def test_rejects_diverged_main_without_overwriting(self) -> None:
+        (self.project / "README.md").write_text("unique local\n", encoding="utf-8")
+        self.git("add", "README.md")
+        self.git("commit", "-m", "unique local main work")
+
+        remote_clone = self.root / "remote-clone"
+        subprocess.run(
+            ["git", "clone", "--branch", "main", str(self.remote), str(remote_clone)],
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.git_at(remote_clone, "config", "user.email", "remote@example.invalid")
+        self.git_at(remote_clone, "config", "user.name", "Remote Main")
+        (remote_clone / "README.md").write_text("unique remote\n", encoding="utf-8")
+        self.git_at(remote_clone, "add", "README.md")
+        self.git_at(remote_clone, "commit", "-m", "unique remote main work")
+        self.git_at(remote_clone, "push", "origin", "main")
+
+        local_before = self.git("rev-parse", "HEAD")
+        result = self.run_start_pr()
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("ahead of or diverged", result.stderr)
+        self.assertEqual(self.git("rev-parse", "HEAD"), local_before)
         self.assertFalse(self.ref_exists("refs/heads/feat/example"))
 
     def test_rejects_invalid_branch_name(self) -> None:

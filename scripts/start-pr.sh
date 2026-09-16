@@ -47,6 +47,46 @@ current_branch="$(git_at symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
 
 [ -z "$(git_at status --porcelain --untracked-files=all)" ] || die 'The canonical main checkout is not clean.'
 
+case "$worktree_path" in
+	/*)
+		;;
+	*)
+		die 'Worktree path must be absolute.'
+		;;
+esac
+
+case "/$worktree_path/" in
+	*'/../'*|*'/./'*)
+		die 'Worktree path must not contain dot or dot-dot path components.'
+		;;
+esac
+
+worktree_parent="${worktree_path%/*}"
+worktree_name="${worktree_path##*/}"
+[ "$worktree_parent" != "$worktree_path" ] && [ -n "$worktree_name" ] || die 'Worktree path must name one child directory.'
+
+[ ! -L "$worktrees_root" ] || die "The worktrees root must not be a symlink: $worktrees_root"
+if [ -e "$worktrees_root" ] && [ ! -d "$worktrees_root" ]; then
+	die "The worktrees root is not a directory: $worktrees_root"
+fi
+[ ! -L "$worktree_parent" ] || die "The requested worktrees parent must not be a symlink: $worktree_parent"
+
+worktree_parent_base="${worktree_parent%/*}"
+worktree_parent_name="${worktree_parent##*/}"
+[ -n "$worktree_parent_base" ] && [ -n "$worktree_parent_name" ] || die 'Worktree path must name a direct child of the worktrees root.'
+
+canonical_parent_base="$(CDPATH= cd -- "$worktree_parent_base" 2>/dev/null && pwd -P)" || die 'The worktree path parent could not be resolved.'
+canonical_worktree_parent="$canonical_parent_base/$worktree_parent_name"
+[ "$canonical_worktree_parent" = "$worktrees_root" ] || die "Worktree must be created directly under $worktrees_root."
+
+if [ -e "$worktrees_root" ]; then
+	canonical_worktrees_root="$(CDPATH= cd -- "$worktrees_root" 2>/dev/null && pwd -P)" || die 'The worktrees root could not be resolved.'
+	[ "$canonical_worktrees_root" = "$worktrees_root" ] || die "The worktrees root must not resolve outside $worktrees_root."
+fi
+
+canonical_worktree_path="$worktrees_root/$worktree_name"
+[ ! -e "$canonical_worktree_path" ] && [ ! -L "$canonical_worktree_path" ] || die "Worktree path already exists: $canonical_worktree_path"
+
 is_verified_remote() {
 	case "$1" in
 		https://github.com/duuuude/xray-mitm-openwrt|https://github.com/duuuude/xray-mitm-openwrt.git|git@github.com:duuuude/xray-mitm-openwrt|git@github.com:duuuude/xray-mitm-openwrt.git|ssh://git@github.com/duuuude/xray-mitm-openwrt|ssh://git@github.com/duuuude/xray-mitm-openwrt.git)
@@ -106,32 +146,17 @@ fi
 
 [ -z "$(git_at status --porcelain --untracked-files=all)" ] || die 'The canonical main checkout became dirty during synchronization.'
 base_commit="$(git_at rev-parse --verify refs/heads/main)"
-
-case "/$worktree_path/" in
-	*'/../'*|*'/./'*)
-		die 'Worktree path must not contain dot or dot-dot path components.'
-		;;
-esac
-
-case "$worktree_path" in
-	"$worktrees_root"/*)
-		;;
-	*)
-		die "Worktree must be created directly under $worktrees_root."
-		;;
-esac
-
-worktree_parent="${worktree_path%/*}"
-[ "$worktree_parent" = "$worktrees_root" ] || die "Worktree must be a direct child of $worktrees_root."
-
-[ ! -e "$worktree_path" ] && [ ! -L "$worktree_path" ] || die "Worktree path already exists: $worktree_path"
+[ ! -L "$worktrees_root" ] || die "The worktrees root became a symlink: $worktrees_root"
+mkdir -p "$worktrees_root"
+canonical_worktrees_root="$(CDPATH= cd -- "$worktrees_root" 2>/dev/null && pwd -P)" || die 'The worktrees root could not be resolved after synchronization.'
+[ "$canonical_worktrees_root" = "$worktrees_root" ] || die "The worktrees root must not resolve outside $worktrees_root."
 
 if git_at show-ref --verify --quiet "refs/heads/$branch_name"; then
 	die "Local branch already exists: $branch_name"
 fi
 
-if git_at worktree list --porcelain | awk -v target="$worktree_path" '$1 == "worktree" && substr($0, 10) == target { found = 1 } END { exit(found ? 0 : 1) }'; then
-	die "Worktree path is already registered: $worktree_path"
+if git_at worktree list --porcelain | awk -v target="$canonical_worktree_path" '$1 == "worktree" && substr($0, 10) == target { found = 1 } END { exit(found ? 0 : 1) }'; then
+	die "Worktree path is already registered: $canonical_worktree_path"
 fi
 
 remote_branch_status=0
@@ -147,12 +172,11 @@ case "$remote_branch_status" in
 		;;
 esac
 
-mkdir -p "$worktrees_root"
-git_at worktree add -b "$branch_name" "$worktree_path" refs/heads/main >/dev/null || die 'Could not create the feature branch and worktree.'
+git_at worktree add -b "$branch_name" "$canonical_worktree_path" refs/heads/main >/dev/null || die 'Could not create the feature branch and worktree.'
 
 say 'PR worktree created.'
 say "Remote: $verified_remote ($remote_url)"
 say 'Base branch: main'
 say "Base commit: $base_commit"
 say "Feature branch: $branch_name"
-say "Worktree: $worktree_path"
+say "Worktree: $canonical_worktree_path"
