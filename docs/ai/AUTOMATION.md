@@ -39,10 +39,10 @@ initiative's Stage 3 runtime go/no-go.
 
 ## Workstream 1 — Local repository safety
 
-After verifying the canonical repository, remotes, and current state, add a
-safe helper for starting a PR. If the helper participates in release work,
-verify that the existing canonical-remote release-preflight behavior remains
-present.
+The implemented `scripts/start-pr.sh` helper is the Stage 1 repository-safety
+capability. Keep it aligned with the canonical repository, remotes, and current
+state rules. If the helper participates in release work, verify that the
+existing canonical-remote release-preflight behavior remains present.
 
 Target command:
 
@@ -50,7 +50,7 @@ Target command:
 scripts/start-pr.sh <branch-name> <workspace-root>/worktrees/<task>
 ```
 
-It should:
+The helper:
 
 1. verify it is running from the canonical repository
 2. verify authoritative remote configuration
@@ -69,7 +69,7 @@ It must never:
 - force-push
 - clean untracked files
 
-Before implementation, require:
+Before using or changing it, require:
 
 1. verification of the canonical repository, remotes, current branch, commit,
    upstream, and status
