@@ -1,6 +1,6 @@
 # Xray MITM OpenWrt — Master Plan
 
-Status: current roadmap; last audited 2026-09-15
+Status: current roadmap; last audited 2026-09-16
 
 This plan is based on the actual canonical repository, not on an earlier plan
 or historical checkout.
@@ -11,7 +11,7 @@ The authoritative source is:
 
 - Repository: `https://github.com/duuuude/xray-mitm-openwrt.git`
 - Public branch: `main`
-- Review/audit baseline: `eadc09544bee04131b598fd88fcf45a4b11add99`, the current
+- Review/audit baseline: `c69239bb3b1dac04d2edbd2d73d126f2478b778c`, the current
   main commit inspected when this plan was refreshed
 - Observed package baseline: `0.4.4-r1`
 - Canonical clone root: `<repo-root>`
@@ -165,13 +165,16 @@ status.
 ### Approved scheduling focus — staged autonomous PR workflow
 
 The owner has chosen the zero-additional-spend autonomous PR initiative as
-the current workflow priority. Stage 0 is one documentation/process PR; the
-later stages are separately scoped and reviewed, not one platform build.
-`docs/ai/AUTONOMOUS_PR.md` records the stage order, Stage 3 execution
-go/no-go, independence, cost boundary, and owner gates. The first pilot targets
-an approved low-risk task reaching an open, reviewed, CI-green PR without the
-owner transporting agent messages. No runtime, controller, or unattended
-router/release authority is approved by this scheduling decision.
+the current workflow priority. Stage 0 was completed in PR #35 and is present
+on `main` at `c69239bb3b1dac04d2edbd2d73d126f2478b778c`. It reconciled the
+durable process documentation, PR/CI sequence, independent review boundary,
+owner gates, and zero-additional-spend constraint. Stage 1 is now the single
+active stage; later stages remain separately scoped and reviewed, not one
+platform build. `docs/ai/AUTONOMOUS_PR.md` records the stage order, Stage 3
+execution go/no-go, independence, cost boundary, and owner gates. The first
+pilot targets an approved low-risk task reaching an open, reviewed, CI-green
+PR without the owner transporting agent messages. No runtime, controller, or
+unattended router/release authority is approved by this scheduling decision.
 
 The truthful partial-bundle inspection defect remains a genuine P1 product
 correctness item. It is queued while this workflow initiative is active; its
@@ -246,33 +249,48 @@ workflow scheduling choice, not a claim that the P1 product defect is fixed.
 
 | Priority | One coherent PR / initiative | Type | Reason |
 | --- | --- | --- | --- |
-| 1 | Stage 0: authorize the staged autonomous PR workflow | Process documentation | Record the approved direction, zero-extra-spend boundary, and unchanged safety gates first. |
-| 2 | Stage 1: add safe repository-state and PR-start helpers | Workflow/tooling | First deterministic prerequisite; select only after Stage 0 is merged and the plan is rechecked. |
-| 3 | Stage 2: add change-aware checks and exact-head evidence | Workflow/tooling | Make validation and conditional gates auditable before a controller. |
-| 4 | Define and enforce truthful partial-bundle inspection | Product correctness, P1 defect | Read-only status can overstate a partially edited rule; queued, not resolved. |
-| 5 | Establish repeatable official OpenWrt 25.12.x compatibility evidence | Compatibility/testing | The support claim is broader than the current automated proof. |
-| 6 | Build once and promote the exact tested artifact | Release workflow | Removes the remaining PR-build/tag-build provenance gap. |
+| 1 | Stage 1: add safe repository-state and PR-start helpers | Workflow/tooling | Establish the first deterministic prerequisite after the Stage 0 direction was merged. |
+| 2 | Stage 2: add change-aware checks and exact-head evidence | Workflow/tooling | Make validation and conditional gates auditable before a controller. |
+| 3 | Define and enforce truthful partial-bundle inspection | Product correctness, P1 defect | Read-only status can overstate a partially edited rule; queued, not resolved. |
+| 4 | Establish repeatable official OpenWrt 25.12.x compatibility evidence | Compatibility/testing | The support claim is broader than the current automated proof. |
+| 5 | Build once and promote the exact tested artifact | Release workflow | Removes the remaining PR-build/tag-build provenance gap. |
 
 ## Recommended next PR
 
-### `docs: authorize staged autonomous PR workflow`
+### `feat: add safe repository-state and PR-start helpers`
 
-Scope only the Stage 0 durable-process reconciliation: document the goal,
-single-PR stage order, Plus-only/zero-additional-spend constraint, Stage 3
-go/no-go, independent review and conditional real-system gates, and unchanged
-owner decisions. Correct the inaccurate `AGENTS.md` PR/CI/merge sequence.
-Do not add a controller, Git helper, package/CI workflow, product behavior, or
-router action in this PR.
+Scope only Stage 1 of the approved autonomous PR initiative:
+
+- add the deterministic repository-state and PR-start helper described above;
+- validate the canonical repository and GitHub remote before creating work;
+- require a clean, unambiguous `main` baseline and refuse dirty or ambiguous
+  source state;
+- detect branch and worktree collisions before creating anything;
+- create one feature branch and one worktree under the documented worktree
+  root;
+- refuse to delete, reset, overwrite, or otherwise take ownership of existing
+  work.
+
+Do not add the change-aware PR check, a controller or unattended runtime,
+product behavior, package/CI workflow changes, router actions, signing,
+release behavior, or any Stage 2+ work in this PR.
 
 Acceptance criteria:
 
-- A maintainer can reconstruct the staged initiative and its first low-risk
-  pilot without assuming the entire roadmap is one implementation task.
-- The partial-bundle P1 defect stays queued with its contract unresolved.
-- PR creation and CI are routine; merge remains explicitly owner-approved.
-- No independent review, AX4200/browser, signing, release, or rollback gate is
-  weakened. `sh scripts/validate-release.sh`, a documentation consistency
-  scan, and `git diff --check` pass; independent PR review is required.
+- The helper refuses a non-canonical repository or remote, dirty or ambiguous
+  `main`, an existing branch collision, and an occupied worktree path.
+- A successful run creates only the requested feature branch and isolated
+  worktree beneath the documented worktree root, starting from verified
+  `main`.
+- Existing branches, worktrees, untracked files, and unique work are never
+  deleted, reset, or overwritten.
+- The helper reports the exact repository, base commit, branch, and worktree
+  it created without exposing credentials or secret-bearing data.
+- Focused helper tests, `sh scripts/validate-release.sh`, applicable bundled
+  runtime checks, and `git diff --check` pass.
+- The Stage 2 change-aware check and all product, router, browser, signing,
+  release, and owner-gated behavior remain unchanged.
+- Independent PR review is required before an owner merge decision.
 
 ### Queued product PR: `fix: make read-only routing state truthful for partial rules`
 
@@ -327,7 +345,7 @@ owner-controlled release sequence.
 - No merge, tag, release, force-push, or signing action merely because tests
   are green.
 
-The next state change is the single Stage 0 documentation PR above. After
-that PR is independently reviewed and owner-approved for merge, revalidate
-this plan against resulting `main` before selecting Stage 1 or any queued
-product item. Do not begin either in the Stage 0 branch.
+The next state change is the single Stage 1 helper PR above. After that PR is
+independently reviewed and owner-approved for merge, revalidate this plan
+against the resulting `main` before selecting Stage 2 or any queued product
+item. Do not begin either in the Stage 1 branch.
