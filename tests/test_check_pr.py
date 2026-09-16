@@ -1,0 +1,165 @@
+#!/usr/bin/env python3
+"""Behavior checks for the exact-head, change-aware PR evidence helper."""
+
+from __future__ import annotations
+
+import os
+import shutil
+import subprocess
+import tempfile
+import unittest
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+CHECK_PR = ROOT / "scripts/check-pr.sh"
+
+
+class CheckPrTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name).resolve()
+        self.project = self.root / "project"
+        (self.project / "scripts").mkdir(parents=True)
+        shutil.copy2(CHECK_PR, self.project / "scripts/check-pr.sh")
+        (self.project / "scripts/validate-release.sh").write_text(
+            "#!/bin/sh\nset -eu\nprintf '%s\\n' 'fixture validation passed'\n",
+            encoding="utf-8",
+        )
+        (self.project / "scripts/validate-release.sh").chmod(0o755)
+        (self.project / "README.md").write_text("check-pr fixture\n", encoding="utf-8")
+        self.git("init", "-b", "main")
+        self.git("config", "user.email", "test@example.invalid")
+        self.git("config", "user.name", "Check PR Test")
+        self.git("add", ".")
+        self.git("commit", "-m", "prepare check-pr fixture")
+        self.base = self.git("rev-parse", "HEAD")
+
+    def git(self, *args: str) -> str:
+        result = subprocess.run(
+            ["git", "-C", str(self.project), *args],
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        return result.stdout.strip()
+
+    def commit_file(self, relative: str, content: str) -> str:
+        path = self.project / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+        self.git("add", relative)
+        self.git("commit", "-m", f"change {relative}")
+        return self.git("rev-parse", "HEAD")
+
+    def run_check(
+        self,
+        head: str | None = None,
+        extra_env: dict[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        env = os.environ.copy()
+        if extra_env:
+            env.update(extra_env)
+        candidate = head or self.git("rev-parse", "HEAD")
+        return subprocess.run(
+            ["sh", str(self.project / "scripts/check-pr.sh"), self.base, candidate],
+            cwd=self.project,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            env=env,
+            check=False,
+        )
+
+    def test_docs_report_exact_commits_and_ready_status(self) -> None:
+        head = self.commit_file("docs/guide.md", "documentation\n")
+
+        result = self.run_check(head)
+
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn(f"Base commit: {self.base}", result.stdout)
+        self.assertIn(f"Candidate commit: {head}", result.stdout)
+        self.assertIn("Categories: documentation", result.stdout)
+        self.assertIn("Full repository validation", result.stdout)
+        self.assertIn("Result: PASS", result.stdout)
+        self.assertIn("OpenWrt integration: not required", result.stdout)
+        self.assertIn("CHECK_PR_RESULT=READY_FOR_REVIEW", result.stdout)
+
+    def test_shell_changes_receive_focused_syntax_check(self) -> None:
+        head = self.commit_file("scripts/changed.sh", "#!/bin/sh\nprintf '%s\\n' ok\n")
+
+        result = self.run_check(head)
+
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("Focused shell syntax: scripts/changed.sh", result.stdout)
+        self.assertIn("CHECK_PR_RESULT=READY_FOR_REVIEW", result.stdout)
+
+    def test_frontend_changes_block_without_node_and_manual_gates(self) -> None:
+        head = self.commit_file(
+            "luci-app-xray-mitm/htdocs/example.js",
+            "const example = 1;\n",
+        )
+
+        result = self.run_check(head, {"NODE_BIN": "/path/that/does/not/exist"})
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Focused frontend checks: SKIPPED", result.stdout)
+        self.assertIn("OpenWrt integration: REQUIRED", result.stdout)
+        self.assertIn("AX4200/browser validation: REQUIRED", result.stdout)
+        self.assertIn("CHECK_PR_RESULT=BLOCKED", result.stdout)
+
+    def test_passwall_changes_run_focus_and_block_for_router_gate(self) -> None:
+        self.project.joinpath("tests").mkdir()
+        (self.project / "tests/test_passwall2.py").write_text(
+            "print('fixture PassWall2 test')\n", encoding="utf-8"
+        )
+        self.git("add", "tests/test_passwall2.py")
+        self.git("commit", "-m", "add fixture PassWall2 test")
+        self.base = self.git("rev-parse", "HEAD")
+        head = self.commit_file(
+            "xray-mitm/files/usr/libexec/xray-mitm/passwall2",
+            "#!/bin/sh\nprintf '%s\\n' passwall\n",
+        )
+
+        result = self.run_check(head)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Focused PassWall2 tests", result.stdout)
+        self.assertIn("Result: PASS", result.stdout)
+        self.assertIn("OpenWrt integration: REQUIRED", result.stdout)
+        self.assertIn("CHECK_PR_RESULT=BLOCKED", result.stdout)
+
+    def test_dirty_checkout_is_rejected_before_evidence(self) -> None:
+        self.commit_file("docs/guide.md", "documentation\n")
+        (self.project / "untracked.txt").write_text("uncommitted\n", encoding="utf-8")
+
+        result = self.run_check()
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("candidate checkout is not clean", result.stdout)
+        self.assertIn("CHECK_PR_RESULT=BLOCKED", result.stdout)
+
+    def test_candidate_must_match_current_checkout_head(self) -> None:
+        self.commit_file("docs/guide.md", "documentation\n")
+
+        result = self.run_check(self.base)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("checkout HEAD", result.stdout)
+        self.assertIn("CHECK_PR_RESULT=BLOCKED", result.stdout)
+
+    def test_unknown_changed_path_is_fail_closed(self) -> None:
+        head = self.commit_file("mystery.bin", "unknown\n")
+
+        result = self.run_check(head)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Categories: unknown", result.stdout)
+        self.assertIn("no validation mapping", result.stdout)
+        self.assertIn("CHECK_PR_RESULT=BLOCKED", result.stdout)
+
+
+if __name__ == "__main__":
+    unittest.main()
