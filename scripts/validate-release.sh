@@ -12,6 +12,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_ctl.py"
 PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_installer.py"
 PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_signed_feed.py"
 PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_release_preflight.py"
+PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_start_pr.py"
 PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_startup.py"
 
 for relative in \
@@ -25,6 +26,7 @@ for relative in \
 	xray-mitm/files/usr/sbin/xray-mitmctl \
 	install.sh \
 	scripts/release-preflight.sh \
+	scripts/start-pr.sh \
 	scripts/router-local-test.sh \
 	scripts/check-release-version.sh \
 	scripts/release-notes.sh \
