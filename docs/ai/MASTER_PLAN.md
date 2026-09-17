@@ -11,8 +11,8 @@ The authoritative source is:
 
 - Repository: `https://github.com/duuuude/xray-mitm-openwrt.git`
 - Public branch: `main`
-- Review/audit baseline: `0b1622c44c06731c65239dea5d64bcffe72c084a`, the PR #40
-  squash merge and current main commit inspected when this plan was refreshed
+- Review/audit baseline: `f10ad8c3bfbafa8a12f7421cc079a49332b7cfbb`, the PR #41
+  squash merge and current `main` commit inspected when this plan was refreshed
 - Observed package baseline: `0.4.4-r1`
 - Canonical clone root: `<repo-root>`
 - Temporary task worktrees: `<workspace-root>/worktrees/`
@@ -150,12 +150,12 @@ They are complete in current `main` and must not remain as pending tasks.
   result. Its focused regression suite is part of the full repository
   validator. It does not prove live router, browser, release, signing, or
   external-service behavior.
-- Stage 3 has been qualified with a bounded local Codex CLI pilot. The result
-  is a GO for local, scriptable execution under explicit sandbox and owner
-  controls, and a NO-GO for an unattended controller, CI login, automatic
-  push/PR/merge, release, signing, or router authority. The qualification
-  record below is the durable evidence; it does not qualify the standard API
-  or Agents SDK under the Plus plan.
+- Stage 3 was qualified and recorded in merged PR #41 with a bounded local
+  Codex CLI pilot. The result is a GO for local, scriptable execution under
+  explicit sandbox and owner controls, and a NO-GO for an unattended
+  controller, CI login, automatic push/PR/merge, release, signing, or router
+  authority. The qualification record below is the durable evidence; it does
+  not qualify the standard API or Agents SDK under the Plus plan.
 
 ### Historical planning text removed as obsolete
 
@@ -276,7 +276,7 @@ workflow scheduling choice, not a claim that the P1 product defect is fixed.
 | 3 | Establish repeatable official OpenWrt 25.12.x compatibility evidence | Compatibility/testing | The support claim is broader than the current automated proof. |
 | 4 | Build once and promote the exact tested artifact | Release workflow | Removes the remaining PR-build/tag-build provenance gap. |
 
-## Completed Stage 3 qualification record
+## Completed Stage 3 qualification record — merged PR #41
 
 The qualification was performed on 2026-09-17 against `main` at
 `0b1622c44c06731c65239dea5d64bcffe72c084a`.
