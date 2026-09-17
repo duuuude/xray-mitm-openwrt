@@ -96,7 +96,9 @@ and conditional manual gates are complete; it requests an owner merge decision
 and never merges. `OWNER_DECISION_REQUIRED` names the exact gated action.
 `BLOCKED` names missing evidence or an unsafe condition. `FAILED` and
 `CANCELLED` are terminal and must not trigger endless retries. The manual
-three-Work workflow remains available until Stage 8 is qualified.
+three-Work workflow remains the supported operating mode after Stage 8
+qualification. Any different default requires a separate owner-approved
+decision backed by new qualification evidence.
 
 Current vendor documentation must be rechecked during Stage 3 and Stage 6:
 
