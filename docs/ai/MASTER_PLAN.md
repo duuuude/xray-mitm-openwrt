@@ -11,7 +11,7 @@ The authoritative source is:
 
 - Repository: `https://github.com/duuuude/xray-mitm-openwrt.git`
 - Public branch: `main`
-- Review/audit baseline: `f10ad8c3bfbafa8a12f7421cc079a49332b7cfbb`, the PR #41
+- Review/audit baseline: `4852f01d75d1e828936f20f9c3778d9f9f0370e8`, the PR #42
   squash merge and current `main` commit inspected when this plan was refreshed
 - Observed package baseline: `0.4.4-r1`
 - Canonical clone root: `<repo-root>`
@@ -193,13 +193,17 @@ the current workflow priority. Stage 0 was completed in PR #35 and is present
 on `main` at `c69239bb3b1dac04d2edbd2d73d126f2478b778c`. It reconciled the
 durable process documentation, PR/CI sequence, independent review boundary,
 owner gates, and zero-additional-spend constraint. Stage 1 was then completed
-in PR #37, Stage 2 in PR #39, and Stage 3 was qualified in this documented
-pilot; the completed stages are present or recorded on current `main`.
-Stage 4 is now the single active stage: a local vertical slice using the
-qualified runtime. Later stages remain separately scoped and reviewed, not one
-platform build. `docs/ai/AUTONOMOUS_PR.md` records the stage order,
-independence, cost boundary, and owner gates. No unattended router/release
-authority is approved by this scheduling decision.
+in PR #37, Stage 2 in PR #39, and Stage 3 was qualified in the documented
+pilot. Stage 4 was completed through the local vertical slice recorded in PR
+#42; the exact candidate received independent approval, both required CI jobs
+passed, and the owner-approved squash merge is present on current `main`.
+Stage 5 was not invoked because the independent review returned no ordinary
+in-scope corrections. Stage 6 promotion was completed for this candidate.
+Stage 7 was not required because the candidate was documentation-only. Stage 8
+is now the single active workflow stage. Later stages remain separately scoped
+and reviewed, not one platform build. `docs/ai/AUTONOMOUS_PR.md` records the
+stage order, independence, cost boundary, and owner gates. No unattended
+router/release authority is approved by this scheduling decision.
 
 The truthful partial-bundle inspection defect remains a genuine P1 product
 correctness item. It is queued while this workflow initiative is active; its
@@ -271,7 +275,7 @@ workflow scheduling choice, not a claim that the P1 product defect is fixed.
 
 | Priority | One coherent PR / initiative | Type | Reason |
 | --- | --- | --- | --- |
-| 1 | Stage 4: local vertical slice | Workflow qualification | Exercise one approved low-risk task with the qualified local runtime before any PR automation. |
+| 1 | Stage 8: qualification and fallback | Workflow qualification | Replay low-risk tasks and injected safety cases, measure limits, and decide whether any further automation qualification is justified. |
 | 2 | Define and enforce truthful partial-bundle inspection | Product correctness, P1 defect | Read-only status can overstate a partially edited rule; queued, not resolved. |
 | 3 | Establish repeatable official OpenWrt 25.12.x compatibility evidence | Compatibility/testing | The support claim is broader than the current automated proof. |
 | 4 | Build once and promote the exact tested artifact | Release workflow | Removes the remaining PR-build/tag-build provenance gap. |
@@ -335,29 +339,53 @@ Qualification decision:
   authority is not qualified. The standard OpenAI API or Agents SDK was not
   evaluated or assumed to be included with Plus.
 
+## Completed Stage 4 local vertical slice and PR/CI promotion — merged PR #42
+
+The approved low-risk task used the qualified local Codex CLI in an isolated
+worktree from current `main`. The exact candidate was commit
+`d438e16871cc69c292f758867f59f1a2adfdab8e` on `docs/stage4-roadmap-sync` and
+changed only `docs/ai/MASTER_PLAN.md`.
+
+Evidence and outcome:
+
+- Development Lead validation included exact commit-bound checking, the full
+  available repository validator, shell syntax checks, and `git diff --check`.
+- The separate read-only Reviewer returned `APPROVE` with no findings.
+- PR #42 passed both `validate` and `build` and was squash-merged into `main`
+  as `4852f01d75d1e828936f20f9c3778d9f9f0370e8` with the feature branch
+  preserved.
+- Markdown rendering/link validation was unavailable. LuCI, OpenWrt,
+  AX4200/browser, router, release, signing, and external-service behavior were
+  not applicable and were not claimed.
+- No automatic push, merge, release, signing, router, or certificate
+  authority was granted to the local runtime; GitHub publication and the merge
+  remained owner-controlled actions.
+
 ## Recommended next stage
 
-### Stage 4 — local vertical slice
+### Stage 8 — qualification and fallback
 
-Use the qualified local runtime for one owner-approved, low-risk project task
-in one isolated worktree. Require current-main verification, focused tests,
-exact commit-bound evidence, complete diff inspection, and a separate
-read-only independent Reviewer context. Do not automatically push, create a
-PR, merge, tag, release, sign, mutate the router, or begin Stage 5 in this
-stage.
+Use the qualified local runtime for bounded low-risk replays and injected
+failure/safety cases. Measure wall time, memory, disk pressure, included-plan
+usage boundaries, CI capacity, and any owner-gate or scope violation. Keep
+the Development Lead as the routing layer and keep GitHub, release, signing,
+router, certificate, and default-mode authority owner-controlled. Do not
+assume that a successful replay qualifies unattended operation.
 
 Acceptance criteria:
 
-- The task is explicitly approved and remains within a small docs/process or
-  similarly low-risk scope.
-- The runtime uses the recorded local authentication and sandbox boundary;
-  no API key, paid runner, cloud VM, CI login, or extra credits are used.
-- The worktree is clean before and after the task except for intended scoped
-  changes, and all changes are reviewed by the Development Lead.
-- Focused tests, full validation, exact diff evidence, and skipped-check
-  reporting are complete.
-- A separate read-only Reviewer reviews the exact candidate before any later
-  push or PR decision.
+- Replays use current `main`, one isolated worktree per task, bounded scope,
+  explicit sandbox permissions, and no separately billed API or paid runner.
+- At least one low-risk project task and the planned injected failure/safety
+  cases are replayed with exact before/after repository evidence.
+- Measurements record task quality, wall time, memory, disk, usage boundary,
+  CI capacity, skipped checks, and any gate violation without exposing secrets.
+- Any changed candidate receives focused validation, complete diff inspection,
+  and independent review; failed or ambiguous cases stop rather than retry
+  indefinitely.
+- The result is a qualification or fallback recommendation only. No default
+  cutover, unattended merge/release/signing/router authority, or product PR is
+  implied by a passing replay.
 
 ### Queued product PR: `fix: make read-only routing state truthful for partial rules`
 
@@ -412,8 +440,9 @@ owner-controlled release sequence.
 - No merge, tag, release, force-push, or signing action merely because tests
   are green.
 
-The next state change is the Stage 4 local vertical slice above. Complete and
-record that stage before selecting Stage 5 or any queued product item.
+The next state change is the Stage 8 qualification and fallback work above.
+Complete and record that stage before selecting the queued P1 product item,
+compatibility work, or release workflow work.
 Revalidate this plan after the qualification and after every later
-owner-approved stage merge. Do not begin Stage 4 work in a completed Stage 3
-qualification branch.
+owner-approved stage merge. Do not repeat completed Stage 4 work or select a
+later stage without current-main verification.
