@@ -148,3 +148,66 @@ Use a disposable or lab router:
 6. Repeat health, route, and reboot checks.
 
 Do not use a production router as the first test of a release.
+
+## 8. Protected candidate package-installation evidence
+
+Use this procedure when validating an exact protected PR artifact on a real
+OpenWrt router. It is a candidate-validation procedure, not a release or
+publishing procedure.
+
+Before the first package-manager command:
+
+1. Verify the exact PR, candidate commit, base commit, artifact digest, package
+   names, package checksums, signed `packages.adb`, and trusted public-key
+   fingerprint on both the Mac and the router. Never substitute a rebuilt or
+   similarly named artifact.
+2. Create a protected, router-local evidence directory with mode `0700` and
+   capture complete pre-test copies of `/etc/apk/world`, the relevant
+   repository configuration, and the project configuration files whose
+   preservation is part of the test. Capture the file mode, owner, size, and
+   SHA-256 for each copy. A hash without a protected baseline copy is
+   insufficient for proving exact recovery. Do not transfer or print copies
+   that contain credentials, node details, subscription URLs, or other secret
+   values.
+3. Record the read-only service, certificate, PassWall2, routing, firewall,
+   DNS, recovery-marker, installed-package, and pending-UCI state. The router
+   must start with no unexplained pending UCI changes.
+4. Keep fixture tests off the live router. Run synthetic partial, wrong-target,
+   invalid-group, and legacy-rule cases in the repository's isolated tests. If
+   a live diagnostic genuinely requires temporary UCI state, use an isolated
+   temporary delta directory, verify that it contains only the declared test
+   paths, preserve a root-only recovery copy, and require explicit cleanup and
+   post-cleanup verification.
+
+During installation and rollback:
+
+- Require separate owner approval for the exact transfer, candidate
+  installation, and rollback mutation.
+- Use only the verified signed repository path. Do not install local APK files
+  directly and never use `--allow-untrusted`.
+- Do not apply routing, change firewall or DNS, replace certificates, restart
+  services, reboot, or run synthetic fixture mutations as part of package
+  installation unless separately approved and explicitly in scope.
+- Record the exact package-manager transaction result and stop on any trust,
+  dependency, package-identity, or state-preservation failure.
+
+After rollback:
+
+1. Recheck package versions, service state, certificate metadata, PassWall2
+   state, pending UCI state, recovery markers, and all preserved configuration
+   files.
+2. Compare the complete protected baseline copies byte-for-byte. In particular,
+   `/etc/apk/world` must match the captured pre-test copy; matching package
+   names or a matching hash recorded without the original file does not prove
+   exact package-manager recovery.
+3. Confirm temporary UCI deltas are absent and that no persistent configuration
+   file changed. Do not delete evidence directories until their contents and
+   final hashes have been recorded.
+4. If any required baseline copy is missing, any comparison differs, or any
+   temporary UCI state remains, report `FAIL`. Do not infer recovery, edit the
+   package-world file, or waive the discrepancy without a separately approved
+   evidence decision.
+
+The final report must distinguish: candidate installation passed, rollback
+passed, exact recovery passed, and behavior that remains unproven. A successful
+package transaction alone is not a clean live-validation result.
