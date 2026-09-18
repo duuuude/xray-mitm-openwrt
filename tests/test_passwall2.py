@@ -363,6 +363,28 @@ class PassWall2Fixture(unittest.TestCase):
         self.assertFalse(inspection["routing_state"]["fastly_mitm"])
         self.assertFalse(inspection["routing_state"]["iran_direct"])
 
+    def test_inspect_rejects_empty_or_invalid_managed_groups(self) -> None:
+        _, plan = self.helper("plan", str(self.request_file({
+            "meta_mitm": True,
+            "fastly_mitm": True,
+        })))
+        self.apply(str(plan["token"]))
+
+        for bad_group in ("", "invalid.group"):
+            with self.subTest(group=bad_group):
+                for section in (
+                    "main_shunt",
+                    "xray_mitm_vpn_overrides",
+                    "xray_mitm_services",
+                    "xray_mitm_regional_direct",
+                ):
+                    option = "shunt_group" if section == "main_shunt" else "group"
+                    self.uci("set", f"passwall2.{section}.{option}={bad_group}")
+                _, inspection = self.helper("inspect")
+                self.assertFalse(inspection["routing_state"]["gemini"])
+                self.assertFalse(inspection["routing_state"]["google_mitm"])
+                self.assertFalse(inspection["routing_state"]["iran_direct"])
+
     def test_inspect_recognizes_complete_compatible_legacy_rules(self) -> None:
         active_legacy = LEGACY_CONFIG.replace(
             "\toption IR_Direct '_direct'",
@@ -384,6 +406,24 @@ class PassWall2Fixture(unittest.TestCase):
         self.assertFalse(inspection["routing_state"]["google_meet"])
         self.assertFalse(inspection["routing_state"]["meta_mitm"])
         self.assertFalse(inspection["routing_state"]["fastly_mitm"])
+
+    def test_inspect_rejects_invalid_legacy_groups(self) -> None:
+        active_legacy = LEGACY_CONFIG.replace(
+            "\toption IR_Direct '_direct'",
+            "\toption IR_Direct '_direct'\n"
+            "\toption Gemini_VPN '2xExBSCp'\n"
+            "\toption Google_MITM 'sdt8MGIZ'",
+        )
+        self.config.write_text(active_legacy, encoding="utf-8")
+        self.original = self.config.read_bytes()
+
+        for section in ("v0iEAVtN", "Gemini_VPN", "Google_MITM", "IR_Direct"):
+            option = "shunt_group" if section == "v0iEAVtN" else "group"
+            self.uci("set", f"passwall2.{section}.{option}=invalid.group")
+        _, inspection = self.helper("inspect")
+        self.assertFalse(inspection["routing_state"]["gemini"])
+        self.assertFalse(inspection["routing_state"]["google_mitm"])
+        self.assertFalse(inspection["routing_state"]["iran_direct"])
 
     def test_plan_apply_and_exact_rollback(self) -> None:
         plan = self.plan_all()
