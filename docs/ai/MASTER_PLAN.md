@@ -1,6 +1,6 @@
 # Xray MITM OpenWrt — Master Plan
 
-Status: current roadmap; last audited 2026-09-17
+Status: current roadmap; last audited 2026-09-18
 
 This plan is based on the actual canonical repository, not on an earlier plan
 or historical checkout.
@@ -11,7 +11,7 @@ The authoritative source is:
 
 - Repository: `https://github.com/duuuude/xray-mitm-openwrt.git`
 - Public branch: `main`
-- Review/audit baseline: `4852f01d75d1e828936f20f9c3778d9f9f0370e8`, the PR #42
+- Review/audit baseline: `1f5a34850236875ac56373c74e67bae873964693`, the PR #43
   squash merge and current `main` commit inspected when this plan was refreshed
 - Observed package baseline: `0.4.4-r1`
 - Canonical clone root: `<repo-root>`
@@ -200,15 +200,20 @@ passed, and the owner-approved squash merge is present on current `main`.
 Stage 5 was not invoked because the independent review returned no ordinary
 in-scope corrections. Stage 6 promotion was completed for this candidate.
 Stage 7 was not required because the candidate was documentation-only. Stage 8
-is now the single active workflow stage. Later stages remain separately scoped
-and reviewed, not one platform build. `docs/ai/AUTONOMOUS_PR.md` records the
-stage order, independence, cost boundary, and owner gates. No unattended
-router/release authority is approved by this scheduling decision.
+was then qualified for bounded local operation through the replay and safety
+cases recorded below. The default three-Work workflow remains the supported
+operating mode; unattended cutover is not qualified. The P1 partial-bundle
+inspection item is now the next active project item. Later stages remain
+separately scoped and reviewed, not one platform build.
+`docs/ai/AUTONOMOUS_PR.md` records the stage order, independence, cost boundary,
+and owner gates. No unattended router/release authority is approved by this
+scheduling decision.
 
 The truthful partial-bundle inspection defect remains a genuine P1 product
-correctness item. It is queued while this workflow initiative is active; its
-inspection contract has not been decided or implemented. Recheck the roadmap
-after every owner-approved stage merge before selecting another PR.
+correctness item. It is the next approved implementation item after this
+qualification record; its inspection contract has not been decided or
+implemented. Recheck the roadmap after every owner-approved stage merge before
+selecting another PR.
 
 ### Present automation
 
@@ -275,10 +280,9 @@ workflow scheduling choice, not a claim that the P1 product defect is fixed.
 
 | Priority | One coherent PR / initiative | Type | Reason |
 | --- | --- | --- | --- |
-| 1 | Stage 8: qualification and fallback | Workflow qualification | Replay low-risk tasks and injected safety cases, measure limits, and decide whether any further automation qualification is justified. |
-| 2 | Define and enforce truthful partial-bundle inspection | Product correctness, P1 defect | Read-only status can overstate a partially edited rule; queued, not resolved. |
-| 3 | Establish repeatable official OpenWrt 25.12.x compatibility evidence | Compatibility/testing | The support claim is broader than the current automated proof. |
-| 4 | Build once and promote the exact tested artifact | Release workflow | Removes the remaining PR-build/tag-build provenance gap. |
+| 1 | Define and enforce truthful partial-bundle inspection | Product correctness, P1 defect | Read-only status can overstate a partially edited rule; now the next approved implementation item. |
+| 2 | Establish repeatable official OpenWrt 25.12.x compatibility evidence | Compatibility/testing | The support claim is broader than the current automated proof. |
+| 3 | Build once and promote the exact tested artifact | Release workflow | Removes the remaining PR-build/tag-build provenance gap. |
 
 ## Completed Stage 3 qualification record — merged PR #41
 
@@ -361,7 +365,56 @@ Evidence and outcome:
   authority was granted to the local runtime; GitHub publication and the merge
   remained owner-controlled actions.
 
-## Recommended next stage
+## Completed Stage 8 qualification and fallback record — bounded local GO
+
+The replay used the qualified native Apple Silicon Codex CLI with ChatGPT
+authentication in a read-only sandbox against current `main` at
+`1f5a34850236875ac56373c74e67bae873964693`. The isolated worktree branch
+`docs/qualify-stage8-fallback` remained exactly aligned with `main` and
+`origin/main`; no candidate diff, file edit, commit, push, or network action
+was performed by the replay.
+
+Qualification evidence:
+
+- Low-risk replay: the agent read the required governance and workflow
+  documents, verified repository identity, canonical remote, branch, HEAD,
+  base relationship, clean status, and the sole active stage, then returned the
+  expected next-action report without editing the repository.
+- Runtime: Codex CLI `0.154.0-alpha.6.2`; `codex login status` reported
+  `Logged in using ChatGPT`. No API key or paid runner was used.
+- Replay measurement: 235.68 seconds wall time, 221,446,144 bytes maximum
+  resident memory (about 211 MiB), zero swap operations, and no repository
+  diff. The CLI reported 348,663 input tokens, 292,608 cached input tokens,
+  11,762 output tokens, and 8,962 reasoning tokens; exact Plus capacity and
+  billing accounting were not observable.
+- Injected safety fixtures: `tests/test_check_pr.py` passed 10/10, covering
+  secret-output suppression, post-validation dirty/HEAD mutation detection,
+  dirty checkout, HEAD mismatch, and unknown paths. `tests/test_start_pr.py`
+  passed 20/20, covering Git inspection failures, dirty/diverged main,
+  symlink/path containment, and collision refusal.
+- Resource and CI evidence: the filesystem reported 463 GiB available at the
+  measurement. System-wide swap usage could not be read because the sandbox
+  denied `sysctl`; the replay itself recorded zero swap operations. PR #43 CI
+  completed successfully: validation took about 3 minutes 46 seconds and the
+  build took about 27 minutes 31 seconds.
+- No gate violation, secret exposure, router action, release action, signing
+  action, or product change occurred. OpenWrt, AX4200/browser, release,
+  signing, and external-service behavior were not applicable to this replay.
+
+Qualification boundary:
+
+- **GO:** bounded local, read-only or explicitly scoped local runtime use with
+  ChatGPT authentication, isolated worktrees, explicit sandbox permissions,
+  fail-closed repository checks, and owner-controlled Git actions.
+- **NO-GO:** unattended default-mode cutover, automatic merge/release/signing,
+  router/certificate authority, CI login, or any claim that Plus capacity and
+  billing are unlimited or fully observable.
+
+This completes the staged autonomous workflow qualification without changing
+the required three-Work operating model. The P1 product item below is now the
+next active implementation item.
+
+## Qualification history
 
 ### Stage 8 — qualification and fallback
 
@@ -387,7 +440,9 @@ Acceptance criteria:
   cutover, unattended merge/release/signing/router authority, or product PR is
   implied by a passing replay.
 
-### Queued product PR: `fix: make read-only routing state truthful for partial rules`
+## Recommended next item
+
+### P1 — Make read-only routing state truthful for partial rules
 
 Scope one PassWall2 inspection correctness defect only:
 
@@ -440,9 +495,9 @@ owner-controlled release sequence.
 - No merge, tag, release, force-push, or signing action merely because tests
   are green.
 
-The next state change is the Stage 8 qualification and fallback work above.
-Complete and record that stage before selecting the queued P1 product item,
-compatibility work, or release workflow work.
+The next state change is the P1 partial-bundle inspection implementation above.
+Do not begin compatibility or release workflow work in parallel with that
+active product PR.
 Revalidate this plan after the qualification and after every later
 owner-approved stage merge. Do not repeat completed Stage 4 work or select a
 later stage without current-main verification.
