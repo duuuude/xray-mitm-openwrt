@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -158,18 +159,50 @@ class SignedFeedTests(unittest.TestCase):
         )
 
     def test_release_tag_must_match_package_version(self) -> None:
-        good = subprocess.run(
-            ["sh", str(VERSION_CHECK), str(ROOT), f"v{PACKAGE_VERSION}"],
-            text=True,
-            capture_output=True,
-            check=False,
-        )
-        bad = subprocess.run(
-            ["sh", str(VERSION_CHECK), str(ROOT), f"v{PACKAGE_VERSION}-invalid"],
-            text=True,
-            capture_output=True,
-            check=False,
-        )
+        # Development builds may use a non-r1 package release so that a
+        # changed package can be installed over the published baseline. Test
+        # the tag checker with the release-state contract independently.
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = Path(temporary)
+            (fixture / "xray-mitm").mkdir()
+            (fixture / "scripts").mkdir()
+            makefile = (ROOT / "xray-mitm/Makefile").read_text(encoding="utf-8")
+            makefile = re.sub(
+                r"^PKG_RELEASE:=[^\r\n]+$",
+                "PKG_RELEASE:=1",
+                makefile,
+                count=1,
+                flags=re.MULTILINE,
+            )
+            (fixture / "xray-mitm/Makefile").write_text(makefile, encoding="utf-8")
+            (fixture / "CHANGELOG.md").write_text(
+                (ROOT / "CHANGELOG.md").read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            release_notes = fixture / "scripts/release-notes.sh"
+            release_notes.write_text(
+                RELEASE_NOTES.read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            release_notes.chmod(0o755)
+
+            good = subprocess.run(
+                ["sh", str(VERSION_CHECK), str(fixture), f"v{PACKAGE_VERSION}"],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            bad = subprocess.run(
+                [
+                    "sh",
+                    str(VERSION_CHECK),
+                    str(fixture),
+                    f"v{PACKAGE_VERSION}-invalid",
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
 
         self.assertEqual(good.returncode, 0, good.stdout + good.stderr)
         self.assertNotEqual(bad.returncode, 0)
