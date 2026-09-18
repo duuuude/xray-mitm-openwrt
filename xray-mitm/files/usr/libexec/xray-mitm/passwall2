@@ -318,16 +318,119 @@ option_has_line() {
 	section_option "$1" "$2" | grep -Fqx "$3"
 }
 
+option_has_lines() {
+	id=$1
+	option=$2
+	lines=$3
+	[ -n "$id" ] || return 1
+	[ -n "$lines" ] || return 1
+	while IFS= read -r line; do
+		[ -n "$line" ] || continue
+		option_has_line "$id" "$option" "$line" || return 1
+	done <<EOF
+$lines
+EOF
+}
+
+bundle_domains() {
+	case "$1" in
+		gemini)
+			printf '%s\n' domain:gemini.google.com domain:generativelanguage.googleapis.com
+			;;
+		android_check)
+			printf '%s\n' domain:connectivitycheck.gstatic.com domain:connectivitycheck.android.com domain:clients3.google.com
+			;;
+		youtube_control)
+			printf '%s\n' domain:www.youtube.com domain:youtubei.googleapis.com domain:youtube.googleapis.com domain:accounts.youtube.com
+			;;
+		google_play)
+			printf '%s\n' domain:play.google.com domain:play.googleapis.com domain:play-fe.googleapis.com domain:android.clients.google.com domain:android.googleapis.com domain:checkin.googleapis.com domain:firebaseinstallations.googleapis.com domain:oauth2.googleapis.com domain:mtalk.google.com domain:dl.google.com domain:update.googleapis.com domain:clientservices.googleapis.com domain:clients4.google.com domain:optimizationguide-pa.googleapis.com domain:ssl.gstatic.com domain:redirector.gvt1.com domain:play-lh.googleusercontent.com domain:dns.google domain:dns.google.com
+			;;
+		google_mitm)
+			printf '%s\n' domain:drive.google.com domain:drive.usercontent.google.com domain:www.googleapis.com domain:content.googleapis.com domain:googlevideo.com
+			;;
+		google_meet)
+			printf '%s\n' domain:meet.google.com domain:meetings.googleapis.com domain:hangouts.googleapis.com domain:meetings.clients6.google.com domain:stream.meet.google.com
+			;;
+		meta_mitm)
+			printf '%s\n' geosite:meta
+			;;
+		fastly_mitm)
+			printf '%s\n' geosite:fastly geosite:reddit geosite:cnn domain:buzzfeed.com
+			;;
+		iran_direct)
+			printf '%s\n' geosite:ir
+			;;
+		accounts_google)
+			printf '%s\n' domain:accounts.google.com
+			;;
+		*) return 1 ;;
+	esac
+}
+
+bundle_network() {
+	case "$1" in
+		iran_direct) printf '%s' 'tcp,udp' ;;
+		*) printf '%s' tcp ;;
+	esac
+}
+
+bundle_ips() {
+	case "$1" in
+		fastly_mitm) printf '%s' geoip:fastly ;;
+		iran_direct) printf '%s' geoip:ir ;;
+		*) return 0 ;;
+	esac
+}
+
+legacy_bundle_domains() {
+	case "$1" in
+		google_mitm) printf '%s\n' geosite:google ;;
+		*) bundle_domains "$1" ;;
+	esac
+}
+
+rule_has_bundle() {
+	rule=$1
+	target=$2
+	shunt=$3
+	group=$4
+	bundle=$5
+	domains=$(bundle_domains "$bundle") || return 1
+	ips=$(bundle_ips "$bundle") || return 1
+	rule_is_routed_to "$rule" "$target" "$shunt" || return 1
+	[ "$(section_option "$rule" network)" = "$(bundle_network "$bundle")" ] || return 1
+	[ "$(section_option "$rule" group)" = "$group" ] || return 1
+	option_has_lines "$rule" domain_list "$domains" || return 1
+	[ -z "$ips" ] || option_has_lines "$rule" ip_list "$ips"
+}
+
+legacy_rule_has_bundle() {
+	rule=$1
+	target=$2
+	shunt=$3
+	group=$4
+	bundle=$5
+	domains=$(legacy_bundle_domains "$bundle") || return 1
+	ips=$(bundle_ips "$bundle") || return 1
+	rule_is_routed_to "$rule" "$target" "$shunt" || return 1
+	[ "$(section_option "$rule" network)" = "$(bundle_network "$bundle")" ] || return 1
+	[ "$(section_option "$rule" group)" = "$group" ] || return 1
+	option_has_lines "$rule" domain_list "$domains" || return 1
+	[ -z "$ips" ] || option_has_lines "$rule" ip_list "$ips"
+}
+
 routing_bundle_active() {
 	aggregate=$1
-	line=$2
+	bundle=$2
 	legacy=$3
 	target=$4
 	shunt=$5
+	group=$6
 	if [ -n "$aggregate" ]; then
-		option_has_line "$aggregate" domain_list "$line"
+		rule_has_bundle "$aggregate" "$target" "$shunt" "$group" "$bundle"
 	else
-		rule_is_routed_to "$legacy" "$target" "$shunt" && option_has_line "$legacy" domain_list "$line"
+		legacy_rule_has_bundle "$legacy" "$target" "$shunt" "$group" "$bundle"
 	fi
 }
 
@@ -434,7 +537,9 @@ inspect() {
 		selected_shunt=''
 	fi
 	selected_vpn=''
+	selected_group=''
 	if [ -n "$selected_shunt" ]; then
+		selected_group=$(section_option "$selected_shunt" shunt_group)
 		selected_vpn=$(section_option "$selected_shunt" "$RULE_VPN")
 		if [ -z "$selected_vpn" ]; then
 			for candidate_rule in "$OLD_RULE_GEMINI" "$OLD_RULE_ANDROID" "$OLD_RULE_YOUTUBE" "$LEGACY_GEMINI" "$LEGACY_ANDROID" "$LEGACY_YOUTUBE"; do
@@ -458,25 +563,25 @@ inspect() {
 	else
 		printf '%s' '"mitm_node":{"status":"missing","id":"xray_mitm_socks","endpoint":"127.0.0.1:10808","source":"new"},'
 	fi
-	if rule_is_routed_to "$RULE_VPN" "$selected_vpn" "$selected_shunt"; then live_vpn=$RULE_VPN; else live_vpn=''; fi
-	if rule_is_routed_to "$RULE_MITM" "$live_mitm" "$selected_shunt"; then live_services=$RULE_MITM; else live_services=''; fi
-	if rule_is_routed_to "$RULE_DIRECT" _direct "$selected_shunt"; then live_direct=$RULE_DIRECT; else live_direct=''; fi
+	if [ "$(managed_state "$RULE_VPN" shunt_rules)" = managed ]; then live_vpn=$RULE_VPN; else live_vpn=''; fi
+	if [ "$(managed_state "$RULE_MITM" shunt_rules)" = managed ]; then live_services=$RULE_MITM; else live_services=''; fi
+	if [ "$(managed_state "$RULE_DIRECT" shunt_rules)" = managed ]; then live_direct=$RULE_DIRECT; else live_direct=''; fi
 	legacy_gemini=$(resolve_live_rule "$OLD_RULE_GEMINI" "$LEGACY_GEMINI" Gemini_VPN || true)
 	legacy_android=$(resolve_live_rule "$OLD_RULE_ANDROID" "$LEGACY_ANDROID" Android_Check || true)
 	legacy_youtube=$(resolve_live_rule "$OLD_RULE_YOUTUBE" "$LEGACY_YOUTUBE" YouTube_Control_VPN || true)
 	legacy_google=$(resolve_live_rule "$OLD_RULE_GOOGLE" "$LEGACY_GOOGLE" Google_MITM || true)
 	legacy_iran=$(resolve_live_rule "$OLD_RULE_IR" "$LEGACY_IR" IR_Direct || true)
 	printf '"routing_state":{"gemini":%s,"android_check":%s,"youtube_control":%s,"google_play":%s,"google_mitm":%s,"google_meet":%s,"meta_mitm":%s,"fastly_mitm":%s,"iran_direct":%s,"accounts_google":%s,"set_default_vpn":%s,"set_localhost_proxy_zero":%s},' \
-		"$(json_bool routing_bundle_active "$live_vpn" domain:gemini.google.com "$legacy_gemini" "$selected_vpn" "$selected_shunt")" \
-		"$(json_bool routing_bundle_active "$live_vpn" domain:connectivitycheck.gstatic.com "$legacy_android" "$selected_vpn" "$selected_shunt")" \
-		"$(json_bool routing_bundle_active "$live_vpn" domain:www.youtube.com "$legacy_youtube" "$selected_vpn" "$selected_shunt")" \
-		"$(json_bool routing_bundle_active "$live_vpn" domain:play.googleapis.com "$legacy_gemini" "$selected_vpn" "$selected_shunt")" \
-		"$(json_bool routing_bundle_active "$live_services" domain:googlevideo.com "$legacy_google" "$live_mitm" "$selected_shunt")" \
-		"$(json_bool option_has_line "$live_services" domain_list domain:meet.google.com)" \
-		"$(json_bool option_has_line "$live_services" domain_list geosite:meta)" \
-		"$(json_bool option_has_line "$live_services" domain_list geosite:fastly)" \
-		"$(json_bool routing_bundle_active "$live_direct" geosite:ir "$legacy_iran" _direct "$selected_shunt")" \
-		"$(json_bool routing_bundle_active "$live_vpn" domain:accounts.google.com "$legacy_gemini" "$selected_vpn" "$selected_shunt")" \
+		"$(json_bool routing_bundle_active "$live_vpn" gemini "$legacy_gemini" "$selected_vpn" "$selected_shunt" "$selected_group")" \
+		"$(json_bool routing_bundle_active "$live_vpn" android_check "$legacy_android" "$selected_vpn" "$selected_shunt" "$selected_group")" \
+		"$(json_bool routing_bundle_active "$live_vpn" youtube_control "$legacy_youtube" "$selected_vpn" "$selected_shunt" "$selected_group")" \
+		"$(json_bool routing_bundle_active "$live_vpn" google_play "$legacy_gemini" "$selected_vpn" "$selected_shunt" "$selected_group")" \
+		"$(json_bool routing_bundle_active "$live_services" google_mitm "$legacy_google" "$live_mitm" "$selected_shunt" "$selected_group")" \
+		"$(json_bool routing_bundle_active "$live_services" google_meet "$legacy_google" "$live_mitm" "$selected_shunt" "$selected_group")" \
+		"$(json_bool routing_bundle_active "$live_services" meta_mitm "$legacy_google" "$live_mitm" "$selected_shunt" "$selected_group")" \
+		"$(json_bool routing_bundle_active "$live_services" fastly_mitm "$legacy_google" "$live_mitm" "$selected_shunt" "$selected_group")" \
+		"$(json_bool routing_bundle_active "$live_direct" iran_direct "$legacy_iran" _direct "$selected_shunt" "$selected_group")" \
+		"$(json_bool routing_bundle_active "$live_vpn" accounts_google "$legacy_gemini" "$selected_vpn" "$selected_shunt" "$selected_group")" \
 		"$(json_bool test -n "$selected_vpn" -a "$(section_option "$selected_shunt" default_node)" = "$selected_vpn")" \
 		"$(json_bool test "$(section_option '@global[0]' localhost_proxy)" = 0)"
 	printf '"rule_sources":{"vpn_overrides":"%s","mitm_services":"%s","regional_direct":"%s"},' \

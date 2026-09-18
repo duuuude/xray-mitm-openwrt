@@ -297,6 +297,94 @@ class PassWall2Fixture(unittest.TestCase):
         self.assertEqual(self.config.read_bytes(), self.original)
         self.assertEqual(self.restart_count(), 0)
 
+    def test_inspect_requires_complete_managed_bundle_contents(self) -> None:
+        _, plan = self.helper("plan", str(self.request_file({
+            "meta_mitm": True,
+            "fastly_mitm": True,
+        })))
+        self.apply(str(plan["token"]))
+
+        _, complete = self.helper("inspect")
+        for bundle in (
+            "gemini",
+            "android_check",
+            "youtube_control",
+            "google_play",
+            "google_mitm",
+            "google_meet",
+            "meta_mitm",
+            "fastly_mitm",
+            "iran_direct",
+            "accounts_google",
+        ):
+            with self.subTest(bundle=bundle):
+                self.assertTrue(complete["routing_state"][bundle])
+
+        self.uci(
+            "set",
+            "passwall2.xray_mitm_vpn_overrides.domain_list="
+            "domain:gemini.google.com",
+        )
+        self.uci(
+            "set",
+            "passwall2.xray_mitm_services.ip_list=geoip:not-fastly",
+        )
+        _, partial = self.helper("inspect")
+        self.assertFalse(partial["routing_state"]["gemini"])
+        self.assertFalse(partial["routing_state"]["google_play"])
+        self.assertFalse(partial["routing_state"]["accounts_google"])
+        self.assertTrue(partial["routing_state"]["google_mitm"])
+        self.assertTrue(partial["routing_state"]["meta_mitm"])
+        self.assertFalse(partial["routing_state"]["fastly_mitm"])
+
+    def test_inspect_rejects_managed_rules_with_wrong_targets(self) -> None:
+        _, plan = self.helper("plan", str(self.request_file({
+            "meta_mitm": True,
+            "fastly_mitm": True,
+        })))
+        self.apply(str(plan["token"]))
+
+        self.uci(
+            "set",
+            "passwall2.main_shunt.xray_mitm_vpn_overrides=other_group_rule",
+        )
+        self.uci(
+            "set",
+            "passwall2.main_shunt.xray_mitm_services=vpn_node",
+        )
+        self.uci(
+            "set",
+            "passwall2.main_shunt.xray_mitm_regional_direct=vpn_node",
+        )
+        _, inspection = self.helper("inspect")
+        self.assertFalse(inspection["routing_state"]["gemini"])
+        self.assertFalse(inspection["routing_state"]["google_mitm"])
+        self.assertFalse(inspection["routing_state"]["meta_mitm"])
+        self.assertFalse(inspection["routing_state"]["fastly_mitm"])
+        self.assertFalse(inspection["routing_state"]["iran_direct"])
+
+    def test_inspect_recognizes_complete_compatible_legacy_rules(self) -> None:
+        active_legacy = LEGACY_CONFIG.replace(
+            "\toption IR_Direct '_direct'",
+            "\toption IR_Direct '_direct'\n"
+            "\toption Gemini_VPN '2xExBSCp'\n"
+            "\toption Google_MITM 'sdt8MGIZ'",
+        )
+        self.config.write_text(active_legacy, encoding="utf-8")
+        self.original = self.config.read_bytes()
+
+        _, inspection = self.helper("inspect")
+        self.assertEqual(inspection["selected_vpn"], "2xExBSCp")
+        self.assertTrue(inspection["routing_state"]["gemini"])
+        self.assertTrue(inspection["routing_state"]["accounts_google"])
+        self.assertTrue(inspection["routing_state"]["google_mitm"])
+        self.assertTrue(inspection["routing_state"]["iran_direct"])
+        self.assertFalse(inspection["routing_state"]["android_check"])
+        self.assertFalse(inspection["routing_state"]["youtube_control"])
+        self.assertFalse(inspection["routing_state"]["google_meet"])
+        self.assertFalse(inspection["routing_state"]["meta_mitm"])
+        self.assertFalse(inspection["routing_state"]["fastly_mitm"])
+
     def test_plan_apply_and_exact_rollback(self) -> None:
         plan = self.plan_all()
         token = str(plan["token"])
