@@ -1,6 +1,6 @@
 # Xray MITM OpenWrt — Master Plan
 
-Status: current roadmap; last audited 2026-09-18
+Status: current roadmap; last audited 2026-09-19
 
 This plan is based on the actual canonical repository, not on an earlier plan
 or historical checkout.
@@ -11,8 +11,8 @@ The authoritative source is:
 
 - Repository: `https://github.com/duuuude/xray-mitm-openwrt.git`
 - Public branch: `main`
-- Review/audit baseline: `35f460bdb84aabf640fb804efac0da0432a20607`, the PR #44
-  squash merge and current `main` commit inspected after Stage 8 was recorded
+- Review/audit baseline: `3c0df41cb9003330fe61fb057ccc6f4b2f7e03bd`, the PR #48
+  squash merge and current `main` commit inspected after the P1 live gate
 - Observed package baseline: `0.4.4-r1`
 - Canonical clone root: `<repo-root>`
 - Temporary task worktrees: `<workspace-root>/worktrees/`
@@ -107,6 +107,15 @@ They are complete in current `main` and must not remain as pending tasks.
 - PassWall2 integration has inspect/validate/recover/stage/preview/backup/
   apply/bounded-activation/verify/rollback behavior, pending-change refusal,
   concurrency locking, and exact restoration coverage.
+- Read-only PassWall2 bundle inspection now requires complete managed bundle
+  contents, expected networks, valid shunt/rule groups, target assignments, and
+  required IP entries. PR #48 added deterministic regressions for partial
+  contents, wrong targets, empty or invalid groups, compatible legacy rules,
+  and invalid legacy groups. The exact protected candidate was installed and
+  rolled back through signed repositories on the AX4200; an isolated real-
+  router fixture exercised the synthetic states, and protected package and
+  configuration state was restored. This is live integration evidence for the
+  inspection behavior, not evidence of external-service behavior.
 - Activation results retain only the latest three completed results while
   preserving pending results. The old retention task is closed.
 - The installer detects APK and supported official 25.12 releases, gives
@@ -168,21 +177,9 @@ future work.
 
 ### Product correctness
 
-#### P1 — Make read-only routing state truthful for partial rules
-
-PassWall2 inspection currently treats a bundle as active after finding a
-representative line, for example `domain:googlevideo.com`,
-`domain:meet.google.com`, `geosite:meta`, or `geosite:fastly` in the relevant
-rule. Apply-time verification is stricter than this inspection predicate.
-Consequently, a partially edited or hand-created rule can be reported as
-active even when the complete managed bundle is not present.
-
-This needs a focused contract decision: either inspect must verify the full
-managed bundle and target/assignment, or the result must be explicitly
-described as a sentinel-level signal rather than full activation. Add
-regressions for partial lists, wrong targets, aggregate rules, and compatible
-legacy rules. Do not expose raw UCI data or credentials while improving the
-status.
+The P1 partial-bundle inspection defect is complete in merged PR #48. No
+product-correctness PR is active. The next approved item is the compatibility
+evidence initiative below.
 
 ## Workflow and tooling work
 
@@ -202,18 +199,18 @@ in-scope corrections. Stage 6 promotion was completed for this candidate.
 Stage 7 was not required because the candidate was documentation-only. Stage 8
 was then qualified for bounded local operation through the replay and safety
 cases recorded below. The default three-Work workflow remains the supported
-operating mode; unattended cutover is not qualified. The P1 partial-bundle
-inspection item is now the next active project item. Later stages remain
+operating mode; unattended cutover is not qualified. PR #48 then completed
+the P1 partial-bundle inspection item with independent source review, protected
+artifact validation, AX4200 integration, synthetic-state inspection, trusted
+rollback, and exact recovery comparison. The official OpenWrt compatibility
+evidence initiative is now the next active project item. Later stages remain
 separately scoped and reviewed, not one platform build.
 `docs/ai/AUTONOMOUS_PR.md` records the stage order, independence, cost boundary,
 and owner gates. No unattended router/release authority is approved by this
 scheduling decision.
 
-The truthful partial-bundle inspection defect remains a genuine P1 product
-correctness item. It is the next approved implementation item after this
-qualification record; its inspection contract has not been decided or
-implemented. Recheck the roadmap after every owner-approved stage merge before
-selecting another PR.
+The truthful partial-bundle inspection defect is complete in PR #48. Recheck
+the roadmap after every owner-approved merge before selecting another PR.
 
 ### Present automation
 
@@ -276,13 +273,14 @@ matrix or clearly label manual inputs as unsupported experiments.
 
 Only the first item is active. The rest are queued; do not start a later item
 in parallel with an active PR. The priority order reflects the owner's
-workflow scheduling choice, not a claim that the P1 product defect is fixed.
+workflow scheduling choice and records completed work separately from the one
+active initiative.
 
 | Priority | One coherent PR / initiative | Type | Reason |
 | --- | --- | --- | --- |
-| 1 | Define and enforce truthful partial-bundle inspection | Product correctness, P1 defect | Read-only status can overstate a partially edited rule; now the next approved implementation item. |
-| 2 | Establish repeatable official OpenWrt 25.12.x compatibility evidence | Compatibility/testing | The support claim is broader than the current automated proof. |
-| 3 | Build once and promote the exact tested artifact | Release workflow | Removes the remaining PR-build/tag-build provenance gap. |
+| 1 | Establish repeatable official OpenWrt 25.12.x compatibility evidence | Compatibility/testing | The support claim is broader than the current automated proof. |
+| 2 | Build once and promote the exact tested artifact | Release workflow | Removes the remaining PR-build/tag-build provenance gap. |
+| 3 | Generate a standard machine-readable PR evidence artifact | Developer tooling | Makes commit-bound tests, checksums, and manual-gate ownership consistent. |
 
 ## Completed Stage 3 qualification record — merged PR #41
 
@@ -411,8 +409,8 @@ Qualification boundary:
   billing are unlimited or fully observable.
 
 This completes the staged autonomous workflow qualification without changing
-the required three-Work operating model. The P1 product item below is now the
-next active implementation item.
+the required three-Work operating model. The official OpenWrt 25.12.x
+compatibility evidence initiative is now the next active implementation item.
 
 ## Qualification history
 
@@ -442,30 +440,42 @@ Acceptance criteria:
 
 ## Recommended next item
 
-### P1 — Make read-only routing state truthful for partial rules
+### Establish repeatable official OpenWrt 25.12.x compatibility evidence
 
-Scope one PassWall2 inspection correctness defect only:
+Scope one compatibility/testing initiative only:
 
-- Define the inspection contract for partial, aggregate, legacy, and
-  wrong-target rules.
-- Make read-only status distinguish a complete managed bundle from a
-  representative or partial match.
-- Add focused regressions for partial lists, wrong targets, aggregate rules,
-  and compatible legacy rules.
-- Preserve apply-time verification, routing choices, certificates, installer
-  behavior, service activation behavior, and credential-safety boundaries.
+- Define the oldest and latest supported official OpenWrt 25.12.x targets and
+  the evidence required for the published support claim.
+- Add disposable VM/QEMU or equivalent official-image integration checks for
+  package installation, dependency resolution, rpcd/ubus loading, service
+  status, package update/removal, certificate status/download, PassWall2
+  inspect/plan/apply/status, recovery, and no-automatic-routing behavior.
+- Keep the AX4200 and desktop-browser gate as a separate physical-device
+  requirement; do not replace it with mocks.
+- Decide whether arbitrary workflow-dispatch release and architecture inputs
+  are supported experiments or must be constrained to the documented matrix.
+- Preserve APK/noarch packaging, signed-feed trust, certificate safety,
+  PassWall2 transaction safety, and the three-Work review/owner gates.
+
+Out of scope:
+
+- OPKG/24.10 support or any new support commitment.
+- Product behavior changes unrelated to compatibility evidence.
+- Replacing the AX4200 gate with VM-only evidence.
+- Release publication, signing-policy changes, or router mutations.
 
 Acceptance criteria:
 
-- Read-only inspection reports a bundle as active only according to the
-  explicitly documented complete-bundle contract.
-- Partial lists, wrong targets, aggregate rules, and compatible legacy rules
-  have deterministic, tested results.
-- Apply-time verification and existing safety boundaries remain unchanged.
-- Focused tests, `sh scripts/validate-release.sh`, applicable bundled-Node
-  checks, and `git diff --check` pass on the candidate branch.
-- If LuCI behavior changes, the exact candidate passes the required AX4200
-  desktop-browser gate and receives owner visual approval before merge.
+- The supported 25.12.x matrix and evidence boundary are documented.
+- Disposable integration checks run against the selected official images and
+  report exact package, service, ubus/rpcd, certificate, PassWall2, recovery,
+  and no-automatic-routing results.
+- The checks are repeatable without production signing material or live-router
+  state and clearly report unavailable environments.
+- Existing offline validation, signed-feed, release, and router safety suites
+  remain passing.
+- The exact candidate receives independent review; any required AX4200 or
+  browser gate remains separate and owner-controlled.
 
 ## Validation and release gates for future work
 
@@ -495,9 +505,9 @@ owner-controlled release sequence.
 - No merge, tag, release, force-push, or signing action merely because tests
   are green.
 
-The next state change is the P1 partial-bundle inspection implementation above.
-Do not begin compatibility or release workflow work in parallel with that
-active product PR.
+The next state change is the official OpenWrt 25.12.x compatibility evidence
+initiative above. Do not begin build-promotion or evidence-artifact work in
+parallel with that active initiative.
 Revalidate this plan after the qualification and after every later
 owner-approved stage merge. Do not repeat completed Stage 4 work or select a
 later stage without current-main verification.
