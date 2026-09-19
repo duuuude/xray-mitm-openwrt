@@ -6,6 +6,7 @@ on:
       - ".github/workflows/build-24-10.yml"
       - "ci/**"
       - "luci-app-xray-mitm/**"
+      - "scripts/validate-release.sh"
       - "tests/test_package_matrix.py"
       - "xray-mitm/**"
   push:
@@ -15,6 +16,7 @@ on:
       - ".github/workflows/build-24-10.yml"
       - "ci/**"
       - "luci-app-xray-mitm/**"
+      - "scripts/validate-release.sh"
       - "tests/test_package_matrix.py"
       - "xray-mitm/**"
 
@@ -36,6 +38,9 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Validate release tree
         run: sh scripts/validate-release.sh

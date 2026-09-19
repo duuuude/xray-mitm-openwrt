@@ -62,6 +62,16 @@ class PackageMatrixTests(unittest.TestCase):
         self.assertIn("SOURCE_COMMIT", workflow)
         self.assertIn("SHA256SUMS", workflow)
         self.assertIn("PACKAGES", workflow)
+        self.assertEqual(
+            workflow.count('      - "scripts/validate-release.sh"'),
+            2,
+        )
+        self.assertEqual(
+            workflow.count(
+                "ref: ${{ github.event.pull_request.head.sha || github.sha }}"
+            ),
+            2,
+        )
 
         for forbidden in (
             "KEY_BUILD",
