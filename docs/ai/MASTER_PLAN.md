@@ -11,9 +11,8 @@ The authoritative source is:
 
 - Repository: `https://github.com/duuuude/xray-mitm-openwrt.git`
 - Public branch: `main`
-- Review/audit baseline: `5142666107bf46ef4ecbebc1eec7836676ba77ce`, the PR #51
-  squash merge and current `main` commit inspected after the roadmap
-  reconciliation
+- Review/audit baseline: `24de3d1501103a3bb8089e2fe728e883256ca1ea`, the current
+  `main` commit inspected before the OpenWrt compatibility Stage 0 work
 - Observed package baseline: `0.4.4-r1`
 - Canonical clone root: `<repo-root>`
 - Temporary task worktrees: `<workspace-root>/worktrees/`
@@ -27,10 +26,14 @@ Use one canonical clone for repository work and create isolated task worktrees
 only under `<workspace-root>/worktrees/`. Any destructive cleanup must follow
 the safety rules in `AGENTS.md`; ambiguous work is not removed automatically.
 
-The product currently targets official OpenWrt 25.12.x with APK packages.
-The public feed and CI use the 25.12.5 `aarch64_generic` SDK baseline, and
-the AX4200 is the tested physical router. OPKG/24.10 support is not an open
-task; it is outside the current support contract unless explicitly revisited.
+The current public product contract targets official OpenWrt 25.12.x with APK
+packages. The public feed and CI use the 25.12.5 `aarch64_generic` SDK baseline,
+and the AX4200 is the tested physical router. The owner has approved a staged
+compatibility initiative for official 24.10.x OPKG/IPK and 25.12.x APK families.
+24.10 is a legacy-compatibility target with limited security support, not yet a
+public support claim; no upstream security maintenance is promised after its
+end of life. The exact contract and evidence boundary are in
+`docs/OPENWRT_COMPATIBILITY.md`.
 
 The 2026-09-14 audit of baseline
 `e78f1d9f62b9bca01eb91f369f44b373844e69e4` recorded passing offline
@@ -204,8 +207,8 @@ operating mode; unattended cutover is not qualified. PR #48 then completed
 the P1 partial-bundle inspection item with independent source review, protected
 artifact validation, AX4200 integration, synthetic-state inspection, trusted
 rollback, and exact recovery comparison. The official OpenWrt compatibility
-evidence initiative is now the next active project item. Later stages remain
-separately scoped and reviewed, not one platform build.
+initiative is now active at Stage 0. Later stages remain separately scoped and
+reviewed, not one platform build.
 `docs/ai/AUTONOMOUS_PR.md` records the stage order, independence, cost boundary,
 and owner gates. No unattended router/release authority is approved by this
 scheduling decision.
@@ -246,24 +249,24 @@ the roadmap after every owner-approved merge before selecting another PR.
 
 ## OpenWrt compatibility work
 
-The current compatibility claim is narrower than “all OpenWrt”:
+The approved compatibility initiative is documented in
+`docs/OPENWRT_COMPATIBILITY.md`. Its initial families are official 24.10.x
+using OPKG/IPK and official 25.12.x using APK. The public 25.12 contract stays
+in force while 24.10 remains an unproven legacy target.
 
-- Package metadata is APK/noarch-oriented and uses `@USE_APK` dependencies.
-- CI and the public feed use the official 25.12.5 `aarch64_generic` SDK.
-- Documentation describes official 25.12.x, but there is no automated oldest-
-  versus-latest 25.12.x integration matrix.
-- AX4200 is covered by manual router/browser evidence; no automated VM/QEMU or
-  disposable-router lane currently proves install, upgrade, removal, ubus/
-  rpcd/LuCI behavior, Xray service behavior, certificate status/download,
-  PassWall2 inspect/plan/apply/status, recovery, and no-automatic-routing
-  behavior across the supported series.
+- 24.10.8 and 25.12.5 are the Stage 0 reference releases and must be
+  revalidated when build work starts.
+- The first 24.10 target is `aarch64_cortex-a53`, matching the physical lab
+  router; a generic SDK build alone is not hardware evidence.
+- Existing 25.12 APK packaging, signed-feed trust, installer behavior, and
+  AX4200/browser gates remain protected.
+- No local x86 emulation, Docker VM, firmware downgrade, or replacement of the
+  physical-router gate is part of the plan.
+- PassWall2 remains optional; standalone service capability and integration
+  capability must be evidenced separately.
 
-The next compatibility initiative should establish the support matrix and
-evidence boundary for the official 25.12 series. It should use disposable
-VM/QEMU or equivalent official images for repeatable integration checks, keep
-the AX4200 browser gate as a separate physical-device check, and narrow the
-published support claim if a release cannot be proven. It should not silently
-add OPKG/24.10 support or replace the physical-router gate with mocks.
+The current Stage 0 task is documentation/design only. It must finish before
+any package, installer, CI, signing, feed, or router implementation begins.
 
 The build workflow also accepts arbitrary `workflow_dispatch` release and
 architecture strings while the publish workflow is fixed to one baseline.
@@ -279,7 +282,7 @@ active initiative.
 
 | Priority | One coherent PR / initiative | Type | Reason |
 | --- | --- | --- | --- |
-| 1 | Establish repeatable official OpenWrt 25.12.x compatibility evidence | Compatibility/testing | The support claim is broader than the current automated proof. |
+| 1 | Define and implement the official OpenWrt 24.10/25.12 compatibility initiative, beginning with Stage 0 | Compatibility/design | The owner approved a two-family target, but its evidence and legacy-support boundary must be recorded before implementation. |
 | 2 | Build once and promote the exact tested artifact | Release workflow | Removes the remaining PR-build/tag-build provenance gap. |
 | 3 | Generate a standard machine-readable PR evidence artifact | Developer tooling | Makes commit-bound tests, checksums, and manual-gate ownership consistent. |
 
@@ -441,42 +444,42 @@ Acceptance criteria:
 
 ## Recommended next item
 
-### Establish repeatable official OpenWrt 25.12.x compatibility evidence
+### Stage 0 — define official OpenWrt 24.10/25.12 compatibility contract
 
-Scope one compatibility/testing initiative only:
+The detailed contract is `docs/OPENWRT_COMPATIBILITY.md`. This first PR is
+documentation/design only:
 
-- Define the oldest and latest supported official OpenWrt 25.12.x targets and
-  the evidence required for the published support claim.
-- Add disposable VM/QEMU or equivalent official-image integration checks for
-  package installation, dependency resolution, rpcd/ubus loading, service
-  status, package update/removal, certificate status/download, PassWall2
-  inspect/plan/apply/status, recovery, and no-automatic-routing behavior.
-- Keep the AX4200 and desktop-browser gate as a separate physical-device
-  requirement; do not replace it with mocks.
-- Decide whether arbitrary workflow-dispatch release and architecture inputs
-  are supported experiments or must be constrained to the documented matrix.
-- Preserve APK/noarch packaging, signed-feed trust, certificate safety,
-  PassWall2 transaction safety, and the three-Work review/owner gates.
+- Record official 24.10.x OPKG/IPK and 25.12.x APK as the initial families.
+- Record 24.10 as legacy compatibility with limited security support and no
+  upstream security promise after end of life.
+- Distinguish accepted, built, integration-tested, hardware-tested, and
+  published-support evidence.
+- Define the first target matrix, separate package/feed trust chains,
+  standalone service behavior, and optional PassWall2 capability levels.
+- Use native M5 offline tests and bounded GitHub-hosted SDK jobs; do not require
+  local emulation, Docker, paid capacity, or an AX4200 firmware downgrade.
+- Preserve current 25.12 APK, signed-feed, installer, certificate, PassWall2,
+  router, browser, and owner-gate rules.
+- Define the ordered Stage 1–6 PR sequence and stop before package or runtime
+  implementation.
 
 Out of scope:
 
-- OPKG/24.10 support or any new support commitment.
-- Product behavior changes unrelated to compatibility evidence.
-- Replacing the AX4200 gate with VM-only evidence.
-- Release publication, signing-policy changes, or router mutations.
+- Package, installer, CI, product, or runtime behavior changes.
+- Production OPKG signing, feed publication, or release changes.
+- Replacing the AX4200 gate with mocks or a local emulator.
+- Firmware downgrade, router mutation, or certificate/signing-material action.
 
 Acceptance criteria:
 
-- The supported 25.12.x matrix and evidence boundary are documented.
-- Disposable integration checks run against the selected official images and
-  report exact package, service, ubus/rpcd, certificate, PassWall2, recovery,
-  and no-automatic-routing results.
-- The checks are repeatable without production signing material or live-router
-  state and clearly report unavailable environments.
-- Existing offline validation, signed-feed, release, and router safety suites
-  remain passing.
-- The exact candidate receives independent review; any required AX4200 or
-  browser gate remains separate and owner-controlled.
+- The two-family matrix, legacy 24.10 boundary, evidence levels, trust design,
+  standalone/PassWall2 model, budget, and ordered stages are documented.
+- Supported and untested architectures and releases are distinguished.
+- No product, installer, package, CI, signing, release, or router behavior is
+  changed.
+- Documentation validation and the full repository safety validator pass.
+- The exact candidate receives independent review and owner merge approval;
+  later package, router, browser, signing, and release gates remain separate.
 
 ## Validation and release gates for future work
 
@@ -499,16 +502,17 @@ owner-controlled release sequence.
 - No certificate regeneration or private-key movement as a convenience.
 - No exposure of private keys, credentials, router backups, or secret-bearing
   test data.
-- No OPKG/24.10 compatibility without a separately approved support decision.
+- No public 24.10 support claim or release before the later evidence stages and
+  owner approval are complete.
 - No broad Xray rule expansion or unrelated product redesign.
 - No permanent sibling clones; temporary task worktrees belong under
   `worktrees/`.
 - No merge, tag, release, force-push, or signing action merely because tests
   are green.
 
-The next state change is the official OpenWrt 25.12.x compatibility evidence
-initiative above. Do not begin build-promotion or evidence-artifact work in
-parallel with that active initiative.
+The next state change is the Stage 0 documentation/design PR above. Do not
+begin package builds, installer work, build-promotion, or evidence-artifact
+work in parallel with it.
 Revalidate this plan after the qualification and after every later
 owner-approved stage merge. Do not repeat completed Stage 4 work or select a
 later stage without current-main verification.
