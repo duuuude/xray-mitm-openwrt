@@ -156,7 +156,9 @@ claim. Production signing and publication remain separate protected actions.
 
 The fast local loop uses the native Apple Silicon Mac for offline tests,
 fixtures, static checks, and documentation validation. No local x86 emulation,
-Docker VM, paid API, extra credits, cloud VM, or paid runner is required.
+Docker VM, paid API, extra credits, separately paid cloud VM, or paid runner is
+required for that loop. Bounded GitHub-hosted jobs within the available free
+allowance are permitted and may be required for official SDK/package builds.
 
 Official SDK/package builds that need Linux or x86 tooling belong in bounded
 GitHub-hosted jobs within the available free allowance. A slow or unavailable
