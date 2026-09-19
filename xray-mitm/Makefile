@@ -15,7 +15,7 @@ define Package/xray-mitm
   SUBMENU:=Web Servers/Proxies
   TITLE:=Standalone Xray MITM Domain Fronting service
   URL:=https://github.com/duuuude/xray-mitm-openwrt
-  DEPENDS:=@USE_APK +xray-core +curl +openssl-util +uci +jsonfilter +coreutils-stat +v2ray-geoip +v2ray-geosite
+  DEPENDS:=+xray-core +curl +openssl-util +uci +jsonfilter +coreutils-stat +v2ray-geoip +v2ray-geosite
 endef
 
 define Package/xray-mitm/description
