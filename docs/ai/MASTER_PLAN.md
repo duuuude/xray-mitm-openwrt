@@ -11,8 +11,9 @@ The authoritative source is:
 
 - Repository: `https://github.com/duuuude/xray-mitm-openwrt.git`
 - Public branch: `main`
-- Review/audit baseline: `3c0df41cb9003330fe61fb057ccc6f4b2f7e03bd`, the PR #48
-  squash merge and current `main` commit inspected after the P1 live gate
+- Review/audit baseline: `cccb8fb99bc59f39fc9c6c53a6fa8df9d512c738`, the PR #49
+  squash merge and current `main` commit inspected after the roadmap
+  reconciliation
 - Observed package baseline: `0.4.4-r1`
 - Canonical clone root: `<repo-root>`
 - Temporary task worktrees: `<workspace-root>/worktrees/`
