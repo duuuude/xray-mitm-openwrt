@@ -496,6 +496,7 @@ def check_signed_feed(root: Path, errors: list[str]) -> None:
         "validate_https_url()",
         "usign -F -p",
         "OPKG_KEY_FINGERPRINT",
+        '"${#OPKG_KEY_FINGERPRINT}" -eq 16',
         '"$APK_BIN" add xray-mitm luci-app-xray-mitm',
         '"$APK_BIN" upgrade xray-mitm luci-app-xray-mitm',
         '"$OPKG_BIN" install xray-mitm luci-app-xray-mitm',

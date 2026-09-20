@@ -313,7 +313,7 @@ else
 	case "$OPKG_KEY_FINGERPRINT" in
 		''|*[!0-9A-Fa-f]*) die 'The downloaded OPKG feed key has an invalid usign fingerprint.' ;;
 	esac
-	[ "${#OPKG_KEY_FINGERPRINT}" -eq 64 ] || \
+	[ "${#OPKG_KEY_FINGERPRINT}" -eq 16 ] || \
 		die 'The downloaded OPKG feed key has an invalid usign fingerprint.'
 	ACTIVE_KEY_NAME="$OPKG_KEY_FINGERPRINT"
 	KEY_FILE="$OPKG_KEYS_DIR/$OPKG_KEY_FINGERPRINT"

@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 INSTALLER = ROOT / "install.sh"
 KEY_NAME = "xray-mitm-feed-v1.pem"
 OPKG_KEY_DOWNLOAD_NAME = "xray-mitm-feed-v1.usign.pub"
-OPKG_KEY_FINGERPRINT = "a" * 64
+OPKG_KEY_FINGERPRINT = "a" * 16
 FEED_URL = "https://fixtures.invalid/feed/25.12/all/packages.adb"
 OPKG_FEED_URL = "https://fixtures.invalid/feed/24.10/aarch64_cortex-a53/"
 
@@ -435,6 +435,19 @@ class InstallerTests(unittest.TestCase):
                     self.apk_log.unlink()
                 if self.opkg_log.exists():
                     self.opkg_log.unlink()
+
+    def test_24_10_rejects_invalid_usign_fingerprint(self) -> None:
+        self.release_file.write_text("DISTRIB_RELEASE='24.10.8'\n", encoding="utf-8")
+
+        result = self.run_installer(
+            extra_env={"FAKE_USIGN_FINGERPRINT": "a" * 64}
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("invalid usign fingerprint", result.stderr)
+        self.assertEqual(self.opkg_calls(), [])
+        self.assertFalse(self.installed_opkg_key.exists())
+        self.assertFalse(self.opkg_feeds_file.exists())
 
     def test_private_key_marker_is_rejected(self) -> None:
         self.public_key.write_text(

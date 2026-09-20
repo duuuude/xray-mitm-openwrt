@@ -39,24 +39,24 @@ The same command is used for a first installation and later updates. Replace `19
 **MAC:**
 
 ```sh
-ssh root@192.168.1.1 'wget -qO /tmp/install-xray-mitm.sh https://duuuude.github.io/xray-mitm-openwrt/install.sh && printf "%s  %s\n" "6b54669c36d9176480a96904f3ce570cdb68cb950669c14210708db6ba37942b" "/tmp/install-xray-mitm.sh" | sha256sum -c - && sh /tmp/install-xray-mitm.sh'
+ssh root@192.168.1.1 'wget -qO /tmp/install-xray-mitm.sh https://duuuude.github.io/xray-mitm-openwrt/install.sh && printf "%s  %s\n" "1dd25456a33ebfe21e780519a3a901ae09e54668cbde4493a96cfb3185ef4b63" "/tmp/install-xray-mitm.sh" | sha256sum -c - && sh /tmp/install-xray-mitm.sh'
 ```
 
 **WINDOWS PC (PowerShell):**
 
 ```powershell
-ssh.exe root@192.168.1.1 'wget -qO /tmp/install-xray-mitm.sh https://duuuude.github.io/xray-mitm-openwrt/install.sh && printf "%s  %s\n" "6b54669c36d9176480a96904f3ce570cdb68cb950669c14210708db6ba37942b" "/tmp/install-xray-mitm.sh" | sha256sum -c - && sh /tmp/install-xray-mitm.sh'
+ssh.exe root@192.168.1.1 'wget -qO /tmp/install-xray-mitm.sh https://duuuude.github.io/xray-mitm-openwrt/install.sh && printf "%s  %s\n" "1dd25456a33ebfe21e780519a3a901ae09e54668cbde4493a96cfb3185ef4b63" "/tmp/install-xray-mitm.sh" | sha256sum -c - && sh /tmp/install-xray-mitm.sh'
 ```
 
 **ROUTER** if you are already connected through SSH:
 
 ```sh
-wget -qO /tmp/install-xray-mitm.sh https://duuuude.github.io/xray-mitm-openwrt/install.sh && printf '%s  %s\n' '6b54669c36d9176480a96904f3ce570cdb68cb950669c14210708db6ba37942b' '/tmp/install-xray-mitm.sh' | sha256sum -c - && sh /tmp/install-xray-mitm.sh
+wget -qO /tmp/install-xray-mitm.sh https://duuuude.github.io/xray-mitm-openwrt/install.sh && printf '%s  %s\n' '1dd25456a33ebfe21e780519a3a901ae09e54668cbde4493a96cfb3185ef4b63' '/tmp/install-xray-mitm.sh' | sha256sum -c - && sh /tmp/install-xray-mitm.sh
 ```
 
 The installer detects the OpenWrt release and package manager, verifies the installer checksum and signed feed, creates a protected backup, and updates only the project packages. It keeps the three newest project backups and leaves unrelated files in the backup directory untouched. It does not install PassWall2, create a certificate, start MITM, or change routing.
 
-The pinned installer SHA-256 is `6b54669c36d9176480a96904f3ce570cdb68cb950669c14210708db6ba37942b`.
+The pinned installer SHA-256 is `1dd25456a33ebfe21e780519a3a901ae09e54668cbde4493a96cfb3185ef4b63`.
 
 When it finishes, open LuCI over **HTTPS** at **Services → MITM Domain Fronting**.
 
