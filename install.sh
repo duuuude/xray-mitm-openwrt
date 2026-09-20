@@ -2,7 +2,7 @@
 set -eu
 
 KEY_NAME='xray-mitm-feed-v1.pem'
-OPKG_KEY_NAME='xray-mitm-feed-v1.usign.pub'
+OPKG_KEY_DOWNLOAD_NAME='xray-mitm-feed-v1.usign.pub'
 OPKG_FEED_NAME='xray_mitm'
 PINNED_KEY_SHA256='3e0dc07ffef69d1512500b6add486381d8c261a8ec3fcce54fa403b35320df8a'
 DEFAULT_KEY_URL='https://duuuude.github.io/xray-mitm-openwrt/feed/xray-mitm-feed-v1.pem'
@@ -36,6 +36,7 @@ ACTIVE_KEY_NAME=''
 ACTIVE_PUBLIC_KEY_URL=''
 ACTIVE_PUBLIC_KEY_SHA256=''
 ACTIVE_FEED_URL=''
+OPKG_KEY_FINGERPRINT=''
 
 KEY_FILE="$APK_KEYS_DIR/$KEY_NAME"
 REPOSITORY_FILE="$REPOSITORIES_DIR/xray-mitm.list"
@@ -63,6 +64,26 @@ download() {
 	else
 		die 'No supported HTTPS downloader was found (uclient-fetch, wget, or curl).'
 	fi
+}
+
+validate_https_url() {
+	url="$1"
+	label="$2"
+
+	case "$url" in
+		https://*) ;;
+		*) die "The $label must use HTTPS." ;;
+	esac
+	case "$url" in
+		*[![:print:]]*|*[[:space:]]*)
+			die "The $label contains whitespace or control characters."
+			;;
+	esac
+	authority_and_path="${url#https://}"
+	authority="${authority_and_path%%[/?#]*}"
+	case "$authority" in
+		''|*@*) die "The $label must contain a host and no credentials." ;;
+	esac
 }
 
 cleanup() {
@@ -141,10 +162,11 @@ check_platform_support() {
 				die "OpenWrt $PLATFORM_RELEASE is unsupported; use official OpenWrt 25.12.x with APK or 24.10.x with OPKG."
 			command -v sha256sum >/dev/null 2>&1 || die 'sha256sum is required to verify the feed key.'
 			;;
-		opkg)
+	opkg)
 			supported_opkg_release "$PLATFORM_RELEASE" || \
 				die "OpenWrt $PLATFORM_RELEASE is unsupported; use official OpenWrt 24.10.x with OPKG."
 			command -v sha256sum >/dev/null 2>&1 || die 'sha256sum is required to verify the feed key.'
+			command -v usign >/dev/null 2>&1 || die 'usign is required to derive the OPKG trust-key fingerprint.'
 			[ -r "$OPKG_CONF_FILE" ] || \
 				die "OPKG signature checking is not configured; required file is $OPKG_CONF_FILE."
 			grep -Eq '^[[:space:]]*option[[:space:]]+check_signature([[:space:]]+1)?[[:space:]]*$' "$OPKG_CONF_FILE" || \
@@ -155,14 +177,6 @@ check_platform_support() {
 				die 'OpenWrt 24.10 OPKG installation requires XRAY_MITM_OPKG_PUBLIC_KEY_SHA256; no public 24.10 feed is configured yet.'
 			[ -n "$OPKG_FEED_URL" ] || \
 				die 'OpenWrt 24.10 OPKG installation requires XRAY_MITM_OPKG_FEED_URL; no public 24.10 feed is configured yet.'
-			case "$OPKG_PUBLIC_KEY_URL" in
-				https://*) ;;
-				*) die 'The 24.10 OPKG public-key URL must use HTTPS.' ;;
-			esac
-			case "$OPKG_FEED_URL" in
-				https://*) ;;
-				*) die 'The 24.10 OPKG feed URL must use HTTPS.' ;;
-			esac
 			;;
 		*)
 			die "OpenWrt $PLATFORM_RELEASE has no matching supported package manager; use 25.12.x with APK or 24.10.x with OPKG."
@@ -180,12 +194,12 @@ select_backend_paths() {
 			KEY_FILE="$APK_KEYS_DIR/$KEY_NAME"
 			REPOSITORY_FILE="$REPOSITORIES_DIR/xray-mitm.list"
 			;;
-		opkg)
-			ACTIVE_KEY_NAME="$OPKG_KEY_NAME"
+	opkg)
+			ACTIVE_KEY_NAME="$OPKG_KEY_DOWNLOAD_NAME"
 			ACTIVE_PUBLIC_KEY_URL="$OPKG_PUBLIC_KEY_URL"
 			ACTIVE_PUBLIC_KEY_SHA256="$OPKG_PUBLIC_KEY_SHA256"
 			ACTIVE_FEED_URL="$OPKG_FEED_URL"
-			KEY_FILE="$OPKG_KEYS_DIR/$OPKG_KEY_NAME"
+			KEY_FILE=''
 			REPOSITORY_FILE="$OPKG_FEEDS_FILE"
 			;;
 		*) die 'No supported package backend was selected.' ;;
@@ -280,21 +294,31 @@ trap 'exit 143' TERM
 
 say "OpenWrt: $PLATFORM_RELEASE"
 say "Package manager: $PLATFORM_PACKAGE_MANAGER"
-say "Signed feed: $ACTIVE_FEED_URL"
+validate_https_url "$ACTIVE_PUBLIC_KEY_URL" 'feed public-key URL'
+validate_https_url "$ACTIVE_FEED_URL" 'signed feed URL'
 say 'Downloading the project feed public key...'
-download "$ACTIVE_PUBLIC_KEY_URL" "$work_dir/$ACTIVE_KEY_NAME"
+downloaded_key_file="$work_dir/$ACTIVE_KEY_NAME"
+download "$ACTIVE_PUBLIC_KEY_URL" "$downloaded_key_file"
 
-actual_key_sha256="$(sha256sum "$work_dir/$ACTIVE_KEY_NAME" | awk '{print $1}')"
+actual_key_sha256="$(sha256sum "$downloaded_key_file" | awk '{print $1}')"
 [ "$actual_key_sha256" = "$ACTIVE_PUBLIC_KEY_SHA256" ] || \
-	die "Feed public-key fingerprint mismatch (received $actual_key_sha256)."
+	die "Feed public-key SHA-256 mismatch (received $actual_key_sha256)."
 if [ "$PLATFORM_PACKAGE_MANAGER" = 'apk' ]; then
-	grep -q '^-----BEGIN PUBLIC KEY-----$' "$work_dir/$ACTIVE_KEY_NAME" || \
+	grep -q '^-----BEGIN PUBLIC KEY-----$' "$downloaded_key_file" || \
 		die 'The downloaded feed key is not a PEM public key.'
 else
-	grep -q '^untrusted comment:' "$work_dir/$ACTIVE_KEY_NAME" || \
+	grep -q '^untrusted comment:' "$downloaded_key_file" || \
 		die 'The downloaded OPKG feed key is not a usign public key.'
+	OPKG_KEY_FINGERPRINT="$(usign -F -p "$downloaded_key_file" 2>/dev/null || true)"
+	case "$OPKG_KEY_FINGERPRINT" in
+		''|*[!0-9A-Fa-f]*) die 'The downloaded OPKG feed key has an invalid usign fingerprint.' ;;
+	esac
+	[ "${#OPKG_KEY_FINGERPRINT}" -eq 64 ] || \
+		die 'The downloaded OPKG feed key has an invalid usign fingerprint.'
+	ACTIVE_KEY_NAME="$OPKG_KEY_FINGERPRINT"
+	KEY_FILE="$OPKG_KEYS_DIR/$OPKG_KEY_FINGERPRINT"
 fi
-if grep -q 'PRIVATE KEY' "$work_dir/$ACTIVE_KEY_NAME"; then
+if grep -q 'PRIVATE KEY' "$downloaded_key_file"; then
 	die 'The downloaded feed key unexpectedly contains private-key material.'
 fi
 say "Feed key verified: $actual_key_sha256"
@@ -329,7 +353,7 @@ if [ "$PLATFORM_PACKAGE_MANAGER" = 'apk' ]; then
 fi
 feed_state_changed=1
 
-write_atomic "$work_dir/$ACTIVE_KEY_NAME" "$KEY_FILE" 0644
+write_atomic "$downloaded_key_file" "$KEY_FILE" 0644
 if [ "$PLATFORM_PACKAGE_MANAGER" = 'apk' ]; then
 	printf '%s\n' "$ACTIVE_FEED_URL" > "$work_dir/xray-mitm.list"
 	write_atomic "$work_dir/xray-mitm.list" "$REPOSITORY_FILE" 0644

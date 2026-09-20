@@ -18,7 +18,7 @@ PUBLIC_KEY = ROOT / "keys/xray-mitm-feed-v1.pem"
 VERSION_CHECK = ROOT / "scripts/check-release-version.sh"
 RELEASE_NOTES = ROOT / "scripts/release-notes.sh"
 EXPECTED_KEY_SHA256 = "3e0dc07ffef69d1512500b6add486381d8c261a8ec3fcce54fa403b35320df8a"
-EXPECTED_INSTALLER_SHA256 = "10f5fff12fb2b642b5192bc0cc94228bfad02dd15cd92385a213a218671a961d"
+EXPECTED_INSTALLER_SHA256 = "6b54669c36d9176480a96904f3ce570cdb68cb950669c14210708db6ba37942b"
 PACKAGE_VERSION = next(
     line.split(":=", 1)[1].strip()
     for line in (ROOT / "xray-mitm/Makefile").read_text(encoding="utf-8").splitlines()
@@ -145,6 +145,9 @@ class SignedFeedTests(unittest.TestCase):
         self.assertIn("check_platform_support()", text)
         self.assertIn("supported_opkg_release()", text)
         self.assertIn("check_signature", text)
+        self.assertIn("validate_https_url()", text)
+        self.assertIn("usign -F -p", text)
+        self.assertIn("OPKG_KEY_FINGERPRINT", text)
         self.assertIn('"$APK_BIN" add xray-mitm luci-app-xray-mitm', text)
         self.assertIn('"$APK_BIN" upgrade xray-mitm luci-app-xray-mitm', text)
         self.assertIn('"$OPKG_BIN" install xray-mitm luci-app-xray-mitm', text)

@@ -39,13 +39,13 @@
 **MAC:**
 
 ```sh
-ssh root@192.168.1.1 'wget -qO /tmp/install-xray-mitm.sh https://duuuude.github.io/xray-mitm-openwrt/install.sh && printf "%s  %s\n" "10f5fff12fb2b642b5192bc0cc94228bfad02dd15cd92385a213a218671a961d" "/tmp/install-xray-mitm.sh" | sha256sum -c - && sh /tmp/install-xray-mitm.sh'
+ssh root@192.168.1.1 'wget -qO /tmp/install-xray-mitm.sh https://duuuude.github.io/xray-mitm-openwrt/install.sh && printf "%s  %s\n" "6b54669c36d9176480a96904f3ce570cdb68cb950669c14210708db6ba37942b" "/tmp/install-xray-mitm.sh" | sha256sum -c - && sh /tmp/install-xray-mitm.sh'
 ```
 
 **WINDOWS PC (PowerShell):**
 
 ```powershell
-ssh.exe root@192.168.1.1 'wget -qO /tmp/install-xray-mitm.sh https://duuuude.github.io/xray-mitm-openwrt/install.sh && printf "%s  %s\n" "10f5fff12fb2b642b5192bc0cc94228bfad02dd15cd92385a213a218671a961d" "/tmp/install-xray-mitm.sh" | sha256sum -c - && sh /tmp/install-xray-mitm.sh'
+ssh.exe root@192.168.1.1 'wget -qO /tmp/install-xray-mitm.sh https://duuuude.github.io/xray-mitm-openwrt/install.sh && printf "%s  %s\n" "6b54669c36d9176480a96904f3ce570cdb68cb950669c14210708db6ba37942b" "/tmp/install-xray-mitm.sh" | sha256sum -c - && sh /tmp/install-xray-mitm.sh'
 ```
 
 اگر از قبل داخل SSH روتر هستید:
@@ -53,12 +53,12 @@ ssh.exe root@192.168.1.1 'wget -qO /tmp/install-xray-mitm.sh https://duuuude.git
 **ROUTER:**
 
 ```sh
-wget -qO /tmp/install-xray-mitm.sh https://duuuude.github.io/xray-mitm-openwrt/install.sh && printf '%s  %s\n' '10f5fff12fb2b642b5192bc0cc94228bfad02dd15cd92385a213a218671a961d' '/tmp/install-xray-mitm.sh' | sha256sum -c - && sh /tmp/install-xray-mitm.sh
+wget -qO /tmp/install-xray-mitm.sh https://duuuude.github.io/xray-mitm-openwrt/install.sh && printf '%s  %s\n' '6b54669c36d9176480a96904f3ce570cdb68cb950669c14210708db6ba37942b' '/tmp/install-xray-mitm.sh' | sha256sum -c - && sh /tmp/install-xray-mitm.sh
 ```
 
 نصب‌کننده نسخه OpenWrt و package manager را شناسایی می‌کند، checksum نصب‌کننده و feed امضاشده را بررسی می‌کند، نسخه پشتیبان محافظت‌شده می‌سازد و فقط بسته‌های پروژه را نصب یا به‌روزرسانی می‌کند. فقط سه نسخه پشتیبان جدید پروژه نگه داشته می‌شوند و فایل‌های نامرتبط در پوشه پشتیبان دست‌نخورده می‌مانند. PassWall2 نصب نمی‌شود، گواهی ساخته نمی‌شود، MITM روشن نمی‌شود و مسیریابی تغییر نمی‌کند.
 
-SHA-256 ثابت نصب‌کننده این است: `10f5fff12fb2b642b5192bc0cc94228bfad02dd15cd92385a213a218671a961d`.
+SHA-256 ثابت نصب‌کننده این است: `6b54669c36d9176480a96904f3ce570cdb68cb950669c14210708db6ba37942b`.
 
 بعد از پایان، LuCI را با **HTTPS** در مسیر **Services → MITM Domain Fronting** باز کنید.
 

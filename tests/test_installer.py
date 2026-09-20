@@ -16,7 +16,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 INSTALLER = ROOT / "install.sh"
 KEY_NAME = "xray-mitm-feed-v1.pem"
-OPKG_KEY_NAME = "xray-mitm-feed-v1.usign.pub"
+OPKG_KEY_DOWNLOAD_NAME = "xray-mitm-feed-v1.usign.pub"
+OPKG_KEY_FINGERPRINT = "a" * 64
 FEED_URL = "https://fixtures.invalid/feed/25.12/all/packages.adb"
 OPKG_FEED_URL = "https://fixtures.invalid/feed/24.10/aarch64_cortex-a53/"
 
@@ -65,7 +66,7 @@ class InstallerTests(unittest.TestCase):
             encoding="utf-8",
         )
         self.public_key_sha256 = hashlib.sha256(self.public_key.read_bytes()).hexdigest()
-        self.opkg_public_key = self.fixtures / OPKG_KEY_NAME
+        self.opkg_public_key = self.fixtures / OPKG_KEY_DOWNLOAD_NAME
         self.opkg_public_key.write_text(
             "untrusted comment: test-only public key\n"
             "RWRtest-only-public-key-material\n",
@@ -74,6 +75,18 @@ class InstallerTests(unittest.TestCase):
         self.opkg_public_key_sha256 = hashlib.sha256(
             self.opkg_public_key.read_bytes()
         ).hexdigest()
+
+        self.write_fake(
+            "usign",
+            """
+            import os
+            import sys
+
+            if sys.argv[1:2] != ["-F"] or sys.argv[2:3] != ["-p"]:
+                raise SystemExit(2)
+            print(os.environ["FAKE_USIGN_FINGERPRINT"])
+            """,
+        )
 
         self.write_fake(
             "id",
@@ -139,8 +152,14 @@ class InstallerTests(unittest.TestCase):
             if args == ["update"] and os.environ.get("FAKE_OPKG_UPDATE_FAIL") == "1":
                 raise SystemExit(1)
             if args[:1] == ["install"] and os.environ.get("FAKE_OPKG_INSTALL_FAIL") == "1":
+                Path(os.environ["XRAY_MITM_OPKG_KEYS_DIR"], os.environ["FAKE_USIGN_FINGERPRINT"]).write_text("corrupt key\\n", encoding="utf-8")
+                Path(os.environ["XRAY_MITM_OPKG_FEEDS_FILE"]).write_text("corrupt feed\\n", encoding="utf-8")
+                Path(os.environ["XRAY_MITM_KEEP_DIR"], "xray-mitm-feed").write_text("corrupt keep\\n", encoding="utf-8")
                 raise SystemExit(1)
             if args[:1] == ["upgrade"] and os.environ.get("FAKE_OPKG_UPGRADE_FAIL") == "1":
+                Path(os.environ["XRAY_MITM_OPKG_KEYS_DIR"], os.environ["FAKE_USIGN_FINGERPRINT"]).write_text("corrupt key\\n", encoding="utf-8")
+                Path(os.environ["XRAY_MITM_OPKG_FEEDS_FILE"]).write_text("corrupt feed\\n", encoding="utf-8")
+                Path(os.environ["XRAY_MITM_KEEP_DIR"], "xray-mitm-feed").write_text("corrupt keep\\n", encoding="utf-8")
                 raise SystemExit(1)
             """,
         )
@@ -164,6 +183,7 @@ class InstallerTests(unittest.TestCase):
         env.update(
             {
                 "FAKE_UID": fake_uid,
+                "FAKE_USIGN_FINGERPRINT": OPKG_KEY_FINGERPRINT,
                 "PATH": f"{self.bin_dir}:{env['PATH']}",
                 "XRAY_MITM_APK_KEYS_DIR": str(self.keys_dir),
                 "XRAY_MITM_APK_LOG": str(self.apk_log),
@@ -180,7 +200,7 @@ class InstallerTests(unittest.TestCase):
                 "XRAY_MITM_OPKG_CONF_FILE": str(self.opkg_conf_file),
                 "XRAY_MITM_OPKG_LOG": str(self.opkg_log),
                 "XRAY_MITM_OPKG_PUBLIC_KEY_SHA256": self.opkg_public_key_sha256,
-                "XRAY_MITM_OPKG_PUBLIC_KEY_URL": f"https://fixtures.invalid/{OPKG_KEY_NAME}",
+                "XRAY_MITM_OPKG_PUBLIC_KEY_URL": f"https://fixtures.invalid/{OPKG_KEY_DOWNLOAD_NAME}",
                 "XRAY_MITM_PUBLIC_KEY_SHA256": key_sha256 or self.public_key_sha256,
                 "XRAY_MITM_PUBLIC_KEY_URL": f"https://fixtures.invalid/{KEY_NAME}",
                 "XRAY_MITM_REPOSITORIES_DIR": str(self.repositories_dir),
@@ -214,7 +234,7 @@ class InstallerTests(unittest.TestCase):
 
     @property
     def installed_opkg_key(self) -> Path:
-        return self.opkg_keys_dir / OPKG_KEY_NAME
+        return self.opkg_keys_dir / OPKG_KEY_FINGERPRINT
 
     @property
     def repository_file(self) -> Path:
@@ -257,7 +277,7 @@ class InstallerTests(unittest.TestCase):
         result = self.run_installer(key_sha256="0" * 64)
 
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("fingerprint mismatch", result.stderr)
+        self.assertIn("SHA-256 mismatch", result.stderr)
         self.assertEqual(self.apk_calls(), [])
         self.assertFalse(self.installed_key.exists())
         self.assertFalse(self.repository_file.exists())
@@ -297,6 +317,7 @@ class InstallerTests(unittest.TestCase):
         )
         self.assertEqual(self.world_file.read_text(), "base-files\n")
         self.assertIn("no unsigned or forced dependency install", result.stdout)
+        self.assertNotIn(OPKG_FEED_URL, result.stdout)
 
     def test_24_10_requires_explicit_feed_inputs_before_changes(self) -> None:
         self.release_file.write_text("DISTRIB_RELEASE='24.10.8'\n", encoding="utf-8")
@@ -347,6 +368,73 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual(self.installed_opkg_key.read_text(), "old usign key\n")
         self.assertEqual(self.opkg_feeds_file.read_text(), previous_feed)
         self.assertEqual(self.keep_file.read_text(), "old keep\n")
+
+    def test_24_10_install_failure_restores_previous_feed_state(self) -> None:
+        self.release_file.write_text("DISTRIB_RELEASE='24.10.8'\n", encoding="utf-8")
+        self.installed_opkg_key.write_text("old usign key\n", encoding="utf-8")
+        previous_feed = "src/gz openwrt_core https://downloads.openwrt.org/core\n"
+        self.opkg_feeds_file.write_text(previous_feed, encoding="utf-8")
+        self.keep_file.write_text("old keep\n", encoding="utf-8")
+
+        result = self.run_installer(extra_env={"FAKE_OPKG_INSTALL_FAIL": "1"})
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("previous feed state was restored", result.stderr)
+        self.assertEqual(
+            self.opkg_calls(), [["update"], ["install", "xray-mitm", "luci-app-xray-mitm"]]
+        )
+        self.assertEqual(self.installed_opkg_key.read_text(), "old usign key\n")
+        self.assertEqual(self.opkg_feeds_file.read_text(), previous_feed)
+        self.assertEqual(self.keep_file.read_text(), "old keep\n")
+
+    def test_24_10_upgrade_failure_restores_previous_feed_state(self) -> None:
+        self.release_file.write_text("DISTRIB_RELEASE='24.10.8'\n", encoding="utf-8")
+        self.installed_opkg_key.write_text("old usign key\n", encoding="utf-8")
+        previous_feed = "src/gz openwrt_core https://downloads.openwrt.org/core\n"
+        self.opkg_feeds_file.write_text(previous_feed, encoding="utf-8")
+        self.keep_file.write_text("old keep\n", encoding="utf-8")
+
+        result = self.run_installer(extra_env={"FAKE_OPKG_UPGRADE_FAIL": "1"})
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("previous feed state was restored", result.stderr)
+        self.assertEqual(
+            self.opkg_calls(),
+            [
+                ["update"],
+                ["install", "xray-mitm", "luci-app-xray-mitm"],
+                ["upgrade", "xray-mitm", "luci-app-xray-mitm"],
+            ],
+        )
+        self.assertEqual(self.installed_opkg_key.read_text(), "old usign key\n")
+        self.assertEqual(self.opkg_feeds_file.read_text(), previous_feed)
+        self.assertEqual(self.keep_file.read_text(), "old keep\n")
+
+    def test_24_10_rejects_credential_or_control_character_urls(self) -> None:
+        self.release_file.write_text("DISTRIB_RELEASE='24.10.8'\n", encoding="utf-8")
+        cases = {
+            "XRAY_MITM_OPKG_PUBLIC_KEY_URL": "https://user:secret@fixtures.invalid/key",
+            "XRAY_MITM_OPKG_FEED_URL": "https://fixtures.invalid/feed/24.10/" + chr(10) + "malicious",
+        }
+
+        for variable, value in cases.items():
+            with self.subTest(variable=variable):
+                result = self.run_installer(extra_env={variable: value})
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertTrue(
+                    "no credentials" in result.stderr
+                    or "whitespace or control characters" in result.stderr,
+                    result.stderr,
+                )
+                self.assertNotIn("secret", result.stdout + result.stderr)
+                self.assertEqual(self.opkg_calls(), [])
+                self.assertFalse(self.installed_opkg_key.exists())
+                self.assertFalse(self.opkg_feeds_file.exists())
+                if self.apk_log.exists():
+                    self.apk_log.unlink()
+                if self.opkg_log.exists():
+                    self.opkg_log.unlink()
 
     def test_private_key_marker_is_rejected(self) -> None:
         self.public_key.write_text(
