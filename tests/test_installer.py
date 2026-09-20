@@ -16,7 +16,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 INSTALLER = ROOT / "install.sh"
 KEY_NAME = "xray-mitm-feed-v1.pem"
+OPKG_KEY_NAME = "xray-mitm-feed-v1.usign.pub"
 FEED_URL = "https://fixtures.invalid/feed/25.12/all/packages.adb"
+OPKG_FEED_URL = "https://fixtures.invalid/feed/24.10/aarch64_cortex-a53/"
 
 
 class InstallerTests(unittest.TestCase):
@@ -28,6 +30,9 @@ class InstallerTests(unittest.TestCase):
         self.fixtures = self.root / "fixtures"
         self.keys_dir = self.root / "etc/apk/keys"
         self.repositories_dir = self.root / "etc/apk/repositories.d"
+        self.opkg_keys_dir = self.root / "etc/opkg/keys"
+        self.opkg_feeds_file = self.root / "etc/opkg/customfeeds.conf"
+        self.opkg_conf_file = self.root / "etc/opkg.conf"
         self.keep_dir = self.root / "lib/upgrade/keep.d"
         self.backup_dir = self.root / "root"
         self.config_file = self.root / "etc/config/xray-mitm"
@@ -38,6 +43,7 @@ class InstallerTests(unittest.TestCase):
             self.fixtures,
             self.keys_dir,
             self.repositories_dir,
+            self.opkg_keys_dir,
             self.keep_dir,
             self.backup_dir,
             self.config_file.parent,
@@ -46,8 +52,10 @@ class InstallerTests(unittest.TestCase):
             directory.mkdir(parents=True, exist_ok=True)
 
         self.apk_log = self.root / "apk.log"
+        self.opkg_log = self.root / "opkg.log"
         self.release_file = self.root / "openwrt_release"
         self.release_file.write_text("DISTRIB_RELEASE='25.12.5'\n", encoding="utf-8")
+        self.opkg_conf_file.write_text("option check_signature\n", encoding="utf-8")
         self.world_file.write_text("base-files\n", encoding="utf-8")
         self.public_key = self.fixtures / KEY_NAME
         self.public_key.write_text(
@@ -57,6 +65,15 @@ class InstallerTests(unittest.TestCase):
             encoding="utf-8",
         )
         self.public_key_sha256 = hashlib.sha256(self.public_key.read_bytes()).hexdigest()
+        self.opkg_public_key = self.fixtures / OPKG_KEY_NAME
+        self.opkg_public_key.write_text(
+            "untrusted comment: test-only public key\n"
+            "RWRtest-only-public-key-material\n",
+            encoding="utf-8",
+        )
+        self.opkg_public_key_sha256 = hashlib.sha256(
+            self.opkg_public_key.read_bytes()
+        ).hexdigest()
 
         self.write_fake(
             "id",
@@ -107,6 +124,26 @@ class InstallerTests(unittest.TestCase):
                 world.write_text("\\n".join(lines) + "\\n", encoding="utf-8")
             """,
         )
+        self.write_fake(
+            "opkg",
+            """
+            import json
+            import os
+            import sys
+            from pathlib import Path
+
+            args = sys.argv[1:]
+            with Path(os.environ["XRAY_MITM_OPKG_LOG"]).open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(args) + "\\n")
+
+            if args == ["update"] and os.environ.get("FAKE_OPKG_UPDATE_FAIL") == "1":
+                raise SystemExit(1)
+            if args[:1] == ["install"] and os.environ.get("FAKE_OPKG_INSTALL_FAIL") == "1":
+                raise SystemExit(1)
+            if args[:1] == ["upgrade"] and os.environ.get("FAKE_OPKG_UPGRADE_FAIL") == "1":
+                raise SystemExit(1)
+            """,
+        )
 
     def write_fake(self, name: str, body: str) -> None:
         path = self.bin_dir / name
@@ -137,6 +174,13 @@ class InstallerTests(unittest.TestCase):
                 "XRAY_MITM_FIXTURES": str(self.fixtures),
                 "XRAY_MITM_KEEP_DIR": str(self.keep_dir),
                 "XRAY_MITM_OPENWRT_RELEASE_FILE": str(self.release_file),
+                "XRAY_MITM_OPKG_FEED_URL": OPKG_FEED_URL,
+                "XRAY_MITM_OPKG_FEEDS_FILE": str(self.opkg_feeds_file),
+                "XRAY_MITM_OPKG_KEYS_DIR": str(self.opkg_keys_dir),
+                "XRAY_MITM_OPKG_CONF_FILE": str(self.opkg_conf_file),
+                "XRAY_MITM_OPKG_LOG": str(self.opkg_log),
+                "XRAY_MITM_OPKG_PUBLIC_KEY_SHA256": self.opkg_public_key_sha256,
+                "XRAY_MITM_OPKG_PUBLIC_KEY_URL": f"https://fixtures.invalid/{OPKG_KEY_NAME}",
                 "XRAY_MITM_PUBLIC_KEY_SHA256": key_sha256 or self.public_key_sha256,
                 "XRAY_MITM_PUBLIC_KEY_URL": f"https://fixtures.invalid/{KEY_NAME}",
                 "XRAY_MITM_REPOSITORIES_DIR": str(self.repositories_dir),
@@ -159,9 +203,18 @@ class InstallerTests(unittest.TestCase):
             return []
         return [json.loads(line) for line in self.apk_log.read_text().splitlines()]
 
+    def opkg_calls(self) -> list[list[str]]:
+        if not self.opkg_log.exists():
+            return []
+        return [json.loads(line) for line in self.opkg_log.read_text().splitlines()]
+
     @property
     def installed_key(self) -> Path:
         return self.keys_dir / KEY_NAME
+
+    @property
+    def installed_opkg_key(self) -> Path:
+        return self.opkg_keys_dir / OPKG_KEY_NAME
 
     @property
     def repository_file(self) -> Path:
@@ -209,6 +262,91 @@ class InstallerTests(unittest.TestCase):
         self.assertFalse(self.installed_key.exists())
         self.assertFalse(self.repository_file.exists())
         self.assertEqual(self.world_file.read_text(), "base-files\n")
+
+    def test_24_10_uses_opkg_and_preserves_unrelated_feed_entries(self) -> None:
+        self.release_file.write_text("DISTRIB_RELEASE='24.10.8'\n", encoding="utf-8")
+        self.opkg_feeds_file.write_text(
+            "src/gz openwrt_core https://downloads.openwrt.org/core\n"
+            "src/gz xray_mitm https://old.invalid/xray\n",
+            encoding="utf-8",
+        )
+
+        result = self.run_installer()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("Package manager: opkg", result.stdout)
+        self.assertEqual(
+            self.opkg_calls(),
+            [
+                ["update"],
+                ["install", "xray-mitm", "luci-app-xray-mitm"],
+                ["upgrade", "xray-mitm", "luci-app-xray-mitm"],
+            ],
+        )
+        self.assertEqual(
+            self.installed_opkg_key.read_bytes(), self.opkg_public_key.read_bytes()
+        )
+        self.assertEqual(
+            self.opkg_feeds_file.read_text(),
+            "src/gz openwrt_core https://downloads.openwrt.org/core\n"
+            f"src/gz xray_mitm {OPKG_FEED_URL}\n",
+        )
+        self.assertEqual(
+            self.keep_file.read_text(),
+            f"{self.installed_opkg_key}\n{self.opkg_feeds_file}\n",
+        )
+        self.assertEqual(self.world_file.read_text(), "base-files\n")
+        self.assertIn("no unsigned or forced dependency install", result.stdout)
+
+    def test_24_10_requires_explicit_feed_inputs_before_changes(self) -> None:
+        self.release_file.write_text("DISTRIB_RELEASE='24.10.8'\n", encoding="utf-8")
+
+        result = self.run_installer(extra_env={"XRAY_MITM_OPKG_FEED_URL": ""})
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("no public 24.10 feed is configured", result.stderr)
+        self.assertEqual(self.opkg_calls(), [])
+        self.assertFalse(self.installed_opkg_key.exists())
+        self.assertFalse(self.opkg_feeds_file.exists())
+
+    def test_24_10_creates_owned_feed_entry_when_custom_feeds_are_absent(self) -> None:
+        self.release_file.write_text("DISTRIB_RELEASE='24.10.8'\n", encoding="utf-8")
+
+        result = self.run_installer()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(
+            self.opkg_feeds_file.read_text(),
+            f"src/gz xray_mitm {OPKG_FEED_URL}\n",
+        )
+
+    def test_24_10_refuses_when_opkg_signature_check_is_disabled(self) -> None:
+        self.release_file.write_text("DISTRIB_RELEASE='24.10.8'\n", encoding="utf-8")
+        self.opkg_conf_file.write_text("# option check_signature\n", encoding="utf-8")
+
+        result = self.run_installer()
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("signature checking is not enabled", result.stderr)
+        self.assertEqual(self.opkg_calls(), [])
+        self.assertFalse(self.installed_opkg_key.exists())
+        self.assertFalse(self.opkg_feeds_file.exists())
+
+    def test_24_10_update_failure_restores_previous_feed_state(self) -> None:
+        self.release_file.write_text("DISTRIB_RELEASE='24.10.8'\n", encoding="utf-8")
+        self.installed_opkg_key.write_text("old usign key\n", encoding="utf-8")
+        previous_feed = "src/gz openwrt_core https://downloads.openwrt.org/core\n"
+        self.opkg_feeds_file.write_text(previous_feed, encoding="utf-8")
+        self.keep_file.write_text("old keep\n", encoding="utf-8")
+
+        result = self.run_installer(extra_env={"FAKE_OPKG_UPDATE_FAIL": "1"})
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("previous feed state was restored", result.stderr)
+        self.assertEqual(self.opkg_calls(), [["update"]])
+        self.assertEqual(self.installed_opkg_key.read_text(), "old usign key\n")
+        self.assertEqual(self.opkg_feeds_file.read_text(), previous_feed)
+        self.assertEqual(self.keep_file.read_text(), "old keep\n")
 
     def test_private_key_marker_is_rejected(self) -> None:
         self.public_key.write_text(
@@ -351,7 +489,8 @@ class InstallerTests(unittest.TestCase):
                     self.apk_log.unlink()
                 result = self.run_installer()
                 self.assertNotEqual(result.returncode, 0)
-                self.assertIn("official OpenWrt 25.12.x", result.stderr)
+                self.assertIn("25.12.x", result.stderr)
+                self.assertIn("24.10.x", result.stderr)
                 self.assertEqual(self.apk_calls(), [])
 
     def test_rejects_unsupported_package_manager(self) -> None:
@@ -366,7 +505,7 @@ class InstallerTests(unittest.TestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("package manager", result.stderr.lower())
-        self.assertIn("APK-based OpenWrt", result.stderr)
+        self.assertIn("matching supported package manager", result.stderr)
         self.assertEqual(self.apk_calls(), [])
 
 

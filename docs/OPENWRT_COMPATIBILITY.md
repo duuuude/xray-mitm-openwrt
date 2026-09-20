@@ -1,8 +1,8 @@
 # OpenWrt 24.10 and 25.12 compatibility contract
 
-Status: Stage 0 design contract; not a public 24.10 support declaration.
+Status: Stage 2 installer implementation; not a public 24.10 support declaration.
 
-Audit baseline: `main` at `24de3d1501103a3bb8089e2fe728e883256ca1ea`.
+Audit baseline: `main` at `dcc75398d6b2ad6f97dfc557548c73127981b507`.
 
 ## Purpose
 
@@ -38,8 +38,8 @@ Before any public 24.10 release claim, the project must record the exact tested
 release, evidence, maintenance boundary, and owner approval. Compatibility for
 24.0–24.9, 25.0–25.11, snapshots, forks, or all hardware is not implied.
 
-At the Stage 0 audit baseline, the reference releases are 24.10.8 and 25.12.5.
-They must be revalidated when a build or release stage starts.
+The reference releases are 24.10.8 and 25.12.5. They must be revalidated when a
+build or release stage starts.
 
 ## Evidence levels
 
@@ -58,7 +58,7 @@ major version is accepted by an installer.
 
 | Family | Package manager | Reference release | First target | Current status |
 | --- | --- | --- | --- | --- |
-| 24.10.x | OPKG/IPK | 24.10.8 at audit time | `aarch64_cortex-a53` | Legacy target; build and runtime evidence pending |
+| 24.10.x | OPKG/IPK | 24.10.8 at audit time | `aarch64_cortex-a53` | IPK build and dependency evidence complete; runtime and publication pending |
 | 25.12.x | APK | 25.12.5 at audit time | `aarch64_generic` CI and the AX4200's `aarch64_cortex-a53` | Existing public contract; retain current APK path |
 
 The first 24.10 package lane should target `aarch64_cortex-a53` because that is
@@ -82,9 +82,10 @@ files. Unknown, mismatched, forked, or incompletely tested environments must
 fail closed. No `--allow-untrusted`, disabled signature checks,
 `--force-depends`, global upgrade, or replacement of official feeds is allowed.
 
-Stage 1 must not add production IPK signing or publication. Stage 2 may split
-test-only OPKG feed mechanics from production authenticated feed/installer work;
-production signing remains protected and owner-gated.
+Stage 1 must not add production IPK signing or publication. Stage 2 implements
+the installer mechanics with explicit test-only OPKG feed inputs; it does not
+publish a default 24.10 feed or add production signing. Production signing
+remains protected and owner-gated.
 
 ## Standalone service and PassWall2 capabilities
 
@@ -113,23 +114,30 @@ expose it to the LAN or WAN as a shortcut.
 
 Only one stage is active at a time, and each stage is a separate reviewed PR.
 
-### Stage 0 — contract and design
+### Stage 0 — contract and design (complete)
 
-This documentation PR records the support label, matrix, evidence levels,
-architecture, trust boundaries, standalone/PassWall2 model, validation budget,
-and ordered work below. It changes no product behavior. After merge, recheck
-`main` and stop before Stage 1.
+The merged compatibility contract records the support label, matrix, evidence
+levels, architecture, trust boundaries, standalone/PassWall2 model, validation
+budget, and ordered work below. It changed no product behavior.
 
-### Stage 1 — 24.10 package build
+### Stage 1 — 24.10 package build (complete)
 
-Build `xray-mitm` and `luci-app-xray-mitm` as IPKs with an official 24.10 SDK,
-prove dependency resolution for the declared target, and preserve the existing
-25.12 APK lane. Do not add production feed publication or signing here.
+PR #55 built `xray-mitm` and `luci-app-xray-mitm` as IPKs with the official
+24.10.8 SDK for `aarch64_cortex-a53`, passed the package/dependency checks, and
+preserved the 25.12 APK lane. It did not add production feed publication or
+signing. Native 24.10 runtime evidence remains pending.
 
-### Stage 2 — OPKG feed and dual-backend installer
+### Stage 2 — OPKG feed and dual-backend installer (implemented)
 
-Use separate test-only feed mechanics and protected production trust/publishing
-work as needed. Add an OPKG backend without weakening the existing APK path.
+The installer now detects 25.12/APK and 24.10/OPKG as matching release/backend
+pairs. The existing APK key, signed repository, targeted upgrade, backup, and
+rollback path remains intact. The OPKG path requires the router's
+`check_signature` setting, verifies an explicit HTTPS usign public-key input by
+SHA-256, manages only the project feed entry while preserving unrelated
+entries, performs targeted install/upgrade operations, and restores its
+key/feed/keep state on failure. No default public 24.10 feed, production
+signing, or publication is included; missing OPKG trust/feed inputs fail
+closed before persistent changes.
 
 ### Stage 3 — standalone MITM
 
@@ -169,9 +177,9 @@ The existing AX4200 file-staging and browser loop remains useful for current
 firmware downgrade is part of this initiative; 24.10 runtime evidence requires
 a separately approved compatible test target.
 
-## Stage 0 acceptance and stop condition
+## Completed contract and current Stage 2 boundary
 
-Stage 0 is complete only when the repository records:
+The repository records:
 
 - the two-family support matrix and legacy 24.10 security boundary;
 - supported versus untested architectures and releases;
@@ -180,11 +188,12 @@ Stage 0 is complete only when the repository records:
 - the ordered PR sequence and exact evidence gates;
 - the no-emulation local loop and bounded CI plan;
 - owner-gated signing, release, router, firmware, and public-support actions;
-- no product, installer, package, CI, signing, release, or router changes.
+- no public 24.10 support claim before runtime, publication, and owner gates.
 
-After the documentation is independently reviewed and owner-approved for
-merge, re-read current `main`. Do not begin Stage 1 in the same PR or create a
-bookkeeping-only reconciliation PR for this Stage 0 change.
+Stage 0 is complete in the merged contract, Stage 1 is complete in PR #55, and
+the Stage 2 installer implementation is the current compatibility change. The
+next stage must start from the merged current `main`; do not create a
+bookkeeping-only reconciliation PR.
 
 ## Non-goals
 

@@ -83,7 +83,7 @@ jobs:
           sh scripts/release-notes.sh "$GITHUB_WORKSPACE" "$GITHUB_REF_NAME" \
             > site/RELEASE_NOTES.md
           printf '%s  %s\n' \
-            '9014182bc04803172ef0715ba5e1af87385f76adefce64306c5d5f2f43a47e89' \
+            '10f5fff12fb2b642b5192bc0cc94228bfad02dd15cd92385a213a218671a961d' \
             'install.sh' > site/INSTALLER_SHA256
           (
             cd site
