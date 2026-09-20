@@ -408,6 +408,12 @@ def check_workflow(root: Path, errors: list[str]) -> None:
         errors.append(f"{relative} must retain read-only repository permissions")
     if "${{ secrets." in text:
         errors.append(f"{relative} must not expose repository secrets to package builds")
+    if text.count("ref: ${{ github.event.pull_request.head.sha || github.sha }}") != 2:
+        errors.append(f"{relative} must check out the exact pull-request head in both jobs")
+    if 'printf \'%s\\n\' "$(git rev-parse HEAD)" > dist/SOURCE_COMMIT' not in text:
+        errors.append(f"{relative} must record the checked-out candidate HEAD")
+    if 'printf \'%s\\n\' "$GITHUB_SHA" > dist/SOURCE_COMMIT' in text:
+        errors.append(f"{relative} must not record the synthetic pull-request merge SHA")
 
     relative = ".github/workflows/build-24-10.yml"
     text = (root / relative).read_text(encoding="utf-8", errors="replace")
