@@ -55,6 +55,7 @@ REQUIRED_PATHS = (
     "CHANGELOG.md",
     "CONTRIBUTING.md",
     ".github/workflows/build.yml",
+    ".github/workflows/build-24-10.yml",
     ".github/workflows/publish-feed.yml",
     ".gitignore",
     "LICENSE",
@@ -99,7 +100,6 @@ REQUIRED_PATHS = (
 )
 
 CORE_DEPENDENCIES = {
-    "@USE_APK",
     "+xray-core",
     "+curl",
     "+openssl-util",
@@ -111,7 +111,6 @@ CORE_DEPENDENCIES = {
 }
 
 LUCI_DEPENDENCIES = {
-    "@USE_APK",
     "+luci-base",
     "+xray-mitm",
     "+rpcd-mod-ucode",
@@ -374,6 +373,7 @@ def check_acl(root: Path, errors: list[str]) -> None:
 def check_workflow(root: Path, errors: list[str]) -> None:
     for relative in (
         ".github/workflows/build.yml",
+        ".github/workflows/build-24-10.yml",
         ".github/workflows/publish-feed.yml",
     ):
         text = (root / relative).read_text(encoding="utf-8", errors="replace")
@@ -408,6 +408,33 @@ def check_workflow(root: Path, errors: list[str]) -> None:
         errors.append(f"{relative} must retain read-only repository permissions")
     if "${{ secrets." in text:
         errors.append(f"{relative} must not expose repository secrets to package builds")
+
+    relative = ".github/workflows/build-24-10.yml"
+    text = (root / relative).read_text(encoding="utf-8", errors="replace")
+    for required in (
+        "24.10.8",
+        "aarch64_cortex-a53",
+        "xray-mitm_*.ipk",
+        "luci-app-xray-mitm_*.ipk",
+        "PACKAGE_FORMAT",
+        "SOURCE_COMMIT",
+        "PACKAGES",
+        "SHA256SUMS",
+    ):
+        if required not in text:
+            errors.append(f"{relative} IPK build is missing {required}")
+    for forbidden in (
+        "KEY_BUILD",
+        "PRIVATE_KEY",
+        "packages.adb",
+        "actions/deploy-pages",
+        "--allow-untrusted",
+        "pull_request_target:",
+    ):
+        if forbidden in text:
+            errors.append(f"{relative} must not contain {forbidden}")
+    if not re.search(r"^permissions:\s*\n[ \t]+contents:[ \t]*read[ \t]*$", text, re.MULTILINE):
+        errors.append(f"{relative} must retain read-only repository permissions")
 
     relative = ".github/workflows/publish-feed.yml"
     text = (root / relative).read_text(encoding="utf-8", errors="replace")
