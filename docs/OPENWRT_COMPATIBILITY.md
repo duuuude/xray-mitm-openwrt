@@ -1,8 +1,8 @@
 # OpenWrt 24.10 and 25.12 compatibility contract
 
-Status: Stage 2 installer implementation; not a public 24.10 support declaration.
+Status: Stage 3 standalone-service evidence; not a public 24.10 support declaration.
 
-Audit baseline: `main` at `dcc75398d6b2ad6f97dfc557548c73127981b507`.
+Audit baseline: `main` at `a39ebcd4d06ed2c8bdb1c38055bf16b691b06429`.
 
 ## Purpose
 
@@ -58,8 +58,8 @@ major version is accepted by an installer.
 
 | Family | Package manager | Reference release | First target | Current status |
 | --- | --- | --- | --- | --- |
-| 24.10.x | OPKG/IPK | 24.10.8 at audit time | `aarch64_cortex-a53` | IPK build and dependency evidence complete; runtime and publication pending |
-| 25.12.x | APK | 25.12.5 at audit time | `aarch64_generic` CI and the AX4200's `aarch64_cortex-a53` | Existing public contract; retain current APK path |
+| 24.10.x | OPKG/IPK | 24.10.8 at audit time | `aarch64_cortex-a53` | IPK build and dependency evidence complete; native runtime, hardware, and publication pending |
+| 25.12.x | APK | 25.12.5 at audit time | `aarch64_generic` CI and the AX4200's `aarch64_cortex-a53` | Existing public contract; bounded service and rollback evidence recorded |
 
 The first 24.10 package lane should target `aarch64_cortex-a53` because that is
 the physical lab-router architecture. `aarch64_generic` may be an additional
@@ -127,7 +127,7 @@ PR #55 built `xray-mitm` and `luci-app-xray-mitm` as IPKs with the official
 preserved the 25.12 APK lane. It did not add production feed publication or
 signing. Native 24.10 runtime evidence remains pending.
 
-### Stage 2 — OPKG feed and dual-backend installer (implemented)
+### Stage 2 — OPKG feed and dual-backend installer (complete)
 
 The installer now detects 25.12/APK and 24.10/OPKG as matching release/backend
 pairs. The existing APK key, signed repository, targeted upgrade, backup, and
@@ -139,10 +139,14 @@ key/feed/keep state on failure. No default public 24.10 feed, production
 signing, or publication is included; missing OPKG trust/feed inputs fail
 closed before persistent changes.
 
-### Stage 3 — standalone MITM
+### Stage 3 — standalone MITM (evidence recorded with limitation)
 
-Prove service, certificate, health, configuration, and recovery behavior without
-requiring PassWall2 on both families.
+The exact bounded 25.12/APK service, certificate-preservation, configuration,
+recovery, and rollback evidence is recorded in
+`docs/OPENWRT_24_25_STAGE3_EVIDENCE.md`. The 24.10/IPK lane has build and
+dependency evidence, but no compatible native runtime target was available;
+24.10 runtime and hardware support remain unproven. This is not a public
+24.10 support declaration.
 
 ### Stage 4 — PassWall2 capability probe and safe fallback
 
@@ -177,7 +181,7 @@ The existing AX4200 file-staging and browser loop remains useful for current
 firmware downgrade is part of this initiative; 24.10 runtime evidence requires
 a separately approved compatible test target.
 
-## Completed contract and current Stage 2 boundary
+## Completed contract and current Stage 3 boundary
 
 The repository records:
 
@@ -190,10 +194,11 @@ The repository records:
 - owner-gated signing, release, router, firmware, and public-support actions;
 - no public 24.10 support claim before runtime, publication, and owner gates.
 
-Stage 0 is complete in the merged contract, Stage 1 is complete in PR #55, and
-the Stage 2 installer implementation is the current compatibility change. The
-next stage must start from the merged current `main`; do not create a
-bookkeeping-only reconciliation PR.
+Stage 0 is complete in the merged contract, Stage 1 is complete in PR #55,
+Stage 2 is complete in merged PR #56, and the Stage 3 evidence record is
+complete with the documented 24.10 runtime limitation. The next stage must
+start from the merged current `main`; do not create a bookkeeping-only
+reconciliation PR.
 
 ## Non-goals
 
