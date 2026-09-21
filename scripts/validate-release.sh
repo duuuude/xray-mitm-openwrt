@@ -10,6 +10,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_certificates.py"
 PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_config.py"
 PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_ctl.py"
 PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_installer.py"
+PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_promotion_artifact.py"
 PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_signed_feed.py"
 PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_release_preflight.py"
 PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_start_pr.py"
@@ -36,6 +37,8 @@ for relative in \
 	scripts/release-notes.sh \
 	scripts/router-dns-fallback.sh \
 	scripts/router-dns-fallback/init.d-xray-mitm-dns \
+	scripts/sign-apk-index.sh \
+	scripts/verify-promotion-artifact.sh \
 	ci/test-init-enable.sh
 do
 	sh -n "$project_dir/$relative"

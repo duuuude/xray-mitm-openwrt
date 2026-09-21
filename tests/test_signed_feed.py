@@ -46,10 +46,37 @@ class SignedFeedTests(unittest.TestCase):
         self.assertNotIn("pull_request:", text)
         self.assertNotIn("workflow_dispatch:", text)
         self.assertIn("environment: signed-feed", text)
+        self.assertIn("actions: read", text)
         self.assertEqual(text.count("secrets.XRAY_MITM_APK_PRIVATE_KEY"), 2)
-        self.assertIn('INDEX: "1"', text)
+        self.assertIn("actions/download-artifact@", text)
+        self.assertIn("run-id:", text)
+        self.assertIn("scripts/verify-promotion-artifact.sh", text)
+        self.assertIn("scripts/sign-apk-index.sh", text)
+        self.assertRegex(
+            text,
+            r"SDK_IMAGE: ghcr\.io/openwrt/sdk@sha256:[0-9a-f]{64}",
+        )
+        self.assertIn('-v "$GITHUB_WORKSPACE/keys:/keys:ro"', text)
+        self.assertIn("--keys-dir /keys verify /promotion/packages.adb", text)
+        self.assertNotIn("ghcr.io/openwrt/sdk:", text)
+        self.assertNotIn("--keys-dir /promotion", text)
+        self.assertNotIn("openwrt/gh-action-sdk@", text)
         self.assertIn("actions/deploy-pages@", text)
         self.assertNotIn("--allow-untrusted", text)
+
+    def test_publish_workflow_promotes_exact_main_build_without_rebuilding(self) -> None:
+        text = WORKFLOW.read_text(encoding="utf-8")
+
+        self.assertIn("actions/workflows/build.yml/runs", text)
+        self.assertIn("head_sha=${GITHUB_SHA}", text)
+        self.assertIn("status=completed", text)
+        self.assertIn('select(.conclusion == "success")', text)
+        self.assertIn("BUILD_RUN_ID", text)
+        self.assertIn("BUILD_PACKAGE_SHA256SUMS", text)
+        self.assertIn("SOURCE_COMMIT", text)
+        self.assertIn("RELEASE_COMMIT", text)
+        self.assertIn("Sign the exact package index without rebuilding packages", text)
+        self.assertNotIn("Build packages and signed OpenWrt index", text)
 
     def test_candidate_workflow_is_manual_exact_head_and_nonpublishing(self) -> None:
         text = CANDIDATE_WORKFLOW.read_text(encoding="utf-8")

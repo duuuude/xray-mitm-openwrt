@@ -83,6 +83,7 @@ focus_ctl=0
 focus_frontend=0
 focus_installer=0
 focus_passwall2=0
+focus_promotion_artifact=0
 focus_release_preflight=0
 focus_signed_feed=0
 focus_start_pr=0
@@ -147,7 +148,7 @@ classify_path() {
 			;;
 	esac
 	case "$path" in
-		scripts/release-*|scripts/check-release-version.sh|scripts/release-notes.sh|.github/workflows/publish-feed.yml|keys/*)
+		scripts/release-*|scripts/check-release-version.sh|scripts/release-notes.sh|scripts/sign-apk-index.sh|scripts/verify-promotion-artifact.sh|.github/workflows/build.yml|.github/workflows/publish-feed.yml|keys/*)
 			release=1
 			known=1
 			;;
@@ -165,6 +166,7 @@ classify_path() {
 		tests/test_ctl.py) focus_ctl=1 ;;
 		tests/test_installer.py) focus_installer=1 ;;
 		tests/test_passwall2.py) focus_passwall2=1 ;;
+		tests/test_promotion_artifact.py) focus_promotion_artifact=1 ;;
 		tests/test_release_preflight.py) focus_release_preflight=1 ;;
 		tests/test_signed_feed.py) focus_signed_feed=1 ;;
 		tests/test_start_pr.py) focus_start_pr=1 ;;
@@ -174,6 +176,7 @@ classify_path() {
 	esac
 	case "$path" in
 		scripts/release-preflight.sh) focus_release_preflight=1 ;;
+		scripts/sign-apk-index.sh|scripts/verify-promotion-artifact.sh|.github/workflows/build.yml) focus_promotion_artifact=1 ;;
 		scripts/start-pr.sh) focus_start_pr=1 ;;
 		.github/workflows/sign-candidate.yml|docs/SIGNED_FEED.md) focus_signed_feed=1 ;;
 	esac
@@ -356,6 +359,9 @@ if [ "$focus_installer" -eq 1 ]; then
 fi
 if [ "$focus_passwall2" -eq 1 ]; then
 	run_check 'Focused PassWall2 tests' 'PYTHONDONTWRITEBYTECODE=1 python3 tests/test_passwall2.py' env PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_passwall2.py"
+fi
+if [ "$focus_promotion_artifact" -eq 1 ]; then
+	run_check 'Focused promotion-artifact tests' 'PYTHONDONTWRITEBYTECODE=1 python3 tests/test_promotion_artifact.py' env PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_promotion_artifact.py"
 fi
 if [ "$focus_release_preflight" -eq 1 ]; then
 	run_check 'Focused release-preflight tests' 'PYTHONDONTWRITEBYTECODE=1 python3 tests/test_release_preflight.py' env PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_release_preflight.py"
