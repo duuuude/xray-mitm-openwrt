@@ -94,12 +94,26 @@ json_boolean() {
 	case "$1" in true|1) printf true ;; *) printf false ;; esac
 }
 
+json_capability() {
+	case "$1" in
+		absent|present|unknown|verified|unsupported|available|unavailable|enabled|disabled)
+			printf '%s' "$1"
+			;;
+		*)
+			printf unknown
+			;;
+	esac
+}
+
 passwall2_state() {
 	local output
 	setup_passwall_available=false; setup_passwall_compatible=false
 	setup_shunt_available=false; setup_vpn_available=false
 	setup_routing_recovery=false; setup_routing_configured=false
 	setup_routing_recommended=false
+	setup_passwall_presence=unknown; setup_passwall_schema=unknown
+	setup_passwall_inspection=unavailable; setup_passwall_plan_apply=disabled
+	setup_passwall_manual_guide=available
 	[ -x "$PASSWALL_HELPER" ] || return 0
 	capture_command "$PASSWALL_HELPER" inspect
 	[ "$capture_status" -eq 0 ] || return 0
@@ -109,6 +123,11 @@ passwall2_state() {
 	setup_shunt_available="$(json_boolean "$(jsonfilter -s "$output" -e '@.shunt_available' 2>/dev/null || true)")"
 	setup_vpn_available="$(json_boolean "$(jsonfilter -s "$output" -e '@.vpn_available' 2>/dev/null || true)")"
 	setup_routing_recovery="$(json_boolean "$(jsonfilter -s "$output" -e '@.recovery_pending' 2>/dev/null || true)")"
+	setup_passwall_presence="$(json_capability "$(jsonfilter -s "$output" -e '@.passwall2_present' 2>/dev/null || true)")"
+	setup_passwall_schema="$(json_capability "$(jsonfilter -s "$output" -e '@.passwall2_schema' 2>/dev/null || true)")"
+	setup_passwall_inspection="$(json_capability "$(jsonfilter -s "$output" -e '@.passwall2_inspect' 2>/dev/null || true)")"
+	setup_passwall_plan_apply="$(json_capability "$(jsonfilter -s "$output" -e '@.passwall2_plan_apply' 2>/dev/null || true)")"
+	setup_passwall_manual_guide="$(json_capability "$(jsonfilter -s "$output" -e '@.manual_routing_guide' 2>/dev/null || true)")"
 	setup_route_gemini="$(json_boolean "$(jsonfilter -s "$output" -e '@.routing_state.gemini' 2>/dev/null || true)")"
 	setup_route_android="$(json_boolean "$(jsonfilter -s "$output" -e '@.routing_state.android_check' 2>/dev/null || true)")"
 	setup_route_youtube="$(json_boolean "$(jsonfilter -s "$output" -e '@.routing_state.youtube_control' 2>/dev/null || true)")"
@@ -170,8 +189,10 @@ setup_status() {
 	printf ',"expiry":'
 	if [ -n "$certificate_expiry" ]; then xray_mitm_json_string "$certificate_expiry"; else printf null; fi
 	printf '},"service":{"running":%s,"boot_enabled":%s},' "$running" "$boot_enabled"
-	printf '"passwall2":{"installed":%s,"compatible":%s,"shunt_available":%s,"vpn_available":%s},' \
-		"$setup_passwall_available" "$setup_passwall_compatible" "$setup_shunt_available" "$setup_vpn_available"
+	printf '"passwall2":{"installed":%s,"compatible":%s,"shunt_available":%s,"vpn_available":%s,"presence":"%s","schema":"%s","inspection":"%s","plan_apply":"%s","manual_guide":"%s"},' \
+		"$setup_passwall_available" "$setup_passwall_compatible" "$setup_shunt_available" "$setup_vpn_available" \
+		"$setup_passwall_presence" "$setup_passwall_schema" "$setup_passwall_inspection" \
+		"$setup_passwall_plan_apply" "$setup_passwall_manual_guide"
 	printf '"routing":{"configured":%s,"recommended_matches_current":%s,"recovery_pending":%s},"health":{"healthy":null}}\n' \
 		"$setup_routing_configured" "$setup_routing_recommended" "$setup_routing_recovery"
 }

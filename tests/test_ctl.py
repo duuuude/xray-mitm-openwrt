@@ -126,6 +126,11 @@ class ControlFixture(unittest.TestCase):
                 "compatible": False,
                 "shunt_available": False,
                 "vpn_available": False,
+                "presence": "absent",
+                "schema": "unknown",
+                "inspection": "available",
+                "plan_apply": "disabled",
+                "manual_guide": "available",
             },
         )
         self.assertEqual(
@@ -279,6 +284,11 @@ class ControlFixture(unittest.TestCase):
                 "shunt_available": True,
                 "vpn_available": True,
                 "recovery_pending": recovery_pending,
+                "passwall2_present": "present",
+                "passwall2_schema": "verified",
+                "passwall2_inspect": "available",
+                "passwall2_plan_apply": "enabled",
+                "manual_routing_guide": "available",
                 "routing_state": values,
             }
             helper.write_text(
@@ -290,6 +300,13 @@ class ControlFixture(unittest.TestCase):
 
         set_inspection(routing)
         status = json.loads(self.ctl("setup-status-json").stdout)
+        self.assertEqual(
+            status["passwall2"]["presence"], "present"
+        )
+        self.assertEqual(status["passwall2"]["schema"], "verified")
+        self.assertEqual(status["passwall2"]["inspection"], "available")
+        self.assertEqual(status["passwall2"]["plan_apply"], "enabled")
+        self.assertEqual(status["passwall2"]["manual_guide"], "available")
         self.assertTrue(status["routing"]["configured"])
         self.assertTrue(status["routing"]["recommended_matches_current"])
 

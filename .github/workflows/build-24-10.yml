@@ -34,7 +34,10 @@ env:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # The release validator includes bounded process-recovery and large-inventory
+    # fail-closed fixtures; keep a generous ceiling so slow runners do not turn
+    # a passing candidate into a cancellation.
+    timeout-minutes: 10
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

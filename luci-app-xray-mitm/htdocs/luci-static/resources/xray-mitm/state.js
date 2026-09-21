@@ -41,6 +41,40 @@ function passwallSelection(passwall) {
 	};
 }
 
+function passwallCapability(passwall) {
+	passwall = passwall || {};
+	var capabilities = passwall.capabilities || {};
+	var presence = passwall.passwall2_present || passwall.presence || 'unknown';
+	var schema = passwall.passwall2_schema || passwall.schema || 'unknown';
+	var inspection = passwall.passwall2_inspect || passwall.inspection ||
+		(passwall.available === false ? 'unavailable' : 'available');
+	var planApply = passwall.passwall2_plan_apply || passwall.plan_apply;
+
+	if (schema === 'passwall2-uci-v2') {
+		schema = 'verified';
+		if (presence === 'unknown')
+			presence = 'present';
+	}
+	if (schema === 'recovery-required')
+		schema = 'unknown';
+
+	if (!planApply)
+		planApply = presence === 'present' && schema === 'verified' &&
+			capabilities.plan !== false && capabilities.apply !== false &&
+			passwall.writable === true && passwall.compatible === true ? 'enabled' : 'disabled';
+
+	return {
+		presence: presence,
+		schema: schema,
+		inspection: inspection,
+		planApply: planApply,
+		manualGuide: passwall.manual_routing_guide || passwall.manual_guide || 'available',
+		known: presence === 'present' && schema === 'verified',
+		canPlanApply: presence === 'present' && schema === 'verified' &&
+			inspection === 'available' && planApply === 'enabled'
+	};
+}
+
 function certificateSlot(certificates, name) {
 	certificates = certificates || {};
 
@@ -64,6 +98,7 @@ function deriveSimpleState(setup, status, certificates, passwall) {
 	var passwallState = setup.passwall2 || {};
 	var routing = setup.routing || {};
 	var selection = passwallSelection(passwall);
+	var capability = passwallCapability(passwall);
 	var certificateReady = certificate.ready === true;
 	var setupBlocked = certificate.candidate_requires_attention === true ||
 		certificate.requires_attention === true;
@@ -78,11 +113,12 @@ function deriveSimpleState(setup, status, certificates, passwall) {
 		vpnAvailable: passwallState.vpn_available === true,
 		passwallCompatible: passwallState.compatible === true,
 		mitmRunning: status.running === true,
-		canReviewRouting: passwallState.compatible === true && passwall.writable === true &&
+		canReviewRouting: capability.canPlanApply &&
 			routing.recovery_pending !== true && selection.shunts.length > 0 &&
 			selection.vpns.length > 0,
 		selectedVpn: selection.selectedVpn,
 		selection: selection,
+		passwallCapability: capability,
 		routing: routing,
 		passwallState: passwallState
 	};
@@ -231,6 +267,7 @@ return baseclass.extend({
 	deriveSimpleState: deriveSimpleState,
 	nodeItems: nodeItems,
 	passwallSelection: passwallSelection,
+	passwallCapability: passwallCapability,
 	normalizeRoutingChoices: normalizeRoutingChoices,
 	routingHasServiceSelection: routingHasServiceSelection,
 	recommendedChoices: recommendedChoices,

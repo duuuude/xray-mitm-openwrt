@@ -76,6 +76,73 @@ function testPasswallSelection() {
 	assert.strictEqual(selection.compatible, true);
 }
 
+function testPasswallCapability() {
+	const ready = state.passwallCapability({
+		passwall2_present: 'present',
+		passwall2_schema: 'verified',
+		passwall2_inspect: 'available',
+		passwall2_plan_apply: 'enabled',
+		manual_routing_guide: 'available'
+	});
+
+	assert.deepStrictEqual(ready, {
+		presence: 'present',
+		schema: 'verified',
+		inspection: 'available',
+		planApply: 'enabled',
+		manualGuide: 'available',
+		known: true,
+		canPlanApply: true
+	});
+
+	const blocked = state.passwallCapability({
+		passwall2_present: 'present',
+		passwall2_schema: 'unsupported',
+		passwall2_inspect: 'available',
+		passwall2_plan_apply: 'disabled'
+	});
+
+	assert.strictEqual(blocked.known, false);
+	assert.strictEqual(blocked.canPlanApply, false);
+	assert.strictEqual(blocked.manualGuide, 'available');
+
+	['pending', 'truncated'].forEach(function(reason) {
+		const blockedState = state.passwallCapability({
+			passwall2_present: 'present',
+			passwall2_schema: 'verified',
+			passwall2_inspect: 'available',
+			passwall2_plan_apply: 'disabled',
+			manual_routing_guide: 'available'
+		});
+
+		assert.strictEqual(blockedState.known, true, reason + ' state remains known');
+		assert.strictEqual(blockedState.canPlanApply, false, reason + ' state cannot plan');
+		assert.strictEqual(blockedState.manualGuide, 'available', reason + ' state shows guidance');
+	});
+
+	const unknown = state.passwallCapability({
+		compatible: true,
+		writable: true,
+		capabilities: { plan: true, apply: true }
+	});
+
+	assert.strictEqual(unknown.schema, 'unknown');
+	assert.strictEqual(unknown.planApply, 'disabled');
+	assert.strictEqual(unknown.canPlanApply, false);
+
+	const legacy = state.passwallCapability({
+		schema: 'passwall2-uci-v2',
+		compatible: true,
+		writable: true,
+		capabilities: { plan: true, apply: true }
+	});
+
+	assert.strictEqual(legacy.presence, 'present');
+	assert.strictEqual(legacy.schema, 'verified');
+	assert.strictEqual(legacy.planApply, 'enabled');
+	assert.strictEqual(legacy.canPlanApply, true);
+}
+
 function testSimpleState() {
 	const result = state.deriveSimpleState({
 		ready: true,
@@ -95,7 +162,11 @@ function testSimpleState() {
 		shunt_nodes: [ 'shunt-a' ],
 		vpn_nodes: [ 'vpn-a' ],
 		writable: true,
-		compatible: true
+		compatible: true,
+		passwall2_present: 'present',
+		passwall2_schema: 'verified',
+		passwall2_inspect: 'available',
+		passwall2_plan_apply: 'enabled'
 	});
 
 	assert.strictEqual(result.setupComplete, true);
@@ -267,6 +338,7 @@ function testOverviewLoadsAndRendersWithLuCIStateDependency() {
 	const fakeDom = { content: function() {} };
 	const fakeState = {
 		routingFieldNames: function() { return []; },
+		passwallCapability: function(source) { return state.passwallCapability(source); },
 		routeStatus: function(source, active) { return state.routeStatus(source, active); },
 		setupProgress: function() {
 			return { firstTime: true, routingReady: false };
@@ -334,6 +406,12 @@ function testOverviewLoadsAndRendersWithLuCIStateDependency() {
 		'Google Meet is exposed as a separate MITM-compatible routing group');
 	assert.match(frontendSource, /audio\/video media may use UDP or separate media IPs/,
 		'Google Meet explains the media transport limitation');
+	assert.match(frontendSource, /Manual routing guidance/,
+		'PassWall2 capability fallback exposes manual guidance');
+	assert.match(frontendSource, /Automatic routing is disabled/,
+		'PassWall2 capability fallback disables automatic routing visibly');
+	assert.match(frontendSource, /Manual routing guidance/,
+		'Blocked pending and truncated states expose manual guidance in the rendered routing view');
 
 	const overview = loadLuciModule(overviewSource, modules, {
 		E: fakeElement,
@@ -346,6 +424,95 @@ function testOverviewLoadsAndRendersWithLuCIStateDependency() {
 		overview.renderSetupGuide({ configured: false, running: false }, {}, {});
 	});
 	assert.strictEqual(typeof overview.switchDashboardPage, 'function');
+}
+
+function testBlockedRoutingRender() {
+	const fakeElement = function(tag, attributes, children) {
+		const node = {
+			tag: tag,
+			attributes: attributes || {},
+			children: children === undefined ? [] : (Array.isArray(children) ? children : [children]),
+			addEventListener: function() {},
+			appendChild: function(child) { this.children.push(child); }
+		};
+		return node;
+	};
+	const fakeView = { extend: function(methods) { return methods; } };
+	const fakeRpc = { declare: function() { return function() {}; } };
+	const fakeUi = {
+		addNotification: function() {},
+		createHandlerFn: function() { return function() {}; }
+	};
+	const fakeDocument = { createTextNode: function(value) { return value; } };
+	const fakeState = {
+		passwallCapability: function(source) { return state.passwallCapability(source); },
+		passwallSelection: function(source) { return state.passwallSelection(source); },
+		routeStatus: function(source, active) { return state.routeStatus(source, active); },
+		routingFieldNames: function() { return []; }
+	};
+	const fakeElementModule = loadUiModule(fakeState, fakeUi, {
+		E: fakeElement,
+		_: function(value) { return value; },
+		document: fakeDocument
+	});
+	const overview = loadLuciModule(fs.readFileSync(overviewPath, 'utf8'), {
+		view: fakeView,
+		rpc: fakeRpc,
+		ui: fakeUi,
+		dom: { content: function() {} },
+		'xray-mitm.state': fakeState,
+		'xray-mitm.ui': fakeElementModule
+	}, {
+		E: fakeElement,
+		_: function(value) { return value; },
+		document: fakeDocument,
+		L: { bind: function(fn, context) { return fn.bind(context); } }
+	});
+
+	overview.status = { running: true };
+	overview.rollbackTransaction = null;
+	const blocked = overview.renderRouting({
+		passwall2_present: 'present',
+		passwall2_schema: 'verified',
+		passwall2_inspect: 'available',
+		passwall2_plan_apply: 'disabled',
+		manual_routing_guide: 'available',
+		compatible: true,
+		writable: true,
+		shunt_nodes: [ { id: 'main_shunt', group: 'main_group' } ],
+		vpn_nodes: [ { id: 'vpn_node', type: 'Xray', protocol: 'vless' } ],
+		routing_state: {},
+		rule_sources: {},
+		capabilities: { plan: false, apply: false, rollback: false }
+	});
+
+	function collectText(node) {
+		if (node === null || node === undefined)
+			return '';
+		if (typeof node === 'string')
+			return node;
+		return (node.children || []).map(collectText).join(' ');
+	}
+
+	function findByText(node, text) {
+		if (!node || typeof node === 'string')
+			return null;
+		if (collectText(node).trim() === text)
+			return node;
+		for (const child of node.children || []) {
+			const match = findByText(child, text);
+			if (match)
+				return match;
+		}
+		return null;
+	}
+
+	const renderedText = collectText(blocked);
+	assert.match(renderedText, /Manual routing guidance/);
+	assert.match(renderedText, /Automatic routing is disabled/);
+	const reviewButton = findByText(blocked, 'Review setup');
+	assert.ok(reviewButton, 'blocked routing still renders the review control');
+	assert.strictEqual(reviewButton.attributes.disabled, '');
 }
 
 function testSingleViewMenu() {
@@ -421,6 +588,7 @@ function testClientSideDashboardTabs() {
 		dom: { content: function() {} },
 		'xray-mitm.state': {
 			routingFieldNames: function() { return []; },
+			passwallCapability: function(source) { return state.passwallCapability(source); },
 			routeStatus: function(source, active) { return state.routeStatus(source, active); }
 		},
 		'xray-mitm.ui': loadUiModule({
@@ -515,6 +683,7 @@ function testRoutingBusyOverlayLifecycle() {
 		dom: { content: function() {} },
 		'xray-mitm.state': {
 			routingFieldNames: function() { return []; },
+			passwallCapability: function(source) { return state.passwallCapability(source); },
 			routeStatus: function(source, active) { return state.routeStatus(source, active); }
 		},
 		'xray-mitm.ui': loadUiModule({
@@ -551,12 +720,14 @@ function testRoutingBusyOverlayLifecycle() {
 }
 
 testPasswallSelection();
+testPasswallCapability();
 testSimpleState();
 testRoutingArguments();
 testRoutingContractParity();
 testRouteStatusAndProgress();
 testExtractedUiHelpers();
 testOverviewLoadsAndRendersWithLuCIStateDependency();
+testBlockedRoutingRender();
 testSingleViewMenu();
 testClientSideDashboardTabs();
 testRoutingBusyOverlayLifecycle();
