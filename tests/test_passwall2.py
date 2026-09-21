@@ -375,6 +375,67 @@ class PassWall2Fixture(unittest.TestCase):
                 )
         self.original = self.config.read_bytes()
 
+        # Keep this boundary regression fast on CI: the normal fake UCI parser
+        # reparses the 129-node file for every option query. This fixture emits
+        # the same valid inventory from a tiny shell-backed UCI surface.
+        fast_bin = self.root / "fast-bin"
+        fast_bin.mkdir()
+        fast_uci = fast_bin / "uci"
+        fast_uci.write_text(
+            "#!/bin/sh\n"
+            "while [ \"$#\" -gt 0 ]; do\n"
+            "  case \"$1\" in\n"
+            "    -c|-P|-t) shift 2 ;;\n"
+            "    -q) shift ;;\n"
+            "    *) break ;;\n"
+            "  esac\n"
+            "done\n"
+            "action=${1:-}\n"
+            "reference=${2:-}\n"
+            "case \"$action\" in\n"
+            "  changes) exit 0 ;;\n"
+            "  show)\n"
+            "    [ \"$reference\" = passwall2 ] || exit 1\n"
+            "    printf '%s\\n' passwall2.global=global passwall2.vpn_node=nodes passwall2.main_shunt=nodes\n"
+            "    index=0\n"
+            "    while [ \"$index\" -lt 128 ]; do\n"
+            "      printf 'passwall2.extra_target_%03d=nodes\\n' \"$index\"\n"
+            "      index=$((index + 1))\n"
+            "    done\n"
+            "    exit 0\n"
+            "    ;;\n"
+            "  get)\n"
+            "    case \"$reference\" in\n"
+            "      'passwall2.@global[0]') printf global ;;\n"
+            "      'passwall2.@global[0].node') printf main_shunt ;;\n"
+            "      'passwall2.main_shunt') printf nodes ;;\n"
+            "      'passwall2.main_shunt.protocol') printf _shunt ;;\n"
+            "      'passwall2.main_shunt.shunt_group') printf main_group ;;\n"
+            "      'passwall2.main_shunt.default_node') printf vpn_node ;;\n"
+            "      'passwall2.main_shunt.remarks') printf 'Fixture shunt' ;;\n"
+            "      'passwall2.vpn_node') printf nodes ;;\n"
+            "      'passwall2.vpn_node.protocol') printf vless ;;\n"
+            "      'passwall2.vpn_node.type') printf Xray ;;\n"
+            "      'passwall2.vpn_node.remarks') printf 'Fixture VPN' ;;\n"
+            "      'passwall2.extra_target_'*)\n"
+            "        case \"$reference\" in\n"
+            "          *.protocol) printf vless ;;\n"
+            "          *.type) printf Xray ;;\n"
+            "          *.remarks) printf 'Fixture extra target' ;;\n"
+            "          *) exit 1 ;;\n"
+            "        esac\n"
+            "        ;;\n"
+            "      *) exit 1 ;;\n"
+            "    esac\n"
+            "    exit 0\n"
+            "    ;;\n"
+            "  *) exit 1 ;;\n"
+            "esac\n",
+            encoding="utf-8",
+        )
+        fast_uci.chmod(0o755)
+        self.env["PATH"] = f"{fast_bin}:{self.env['PATH']}"
+
         _, inspection = self.helper("inspect")
         self.assertTrue(inspection["truncated"])
         self.assertTrue(inspection["compatible"])
