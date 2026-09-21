@@ -1,6 +1,6 @@
 # Xray MITM OpenWrt — Master Plan
 
-Status: current roadmap; last audited 2026-09-20
+Status: current roadmap; last audited 2026-09-21
 
 This plan is based on the actual canonical repository, not on an earlier plan
 or historical checkout.
@@ -11,8 +11,8 @@ The authoritative source is:
 
 - Repository: `https://github.com/duuuude/xray-mitm-openwrt.git`
 - Public branch: `main`
-- Review/audit baseline: `dcc75398d6b2ad6f97dfc557548c73127981b507`, the current
-  `main` commit after the OpenWrt 24.10 package lane merged
+- Review/audit baseline: `a39ebcd4d06ed2c8bdb1c38055bf16b691b06429`, the current
+  `main` commit after the dual-backend installer merged
 - Observed package baseline: `0.4.4-r2` in development metadata; the published
   25.12 release remains separately versioned and signed
 - Canonical clone root: `<repo-root>`
@@ -213,8 +213,10 @@ operating mode; unattended cutover is not qualified. PR #48 then completed
 the P1 partial-bundle inspection item with independent source review, protected
 artifact validation, AX4200 integration, synthetic-state inspection, trusted
 rollback, and exact recovery comparison. The official OpenWrt compatibility
-initiative has completed its contract and package-build stages and is now at
-Stage 2: the dual-backend installer implementation. Later stages remain
+initiative has completed its contract, package-build, and dual-backend
+installer stages. Stage 3 evidence is now recorded with bounded 25.12/APK
+service and rollback proof and an explicit 24.10/IPK native-runtime
+limitation. Later stages remain
 separately scoped and reviewed, not one platform build.
 `docs/ai/AUTONOMOUS_PR.md` records the stage order, independence, cost boundary,
 and owner gates. No unattended router/release authority is approved by this
@@ -272,12 +274,14 @@ in force while 24.10 remains an unproven legacy target.
 - PassWall2 remains optional; standalone service capability and integration
   capability must be evidenced separately.
 
-Stage 0 contract work and Stage 1 package-build work are complete. Stage 2 now
-implements release/backend detection and the dual installer mechanics. The
-25.12 APK path remains public and protected; 24.10 OPKG requires enabled
-signature checking plus explicit authenticated feed inputs and has no default
-public feed in this change. Native 24.10 runtime, production publication, and
-final support claims remain future gates.
+Stage 0 contract work, Stage 1 package-build work, and Stage 2 installer
+mechanics are complete. Stage 3 has bounded 25.12/APK standalone-service,
+certificate-preservation, configuration-preservation, recovery, and rollback
+evidence; 24.10/IPK native runtime and hardware evidence are explicitly
+unproven because no compatible target was available. The 25.12 APK path remains
+public and protected; 24.10 OPKG requires enabled signature checking plus
+explicit authenticated feed inputs and has no default public feed. Production
+publication and final 24.10 support claims remain future gates.
 
 The build workflow also accepts arbitrary `workflow_dispatch` release and
 architecture strings while the publish workflow is fixed to one baseline.
@@ -293,7 +297,7 @@ active initiative.
 
 | Priority | One coherent PR / initiative | Type | Reason |
 | --- | --- | --- | --- |
-| 1 | Prove standalone service behavior on the 24.10 and 25.12 families | Compatibility/runtime | Stage 0 contract, Stage 1 package build, and Stage 2 installer mechanics are complete; runtime evidence is the next compatibility gate. |
+| 1 | Probe PassWall2 capability and safe fallback on the 24.10 and 25.12 families | Compatibility/integration | Stage 3 records bounded standalone evidence; routing must remain optional and fail closed for unknown schemas. |
 | 2 | Build once and promote the exact tested artifact | Release workflow | Removes the remaining PR-build/tag-build provenance gap. |
 | 3 | Generate a standard machine-readable PR evidence artifact | Developer tooling | Makes commit-bound tests, checksums, and manual-gate ownership consistent. |
 
@@ -455,22 +459,22 @@ Acceptance criteria:
 
 ## Recommended next item
 
-### Stage 3 — prove standalone service behavior
+### Compatibility Stage 4 — probe PassWall2 capability and safe fallback
 
-The installer and package lanes now distinguish official 24.10/OPKG from
-25.12/APK without claiming public 24.10 support. The next substantive PR must
-prove the standalone service, certificate, health, configuration-preservation,
-and recovery behavior on each family or record the exact evidence limitation.
+Stage 3 is recorded in `docs/OPENWRT_24_25_STAGE3_EVIDENCE.md`: the bounded
+25.12/APK service and rollback path is proven on the AX4200, while 24.10/IPK
+native runtime remains unproven because no compatible target was available.
+The next substantive PR must probe PassWall2 capability separately from
+standalone service support and provide a safe fallback for unknown schemas.
 
 Scope:
 
-- Use the exact Stage 1 IPKs and the existing 25.12 APK path through their
-  authenticated package mechanisms.
-- Validate install, package scripts, service enable/start behavior, health
-  checks, certificate preservation, configuration preservation, and rollback
-  boundaries without requiring PassWall2.
-- Keep PassWall2 optional and report its absence or unknown schema without
-  blocking standalone service evidence.
+- Detect tested PassWall2 schemas and report capability truthfully on both
+  package-manager families.
+- Keep PassWall2 optional; unknown or absent schemas must not block standalone
+  service operation or trigger routing changes.
+- Restrict any future plan/apply behavior to explicitly tested combinations
+  with complete transaction, recovery, rollback, and preservation evidence.
 - Use native M5 offline fixtures and bounded GitHub SDK jobs; do not use local
   x86 emulation, Docker, paid capacity, or an AX4200 firmware downgrade.
 
@@ -479,7 +483,7 @@ Out of scope:
 - Public 24.10 support or release publication.
 - Production OPKG signing, public feed rollout, or protected signing actions.
 - Automatic routing, PassWall2 plan/apply, certificate replacement, or broad
-  firewall/DNS changes.
+  firewall/DNS changes unless a later stage explicitly qualifies them.
 - Replacing a compatible real-system gate with a VM, emulator, or mock-only
   claim.
 
@@ -487,10 +491,10 @@ Acceptance criteria:
 
 - Exact release, architecture, package identity, and package-manager evidence
   are recorded separately for 24.10/IPK and 25.12/APK.
-- Standalone service and certificate/configuration/recovery results are
+- PassWall2 presence, schema, inspectability, and safe-fallback results are
   reported as proven, failed, or unproven without collapsing evidence levels.
-- Existing 25.12 behavior and the dual-backend installer safety boundaries are
-  preserved.
+- Existing standalone service behavior and the dual-backend installer safety
+  boundaries are preserved.
 - The exact candidate receives independent review and owner merge approval;
   later PassWall2, publication, and support-claim gates remain separate.
 
@@ -523,9 +527,9 @@ owner-controlled release sequence.
 - No merge, tag, release, force-push, or signing action merely because tests
   are green.
 
-The next state change is the Stage 3 standalone-service evidence PR above. Do
-not begin PassWall2 integration, public 24.10 publication, build-promotion, or
-evidence-artifact work in parallel with it.
+The next state change is the Compatibility Stage 4 PassWall2 capability/fallback PR above. Do
+not begin optional automatic routing, public 24.10 publication,
+build-promotion, or evidence-artifact work in parallel with it.
 Revalidate this plan after the qualification and after every later
-owner-approved stage merge. Do not repeat completed Stage 4 work or select a
-later stage without current-main verification.
+owner-approved stage merge. Do not repeat the completed autonomous-PR Stage 4
+work or select a later compatibility stage without current-main verification.
