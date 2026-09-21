@@ -1,6 +1,6 @@
 # Xray MITM OpenWrt — Master Plan
 
-Status: current roadmap; last audited 2026-09-19
+Status: current roadmap; last audited 2026-09-20
 
 This plan is based on the actual canonical repository, not on an earlier plan
 or historical checkout.
@@ -11,9 +11,10 @@ The authoritative source is:
 
 - Repository: `https://github.com/duuuude/xray-mitm-openwrt.git`
 - Public branch: `main`
-- Review/audit baseline: `24de3d1501103a3bb8089e2fe728e883256ca1ea`, the current
-  `main` commit inspected before the OpenWrt compatibility Stage 0 work
-- Observed package baseline: `0.4.4-r1`
+- Review/audit baseline: `dcc75398d6b2ad6f97dfc557548c73127981b507`, the current
+  `main` commit after the OpenWrt 24.10 package lane merged
+- Observed package baseline: `0.4.4-r2` in development metadata; the published
+  25.12 release remains separately versioned and signed
 - Canonical clone root: `<repo-root>`
 - Temporary task worktrees: `<workspace-root>/worktrees/`
 
@@ -122,11 +123,16 @@ They are complete in current `main` and must not remain as pending tasks.
   inspection behavior, not evidence of external-service behavior.
 - Activation results retain only the latest three completed results while
   preserving pending results. The old retention task is closed.
-- The installer detects APK and supported official 25.12 releases, gives
-  current post-install guidance, creates protected backups, retains the latest
-  three matching backups, preserves unrelated files, and has installer
-  regression tests. The old stale-completion-text and 25.12.5-floor tasks are
-  closed; support proof is a separate remaining item below.
+- The installer detects matching official release/backend pairs: 25.12.x with
+  APK and 24.10.x with OPKG. The existing APK trust, targeted upgrade, backup,
+  and rollback behavior is preserved. The OPKG path requires explicit HTTPS
+  feed/key inputs and a SHA-256 pin, requires OPKG signature checking to be
+  enabled, preserves unrelated feed entries, performs targeted install/upgrade
+  operations, and restores feed state on failure. It intentionally has no
+  default public 24.10 feed or production signing path; missing OPKG trust or
+  feed inputs fail closed. Installer regression coverage covers both backends.
+  The old stale-completion-text and 25.12.5-floor tasks are closed; native
+  24.10 runtime and publication proof remain separate items below.
 
 ### Release, configuration, and documentation
 
@@ -207,8 +213,9 @@ operating mode; unattended cutover is not qualified. PR #48 then completed
 the P1 partial-bundle inspection item with independent source review, protected
 artifact validation, AX4200 integration, synthetic-state inspection, trusted
 rollback, and exact recovery comparison. The official OpenWrt compatibility
-initiative is now active at Stage 0. Later stages remain separately scoped and
-reviewed, not one platform build.
+initiative has completed its contract and package-build stages and is now at
+Stage 2: the dual-backend installer implementation. Later stages remain
+separately scoped and reviewed, not one platform build.
 `docs/ai/AUTONOMOUS_PR.md` records the stage order, independence, cost boundary,
 and owner gates. No unattended router/release authority is approved by this
 scheduling decision.
@@ -254,8 +261,8 @@ The approved compatibility initiative is documented in
 using OPKG/IPK and official 25.12.x using APK. The public 25.12 contract stays
 in force while 24.10 remains an unproven legacy target.
 
-- 24.10.8 and 25.12.5 are the Stage 0 reference releases and must be
-  revalidated when build work starts.
+- 24.10.8 and 25.12.5 are the reference releases and must be revalidated when
+  a build or release stage starts.
 - The first 24.10 target is `aarch64_cortex-a53`, matching the physical lab
   router; a generic SDK build alone is not hardware evidence.
 - Existing 25.12 APK packaging, signed-feed trust, installer behavior, and
@@ -265,8 +272,12 @@ in force while 24.10 remains an unproven legacy target.
 - PassWall2 remains optional; standalone service capability and integration
   capability must be evidenced separately.
 
-The current Stage 0 task is documentation/design only. It must finish before
-any package, installer, CI, signing, feed, or router implementation begins.
+Stage 0 contract work and Stage 1 package-build work are complete. Stage 2 now
+implements release/backend detection and the dual installer mechanics. The
+25.12 APK path remains public and protected; 24.10 OPKG requires enabled
+signature checking plus explicit authenticated feed inputs and has no default
+public feed in this change. Native 24.10 runtime, production publication, and
+final support claims remain future gates.
 
 The build workflow also accepts arbitrary `workflow_dispatch` release and
 architecture strings while the publish workflow is fixed to one baseline.
@@ -282,7 +293,7 @@ active initiative.
 
 | Priority | One coherent PR / initiative | Type | Reason |
 | --- | --- | --- | --- |
-| 1 | Define and implement the official OpenWrt 24.10/25.12 compatibility initiative, beginning with Stage 0 | Compatibility/design | The owner approved a two-family target, but its evidence and legacy-support boundary must be recorded before implementation. |
+| 1 | Prove standalone service behavior on the 24.10 and 25.12 families | Compatibility/runtime | Stage 0 contract, Stage 1 package build, and Stage 2 installer mechanics are complete; runtime evidence is the next compatibility gate. |
 | 2 | Build once and promote the exact tested artifact | Release workflow | Removes the remaining PR-build/tag-build provenance gap. |
 | 3 | Generate a standard machine-readable PR evidence artifact | Developer tooling | Makes commit-bound tests, checksums, and manual-gate ownership consistent. |
 
@@ -444,42 +455,44 @@ Acceptance criteria:
 
 ## Recommended next item
 
-### Stage 0 — define official OpenWrt 24.10/25.12 compatibility contract
+### Stage 3 — prove standalone service behavior
 
-The detailed contract is `docs/OPENWRT_COMPATIBILITY.md`. This first PR is
-documentation/design only:
+The installer and package lanes now distinguish official 24.10/OPKG from
+25.12/APK without claiming public 24.10 support. The next substantive PR must
+prove the standalone service, certificate, health, configuration-preservation,
+and recovery behavior on each family or record the exact evidence limitation.
 
-- Record official 24.10.x OPKG/IPK and 25.12.x APK as the initial families.
-- Record 24.10 as legacy compatibility with limited security support and no
-  upstream security promise after end of life.
-- Distinguish accepted, built, integration-tested, hardware-tested, and
-  published-support evidence.
-- Define the first target matrix, separate package/feed trust chains,
-  standalone service behavior, and optional PassWall2 capability levels.
-- Use native M5 offline tests and bounded GitHub-hosted SDK jobs; do not require
-  local emulation, Docker, paid capacity, or an AX4200 firmware downgrade.
-- Preserve current 25.12 APK, signed-feed, installer, certificate, PassWall2,
-  router, browser, and owner-gate rules.
-- Define the ordered Stage 1–6 PR sequence and stop before package or runtime
-  implementation.
+Scope:
+
+- Use the exact Stage 1 IPKs and the existing 25.12 APK path through their
+  authenticated package mechanisms.
+- Validate install, package scripts, service enable/start behavior, health
+  checks, certificate preservation, configuration preservation, and rollback
+  boundaries without requiring PassWall2.
+- Keep PassWall2 optional and report its absence or unknown schema without
+  blocking standalone service evidence.
+- Use native M5 offline fixtures and bounded GitHub SDK jobs; do not use local
+  x86 emulation, Docker, paid capacity, or an AX4200 firmware downgrade.
 
 Out of scope:
 
-- Package, installer, CI, product, or runtime behavior changes.
-- Production OPKG signing, feed publication, or release changes.
-- Replacing the AX4200 gate with mocks or a local emulator.
-- Firmware downgrade, router mutation, or certificate/signing-material action.
+- Public 24.10 support or release publication.
+- Production OPKG signing, public feed rollout, or protected signing actions.
+- Automatic routing, PassWall2 plan/apply, certificate replacement, or broad
+  firewall/DNS changes.
+- Replacing a compatible real-system gate with a VM, emulator, or mock-only
+  claim.
 
 Acceptance criteria:
 
-- The two-family matrix, legacy 24.10 boundary, evidence levels, trust design,
-  standalone/PassWall2 model, budget, and ordered stages are documented.
-- Supported and untested architectures and releases are distinguished.
-- No product, installer, package, CI, signing, release, or router behavior is
-  changed.
-- Documentation validation and the full repository safety validator pass.
+- Exact release, architecture, package identity, and package-manager evidence
+  are recorded separately for 24.10/IPK and 25.12/APK.
+- Standalone service and certificate/configuration/recovery results are
+  reported as proven, failed, or unproven without collapsing evidence levels.
+- Existing 25.12 behavior and the dual-backend installer safety boundaries are
+  preserved.
 - The exact candidate receives independent review and owner merge approval;
-  later package, router, browser, signing, and release gates remain separate.
+  later PassWall2, publication, and support-claim gates remain separate.
 
 ## Validation and release gates for future work
 
@@ -510,9 +523,9 @@ owner-controlled release sequence.
 - No merge, tag, release, force-push, or signing action merely because tests
   are green.
 
-The next state change is the Stage 0 documentation/design PR above. Do not
-begin package builds, installer work, build-promotion, or evidence-artifact
-work in parallel with it.
+The next state change is the Stage 3 standalone-service evidence PR above. Do
+not begin PassWall2 integration, public 24.10 publication, build-promotion, or
+evidence-artifact work in parallel with it.
 Revalidate this plan after the qualification and after every later
 owner-approved stage merge. Do not repeat completed Stage 4 work or select a
 later stage without current-main verification.

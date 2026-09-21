@@ -408,6 +408,12 @@ def check_workflow(root: Path, errors: list[str]) -> None:
         errors.append(f"{relative} must retain read-only repository permissions")
     if "${{ secrets." in text:
         errors.append(f"{relative} must not expose repository secrets to package builds")
+    if text.count("ref: ${{ github.event.pull_request.head.sha || github.sha }}") != 2:
+        errors.append(f"{relative} must check out the exact pull-request head in both jobs")
+    if 'printf \'%s\\n\' "$(git rev-parse HEAD)" > dist/SOURCE_COMMIT' not in text:
+        errors.append(f"{relative} must record the checked-out candidate HEAD")
+    if 'printf \'%s\\n\' "$GITHUB_SHA" > dist/SOURCE_COMMIT' in text:
+        errors.append(f"{relative} must not record the synthetic pull-request merge SHA")
 
     relative = ".github/workflows/build-24-10.yml"
     text = (root / relative).read_text(encoding="utf-8", errors="replace")
@@ -480,10 +486,21 @@ def check_signed_feed(root: Path, errors: list[str]) -> None:
         "https://duuuude.github.io/xray-mitm-openwrt/feed/25.12/all/packages.adb",
         "/etc/apk/keys",
         "/etc/apk/repositories.d",
+        "/etc/opkg/keys",
+        "/etc/opkg/customfeeds.conf",
+        "/etc/opkg.conf",
         "detect_platform()",
         "check_platform_support()",
+        "supported_opkg_release()",
+        "check_signature",
+        "validate_https_url()",
+        "usign -F -p",
+        "OPKG_KEY_FINGERPRINT",
+        '"${#OPKG_KEY_FINGERPRINT}" -eq 16',
         '"$APK_BIN" add xray-mitm luci-app-xray-mitm',
         '"$APK_BIN" upgrade xray-mitm luci-app-xray-mitm',
+        '"$OPKG_BIN" install xray-mitm luci-app-xray-mitm',
+        '"$OPKG_BIN" upgrade xray-mitm luci-app-xray-mitm',
     ):
         if required not in installer:
             errors.append(f"{installer_relative} signed-feed logic is missing {required}")
@@ -491,8 +508,8 @@ def check_signed_feed(root: Path, errors: list[str]) -> None:
         errors.append(f"{installer_relative} must not bypass APK signature verification")
     targeted_installer = installer.replace(
         '"$APK_BIN" upgrade xray-mitm luci-app-xray-mitm', ""
-    )
-    if re.search(r"\$APK_BIN[ \t]+upgrade", targeted_installer):
+    ).replace('"$OPKG_BIN" upgrade xray-mitm luci-app-xray-mitm', "")
+    if re.search(r"\$(?:APK|OPKG)_BIN[ \t]+(?:upgrade|install)[ \t]+(?!xray-mitm(?:[ \t]|$))", targeted_installer):
         errors.append(f"{installer_relative} must not upgrade unrelated router packages")
 
 

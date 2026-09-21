@@ -36,6 +36,8 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Validate release tree
         run: sh scripts/validate-release.sh
@@ -49,6 +51,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Build noarch packages with the official OpenWrt SDK
         uses: openwrt/gh-action-sdk@7fc2640243284ecc44f4a9c3f749a61746ee02cb # v11
@@ -67,7 +70,7 @@ jobs:
           find bin -type f -name 'xray-mitm-*.apk' -exec cp '{}' dist/ \;
           find bin -type f -name 'luci-app-xray-mitm-*.apk' -exec cp '{}' dist/ \;
           cp LICENSE README.md README.fa.md THIRD_PARTY_NOTICES.md install.sh dist/
-          printf '%s\n' "$GITHUB_SHA" > dist/SOURCE_COMMIT
+          printf '%s\n' "$(git rev-parse HEAD)" > dist/SOURCE_COMMIT
 
           test "$(find dist -maxdepth 1 -type f -name 'xray-mitm-*.apk' | wc -l)" -eq 1
           test "$(find dist -maxdepth 1 -type f -name 'luci-app-xray-mitm-*.apk' | wc -l)" -eq 1
