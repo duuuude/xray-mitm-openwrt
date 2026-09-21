@@ -68,7 +68,9 @@ REQUIRED_PATHS = (
     "docs/SIGNED_FEED.md",
     "scripts/release-preflight.sh",
     "scripts/router-local-test.sh",
+    "scripts/sign-apk-index.sh",
     "scripts/validate-release.sh",
+    "scripts/verify-promotion-artifact.sh",
     "install.sh",
     "keys/xray-mitm-feed-v1.pem",
     "scripts/check-release-version.sh",
@@ -78,6 +80,7 @@ REQUIRED_PATHS = (
     "tests/test_config.py",
     "tests/test_installer.py",
     "tests/test_passwall2.py",
+    "tests/test_promotion_artifact.py",
     "tests/test_release_preflight.py",
     "tests/test_signed_feed.py",
     "xray-mitm/Makefile",
@@ -410,7 +413,10 @@ def check_workflow(root: Path, errors: list[str]) -> None:
         errors.append(f"{relative} must not expose repository secrets to package builds")
     if text.count("ref: ${{ github.event.pull_request.head.sha || github.sha }}") != 2:
         errors.append(f"{relative} must check out the exact pull-request head in both jobs")
-    if 'printf \'%s\\n\' "$(git rev-parse HEAD)" > dist/SOURCE_COMMIT' not in text:
+    if (
+        'source_commit="$(git rev-parse HEAD)"' not in text
+        or 'printf \'%s\\n\' "$source_commit" > dist/SOURCE_COMMIT' not in text
+    ):
         errors.append(f"{relative} must record the checked-out candidate HEAD")
     if 'printf \'%s\\n\' "$GITHUB_SHA" > dist/SOURCE_COMMIT' in text:
         errors.append(f"{relative} must not record the synthetic pull-request merge SHA")
@@ -448,7 +454,12 @@ def check_workflow(root: Path, errors: list[str]) -> None:
         "tags:",
         "environment: signed-feed",
         "secrets.XRAY_MITM_APK_PRIVATE_KEY",
-        'INDEX: "1"',
+        "actions/download-artifact@",
+        "run-id:",
+        "scripts/verify-promotion-artifact.sh",
+        "scripts/sign-apk-index.sh",
+        "ghcr.io/openwrt/sdk:",
+        "BUILD_PACKAGE_SHA256SUMS",
         "packages.adb",
         "actions/upload-pages-artifact@",
         "actions/deploy-pages@",

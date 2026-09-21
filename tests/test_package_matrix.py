@@ -46,15 +46,21 @@ class PackageMatrixTests(unittest.TestCase):
         self.assertIn("aarch64_generic", workflow)
         self.assertIn("xray-mitm-*.apk", workflow)
         self.assertIn("luci-app-xray-mitm-*.apk", workflow)
+        self.assertIn('INDEX: "1"', workflow)
+        self.assertIn("packages.adb", workflow)
+        self.assertIn("PACKAGE_SHA256SUMS", workflow)
+        self.assertIn("ARTIFACT_PURPOSE", workflow)
         self.assertNotIn("24.10.8", workflow)
         self.assertNotIn(".ipk", workflow)
+        self.assertNotIn("PRIVATE_KEY", workflow)
         self.assertEqual(
             workflow.count(
                 "ref: ${{ github.event.pull_request.head.sha || github.sha }}"
             ),
             2,
         )
-        self.assertIn('printf \'%s\\n\' "$(git rev-parse HEAD)" > dist/SOURCE_COMMIT', workflow)
+        self.assertIn('source_commit="$(git rev-parse HEAD)"', workflow)
+        self.assertIn('printf \'%s\\n\' "$source_commit" > dist/SOURCE_COMMIT', workflow)
         self.assertNotIn('printf \'%s\\n\' "$GITHUB_SHA" > dist/SOURCE_COMMIT', workflow)
 
     def test_24_10_lane_is_bounded_unsigned_ipk_build(self) -> None:

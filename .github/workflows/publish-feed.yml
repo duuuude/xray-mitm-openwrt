@@ -6,6 +6,7 @@ on:
       - "v*"
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -21,18 +22,97 @@ env:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
+    outputs:
+      build_run_id: ${{ steps.resolve_build.outputs.build_run_id }}
+      artifact_name: ${{ steps.resolve_build.outputs.artifact_name }}
+      source_commit: ${{ steps.resolve_build.outputs.source_commit }}
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Verify source and tag
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_TYPE" = tag
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          sh scripts/validate-release.sh
+          sh scripts/check-release-version.sh "$GITHUB_WORKSPACE" "$GITHUB_REF_NAME"
+
+      - name: Resolve the successful main build for this exact commit
+        id: resolve_build
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          runs="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/build.yml/runs?branch=main&head_sha=${GITHUB_SHA}&status=completed&per_page=100")"
+          run_json="$(jq -c --arg sha "$GITHUB_SHA" '
+            [.workflow_runs[]
+             | select(.head_sha == $sha)
+             | select(.head_branch == "main")
+             | select(.event == "push")
+             | select(.status == "completed")
+             | select(.conclusion == "success")]
+            | sort_by(.run_started_at)
+            | last // empty
+          ' <<<"$runs")"
+          test -n "$run_json" || {
+            printf '%s\n' 'No successful Build OpenWrt APKs run exists for the exact tagged main commit.' >&2
+            exit 1
+          }
+          build_run_id="$(jq -r '.id' <<<"$run_json")"
+          test "$build_run_id" != null
+          printf 'build_run_id=%s\n' "$build_run_id" >> "$GITHUB_OUTPUT"
+          printf 'source_commit=%s\n' "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+          printf 'artifact_name=xray-mitm-openwrt-%s-%s-%s\n' \
+            "$OPENWRT_RELEASE" "$SDK_ARCH" "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+
+  prepare-promotion:
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Check out tagged source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Verify source and tag
+      - name: Download the exact main-build artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ needs.validate.outputs.artifact_name }}
+          path: promotion
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ needs.validate.outputs.build_run_id }}
+
+      - name: Verify the exact promotion input
+        shell: bash
+        env:
+          BUILD_RUN_ID: ${{ needs.validate.outputs.build_run_id }}
+          SOURCE_COMMIT: ${{ needs.validate.outputs.source_commit }}
         run: |
-          sh scripts/validate-release.sh
-          sh scripts/check-release-version.sh "$GITHUB_WORKSPACE" "$GITHUB_REF_NAME"
+          set -euo pipefail
+          test "$(cat promotion/BUILD_RUN_ID)" = "$BUILD_RUN_ID"
+          test "$(cat promotion/BUILD_WORKFLOW)" = 'Build OpenWrt APKs'
+          test "$(cat promotion/BUILD_EVENT)" = 'push'
+          sh scripts/verify-promotion-artifact.sh \
+            promotion "$SOURCE_COMMIT" "$OPENWRT_RELEASE" "$SDK_ARCH"
+          cp promotion/SHA256SUMS promotion/BUILD_SHA256SUMS
+
+      - name: Upload the immutable promotion input
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: xray-mitm-promotion-${{ needs.validate.outputs.source_commit }}
+          path: promotion/
+          if-no-files-found: error
+          retention-days: 30
 
   build-and-sign:
-    needs: validate
+    needs:
+      - validate
+      - prepare-promotion
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment: signed-feed
@@ -41,6 +121,23 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+
+      - name: Download the immutable promotion input
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: xray-mitm-promotion-${{ needs.validate.outputs.source_commit }}
+          path: promotion
+
+      - name: Recheck the exact promotion input
+        shell: bash
+        env:
+          BUILD_RUN_ID: ${{ needs.validate.outputs.build_run_id }}
+          SOURCE_COMMIT: ${{ needs.validate.outputs.source_commit }}
+        run: |
+          set -euo pipefail
+          test "$(cat promotion/BUILD_RUN_ID)" = "$BUILD_RUN_ID"
+          sh scripts/verify-promotion-artifact.sh \
+            promotion "$SOURCE_COMMIT" "$OPENWRT_RELEASE" "$SDK_ARCH"
 
       - name: Verify the protected signing key matches the committed public key
         shell: bash
@@ -60,23 +157,42 @@ jobs:
           cmp "$RUNNER_TEMP/xray-mitm-feed-committed.der" \
             "$RUNNER_TEMP/xray-mitm-feed-derived.der"
 
-      - name: Build packages and signed OpenWrt index
-        uses: openwrt/gh-action-sdk@7fc2640243284ecc44f4a9c3f749a61746ee02cb # v11
-        env:
-          ARCH: ${{ env.SDK_ARCH }}-${{ env.OPENWRT_RELEASE }}
-          BUILD_LOG: "1"
-          FEEDNAME: ${{ env.FEED_NAME }}
-          INDEX: "1"
-          PACKAGES: xray-mitm luci-app-xray-mitm
-          PRIVATE_KEY: ${{ secrets.XRAY_MITM_APK_PRIVATE_KEY }}
-          V: s
-
-      - name: Assemble signed feed site
+      - name: Sign the exact package index without rebuilding packages
         shell: bash
+        env:
+          APK_PRIVATE_KEY: ${{ secrets.XRAY_MITM_APK_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$APK_PRIVATE_KEY" > "$RUNNER_TEMP/xray-mitm-feed-private.pem"
+          chmod 0600 "$RUNNER_TEMP/xray-mitm-feed-private.pem"
+          docker run --rm \
+            --entrypoint /bin/sh \
+            -v "$GITHUB_WORKSPACE/promotion:/promotion" \
+            -v "$GITHUB_WORKSPACE/scripts/sign-apk-index.sh:/sign-apk-index.sh:ro" \
+            -v "$RUNNER_TEMP/xray-mitm-feed-private.pem:/signing-key.pem:ro" \
+            "ghcr.io/openwrt/sdk:${SDK_ARCH}-${OPENWRT_RELEASE}" \
+            -c 'APK_BIN=/staging_dir/host/bin/apk sh /sign-apk-index.sh /promotion/packages.adb /signing-key.pem'
+          docker run --rm \
+            --entrypoint /staging_dir/host/bin/apk \
+            -v "$GITHUB_WORKSPACE/promotion:/promotion" \
+            "ghcr.io/openwrt/sdk:${SDK_ARCH}-${OPENWRT_RELEASE}" \
+            --keys-dir /promotion verify /promotion/packages.adb
+
+      - name: Assemble the signed feed from exact package bytes
+        shell: bash
+        env:
+          SOURCE_COMMIT: ${{ needs.validate.outputs.source_commit }}
         run: |
           set -euo pipefail
           feed_dir="site/feed/$OPENWRT_SERIES/all"
           mkdir -p "$feed_dir"
+
+          cp promotion/*.apk promotion/packages.adb "$feed_dir/"
+          cp promotion/PACKAGE_SHA256SUMS "$feed_dir/BUILD_PACKAGE_SHA256SUMS"
+          cp promotion/BUILD_RUN_ID promotion/BUILD_WORKFLOW promotion/BUILD_EVENT "$feed_dir/"
+          printf '%s\n' "$SOURCE_COMMIT" > "$feed_dir/SOURCE_COMMIT"
+          printf '%s\n' "$GITHUB_SHA" > "$feed_dir/RELEASE_COMMIT"
 
           cp install.sh site/install.sh
           chmod 0755 site/install.sh
@@ -90,21 +206,13 @@ jobs:
             sha256sum -c INSTALLER_SHA256
           )
 
-          mapfile -t core_apks < <(find bin -type f -name 'xray-mitm-*.apk')
-          mapfile -t luci_apks < <(find bin -type f -name 'luci-app-xray-mitm-*.apk')
-          mapfile -t indexes < <(find bin -type f -path "*/$FEED_NAME/packages.adb")
-          test "${#core_apks[@]}" -eq 1
-          test "${#luci_apks[@]}" -eq 1
-          test "${#indexes[@]}" -eq 1
-
-          cp "${core_apks[0]}" "${luci_apks[0]}" "${indexes[0]}" "$feed_dir/"
           cp keys/xray-mitm-feed-v1.pem site/feed/
           printf '%s  %s\n' \
             '3e0dc07ffef69d1512500b6add486381d8c261a8ec3fcce54fa403b35320df8a' \
             'xray-mitm-feed-v1.pem' > site/feed/PUBLIC_KEY_SHA256
-          printf '%s\n' "$GITHUB_SHA" > "$feed_dir/SOURCE_COMMIT"
           (
             cd "$feed_dir"
+            sha256sum -c BUILD_PACKAGE_SHA256SUMS
             sha256sum ./*.apk packages.adb > SHA256SUMS
             sha256sum -c SHA256SUMS
           )
@@ -154,7 +262,12 @@ jobs:
             cp "$apk" "$release_dir/$release_name"
           done
           cp "$feed_dir/packages.adb" "$release_dir/packages.adb"
+          cp "$feed_dir/BUILD_RUN_ID" "$release_dir/BUILD_RUN_ID"
+          cp "$feed_dir/BUILD_WORKFLOW" "$release_dir/BUILD_WORKFLOW"
+          cp "$feed_dir/BUILD_EVENT" "$release_dir/BUILD_EVENT"
+          cp "$feed_dir/BUILD_PACKAGE_SHA256SUMS" "$release_dir/BUILD_PACKAGE_SHA256SUMS"
           cp "$feed_dir/SOURCE_COMMIT" "$release_dir/SOURCE_COMMIT"
+          cp "$feed_dir/RELEASE_COMMIT" "$release_dir/RELEASE_COMMIT"
           cp "signed-site/feed/xray-mitm-feed-v1.pem" \
             "$release_dir/xray-mitm-feed-v1.pem"
           cp "signed-site/feed/PUBLIC_KEY_SHA256" \
@@ -164,7 +277,9 @@ jobs:
           (
             cd "$release_dir"
             sha256sum ./*.apk packages.adb install.sh \
-              xray-mitm-feed-v1.pem > SHA256SUMS
+              xray-mitm-feed-v1.pem BUILD_RUN_ID BUILD_WORKFLOW BUILD_EVENT \
+              BUILD_PACKAGE_SHA256SUMS SOURCE_COMMIT RELEASE_COMMIT \
+              PUBLIC_KEY_SHA256 > SHA256SUMS
             sha256sum -c SHA256SUMS
             sha256sum -c INSTALLER_SHA256
             sha256sum -c PUBLIC_KEY_SHA256
@@ -200,3 +315,5 @@ jobs:
       - name: Deploy signed feed to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+        with:
+          artifact_name: github-pages
