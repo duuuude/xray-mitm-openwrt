@@ -458,7 +458,9 @@ def check_workflow(root: Path, errors: list[str]) -> None:
         "run-id:",
         "scripts/verify-promotion-artifact.sh",
         "scripts/sign-apk-index.sh",
-        "ghcr.io/openwrt/sdk:",
+        "SDK_IMAGE: ghcr.io/openwrt/sdk@sha256:",
+        '-v "$GITHUB_WORKSPACE/keys:/keys:ro"',
+        "--keys-dir /keys verify /promotion/packages.adb",
         "BUILD_PACKAGE_SHA256SUMS",
         "packages.adb",
         "actions/upload-pages-artifact@",
@@ -472,6 +474,15 @@ def check_workflow(root: Path, errors: list[str]) -> None:
             errors.append(f"{relative} must be tag-triggered only; found {forbidden}")
     if text.count("secrets.XRAY_MITM_APK_PRIVATE_KEY") != 2:
         errors.append(f"{relative} must use the signing secret only for key verification and signing")
+    if not re.search(
+        r"(?m)^\s+SDK_IMAGE: ghcr\.io/openwrt/sdk@sha256:[0-9a-f]{64}\s*$",
+        text,
+    ):
+        errors.append(f"{relative} must pin the signing SDK image to a full digest")
+    if "ghcr.io/openwrt/sdk:" in text:
+        errors.append(f"{relative} must not use a mutable SDK image tag")
+    if "--keys-dir /promotion" in text:
+        errors.append(f"{relative} must verify with the committed public-key directory")
     if "--allow-untrusted" in text:
         errors.append(f"{relative} must never bypass APK signature verification")
 

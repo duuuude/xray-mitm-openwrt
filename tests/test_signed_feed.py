@@ -52,7 +52,14 @@ class SignedFeedTests(unittest.TestCase):
         self.assertIn("run-id:", text)
         self.assertIn("scripts/verify-promotion-artifact.sh", text)
         self.assertIn("scripts/sign-apk-index.sh", text)
-        self.assertIn("ghcr.io/openwrt/sdk:", text)
+        self.assertRegex(
+            text,
+            r"SDK_IMAGE: ghcr\.io/openwrt/sdk@sha256:[0-9a-f]{64}",
+        )
+        self.assertIn('-v "$GITHUB_WORKSPACE/keys:/keys:ro"', text)
+        self.assertIn("--keys-dir /keys verify /promotion/packages.adb", text)
+        self.assertNotIn("ghcr.io/openwrt/sdk:", text)
+        self.assertNotIn("--keys-dir /promotion", text)
         self.assertNotIn("openwrt/gh-action-sdk@", text)
         self.assertIn("actions/deploy-pages@", text)
         self.assertNotIn("--allow-untrusted", text)

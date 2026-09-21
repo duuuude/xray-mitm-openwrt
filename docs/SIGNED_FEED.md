@@ -19,7 +19,7 @@ The trust chain is:
 2. The installer accepts only the public key with the hard-coded fingerprint.
 3. APK stores that key in `/etc/apk/keys/xray-mitm-feed-v1.pem`.
 4. APK verifies the signed `packages.adb` index and packages on every install or update.
-5. The tag-only publishing workflow receives the signing key only after the `signed-feed` environment gate. It promotes the exact successful main-build APK bytes for the tag commit and signs only the repository index; it does not rebuild the packages. The separate protected candidate workflow uses that same gate for an owner-approved lab artifact and does not publish it.
+5. The tag-only publishing workflow receives the signing key only after the `signed-feed` environment gate. It promotes the exact successful main-build APK bytes for the tag commit and signs only the repository index; it does not rebuild the packages. The protected signing/verifier container is pinned to `ghcr.io/openwrt/sdk@sha256:d7759c08b2c0b0ffe57719bd8a293543708cbc27b18941478ebeae04c42986ed`, the reviewed digest for `aarch64_generic-25.12.5`. The separate protected candidate workflow uses that same gate for an owner-approved lab artifact and does not publish it.
 
 Never put the private feed key in the repository, a pull-request secret, workflow artifact, release, router image, or command transcript.
 

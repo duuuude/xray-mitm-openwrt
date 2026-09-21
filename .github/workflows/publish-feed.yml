@@ -17,6 +17,8 @@ env:
   OPENWRT_RELEASE: "25.12.5"
   OPENWRT_SERIES: "25.12"
   SDK_ARCH: aarch64_generic
+  # Immutable digest for the aarch64_generic-25.12.5 OpenWrt SDK image.
+  SDK_IMAGE: ghcr.io/openwrt/sdk@sha256:d7759c08b2c0b0ffe57719bd8a293543708cbc27b18941478ebeae04c42986ed
   FEED_NAME: xray_mitm
 
 jobs:
@@ -169,15 +171,17 @@ jobs:
           docker run --rm \
             --entrypoint /bin/sh \
             -v "$GITHUB_WORKSPACE/promotion:/promotion" \
+            -v "$GITHUB_WORKSPACE/keys:/keys:ro" \
             -v "$GITHUB_WORKSPACE/scripts/sign-apk-index.sh:/sign-apk-index.sh:ro" \
             -v "$RUNNER_TEMP/xray-mitm-feed-private.pem:/signing-key.pem:ro" \
-            "ghcr.io/openwrt/sdk:${SDK_ARCH}-${OPENWRT_RELEASE}" \
+            "$SDK_IMAGE" \
             -c 'APK_BIN=/staging_dir/host/bin/apk sh /sign-apk-index.sh /promotion/packages.adb /signing-key.pem'
           docker run --rm \
             --entrypoint /staging_dir/host/bin/apk \
             -v "$GITHUB_WORKSPACE/promotion:/promotion" \
-            "ghcr.io/openwrt/sdk:${SDK_ARCH}-${OPENWRT_RELEASE}" \
-            --keys-dir /promotion verify /promotion/packages.adb
+            -v "$GITHUB_WORKSPACE/keys:/keys:ro" \
+            "$SDK_IMAGE" \
+            --keys-dir /keys verify /promotion/packages.adb
 
       - name: Assemble the signed feed from exact package bytes
         shell: bash

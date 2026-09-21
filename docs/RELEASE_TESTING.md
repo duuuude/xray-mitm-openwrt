@@ -126,10 +126,12 @@ After approving the tagged workflow:
    present, and that the package bytes match the main-build checksums.
 4. Confirm the protected job signed only `packages.adb` and did not rebuild the
    packages.
-5. Confirm the GitHub Release also contains `SHA256SUMS`, `SOURCE_COMMIT`,
+5. Confirm the protected signing/verifier SDK image uses the reviewed immutable
+   digest `sha256:d7759c08b2c0b0ffe57719bd8a293543708cbc27b18941478ebeae04c42986ed`.
+6. Confirm the GitHub Release also contains `SHA256SUMS`, `SOURCE_COMMIT`,
    `RELEASE_COMMIT`, build provenance, `PUBLIC_KEY_SHA256`, and the public key.
-6. Confirm Pages serves the key and `feed/25.12/all/packages.adb` over HTTPS.
-7. Independently verify key SHA-256 `3e0dc07ffef69d1512500b6add486381d8c261a8ec3fcce54fa403b35320df8a`.
+7. Confirm Pages serves the key and `feed/25.12/all/packages.adb` over HTTPS.
+8. Independently verify key SHA-256 `3e0dc07ffef69d1512500b6add486381d8c261a8ec3fcce54fa403b35320df8a`.
 
 ## 6. Clean-router installation
 
