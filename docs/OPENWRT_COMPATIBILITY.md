@@ -150,8 +150,14 @@ dependency evidence, but no compatible native runtime target was available;
 
 ### Stage 4 — PassWall2 capability probe and safe fallback
 
-Detect tested schemas and expose truthful read-only diagnostics/manual guidance;
-unknown combinations must not mutate routing.
+The implementation and bounded 25.12/APK runtime evidence for PR #59 are
+recorded in `docs/OPENWRT_24_25_STAGE4_EVIDENCE.md`. It detects the tested
+schema and exposes truthful read-only diagnostics/manual guidance; unknown
+combinations must not mutate routing. The required AX4200 LuCI/browser gate
+remains unproven because the router certificate did not match the browser
+hostname and no bypass was allowed. Native 24.10/IPK runtime behavior also
+remains unproven. This is implementation evidence, not a public support or
+release declaration.
 
 ### Stage 5 — optional automatic PassWall2 integration
 
