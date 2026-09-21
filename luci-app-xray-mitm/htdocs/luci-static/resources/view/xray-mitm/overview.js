@@ -826,6 +826,7 @@ return view.extend({
 
 	overviewStatusStrip: function(status, certificates, passwall) {
 		var passwallState = (this.setup && this.setup.passwall2) || {};
+		var capability = state.passwallCapability(passwallState);
 		var routingState = (passwall && passwall.routing_state) || {};
 		var current = slotData(certificates, 'current');
 		var cards = [
@@ -836,15 +837,18 @@ return view.extend({
 			},
 			{
 				icon: '◉', label: _('PassWall2'),
-				value: passwallState.installed === true ? _('Ready') : _('Not detected'),
-				tone: passwallState.installed === true ? 'good' : 'warn', detail: _('Routing integration')
+				value: capability.presence === 'absent' ? _('Not detected') :
+					(capability.schema === 'verified' ? _('Detected') : _('Needs attention')),
+				tone: capability.schema === 'verified' ? 'good' : 'warn', detail: capability.schema === 'verified' ?
+					_('Routing integration') : _('Read-only diagnostics')
 			},
 			{
 				icon: '↔', label: _('PassWall2 routing'),
-				value: passwallState.shunt_available === true && passwallState.vpn_available === true ?
-					_('Ready') : _('Needs attention'),
-				tone: passwallState.shunt_available === true && passwallState.vpn_available === true ? 'good' : 'warn',
-				detail: routingState.configured === true ? _('Rules configured') : _('Choose your rules')
+				value: capability.canPlanApply ? _('Ready') :
+					(capability.inspection === 'available' ? _('Read-only') : _('Needs attention')),
+				tone: capability.canPlanApply ? 'good' : 'warn',
+				detail: capability.canPlanApply ? (routingState.configured === true ? _('Rules configured') : _('Choose your rules')) :
+					_('Manual guidance only')
 			},
 			{
 				icon: '✓', label: _('Public certificate'),
@@ -955,13 +959,14 @@ return view.extend({
 		var candidateAttention = setup.certificate && setup.certificate.candidate_requires_attention === true;
 		var certificateAttention = setup.certificate && setup.certificate.requires_attention === true;
 		var passwallState = setup.passwall2 || {};
+		var capability = state.passwallCapability(passwallState);
 		var routingState = passwall.routing_state || setup.routing || {};
 		var routingMeta = setup.routing || {};
 		var basicRoutingStatus = state.deriveBasicRoutingStatus(routingMeta, passwall.routing_state);
 		var shunts = optionList(passwall.shunt_nodes || passwall.shunts);
 		var vpns = optionList(passwall.vpn_nodes || passwall.vpns);
 		var selectedVpn = passwall.selected_vpn || (vpns[0] && vpns[0].id);
-		var canReviewRouting = passwallState.compatible === true && passwall.writable === true &&
+		var canReviewRouting = capability.canPlanApply &&
 			routingMeta.recovery_pending !== true && passwall.recovery_pending !== true &&
 			shunts.length > 0 && vpns.length > 0;
 		var setupBlocked = candidateAttention || certificateAttention;
@@ -974,8 +979,9 @@ return view.extend({
 				E('h3', {}, _('Basic settings')),
 				this.overviewStatusStrip(status, certificates, passwall),
 				this.simpleStateRow(_('MITM application'), _('Installed'), 'good', _('The router backend is connected.')),
-				this.simpleStateRow(_('PassWall2'), passwallState.installed === true ? _('Detected') : _('Not detected'),
-					passwallState.installed === true ? 'good' : 'warn'),
+				this.simpleStateRow(_('PassWall2'), capability.presence === 'absent' ? _('Not detected') :
+					(capability.schema === 'verified' ? _('Detected') : _('Needs attention')),
+					capability.schema === 'verified' ? 'good' : 'warn'),
 				this.simpleStateRow(_('Routing profile'), passwallState.shunt_available === true ? _('Available') : _('Missing'),
 					passwallState.shunt_available === true ? 'good' : 'warn'),
 				this.simpleStateRow(_('VPN connection'), passwallState.vpn_available === true ? _('Available') : _('Missing'),
@@ -1023,15 +1029,30 @@ return view.extend({
 				'data-dashboard-panel-mode': 'basic', 'data-dashboard-panel-page': 'routing', style: pageStyle('routing') }, [
 				E('h3', {}, _('Routing rules')),
 				E('p', {}, _('Choose the service groups to use. The table shows the destination that will be assigned in PassWall2.')),
-				passwallState.installed !== true ? E('div', { class: 'alert-message warning' }, _(
+				capability.presence === 'absent' ? E('div', { class: 'alert-message warning' }, _(
 					'PassWall2 was not detected. MITM can still run, but automatic routing requires PassWall2.'
 				)) : '',
+				capability.presence !== 'absent' && capability.schema !== 'verified' ? E('div', { class: 'alert-message warning' },
+					textNode(capability.schema === 'unsupported' ?
+						'PassWall2 is present, but its schema is not tested. Automatic routing is disabled; use the manual guidance below.' :
+						'PassWall2 capability could not be verified. Automatic routing is disabled; use the manual guidance below.')) : '',
+				capability.schema === 'verified' && capability.planApply !== 'enabled' && passwallState.installed === true ?
+					E('div', { class: 'alert-message warning' }, _('PassWall2 is detected, but the safe automatic routing combination is not available. No routing change was made.')) : '',
 				passwallState.installed === true && passwallState.shunt_available !== true ? E('div', { class: 'alert-message warning' }, _(
 					'Create or select a shunt routing profile in PassWall2, then return here.'
 				)) : '',
 				passwallState.installed === true && passwallState.vpn_available !== true ? E('div', { class: 'alert-message warning' }, _(
 					'No usable VPN connection was found. Add and test a VPN node in PassWall2, then return here.'
 				)) : '',
+				!canReviewRouting && capability.manualGuide === 'available' ? E('div', { class: 'alert-message notice' }, [
+					E('strong', {}, _('Manual routing guidance')),
+					E('p', {}, _('The standalone MITM service remains available. Automatic PassWall2 planning is disabled until a tested, complete capability is detected; this page has not changed routing.')),
+					E('ol', {}, [
+						E('li', {}, _('In PassWall2, confirm a supported shunt profile and a working VPN node.')),
+						E('li', {}, _('Keep the MITM listener on 127.0.0.1:10808 and assign routes manually.')),
+						E('li', {}, _('Save and test those changes in PassWall2 before relying on them.'))
+					])
+				]) : '',
 				canReviewRouting ? E('div', {}, [
 					E('div', { class: 'alert-message notice' }, _(
 						'Automatic setup prepares only the MITM service. It never edits PassWall2 routing; these checkboxes change routing only after you preview and apply it.'
@@ -1274,10 +1295,12 @@ return view.extend({
 		var shunts = optionList(inspect.shunt_nodes || inspect.shunts);
 		var vpns = optionList(inspect.vpn_nodes || inspect.vpns);
 		var selection = state.passwallSelection(inspect);
+		var capability = state.passwallCapability(inspect);
 		var capabilities = inspect.capabilities || {};
 		var recoveryPending = inspect.recovery_pending === true;
 		var compatible = selection.compatible;
-		var canPlan = !recoveryPending && compatible && inspect.writable === true && capabilities.plan !== false;
+		var canPlan = !recoveryPending && compatible && inspect.writable === true &&
+			capability.canPlanApply && capabilities.plan !== false;
 		var canRollback = !recoveryPending && capabilities.rollback !== false && !!this.rollbackTransaction;
 		var selectedShunt = selection.selectedShunt;
 		var selectedVpn = selection.selectedVpn;
@@ -1288,7 +1311,7 @@ return view.extend({
 			return ruleSources[name] === 'existing';
 		});
 		var mitmRunning = this.status && this.status.running === true;
-		var readinessTone = compatible && !recoveryPending && inspect.pending_changes !== true ? 'good' : 'warn';
+		var readinessTone = canPlan ? 'good' : 'warn';
 		var selectionChanged = L.bind(this.routingSelectionChanged, this);
 
 		return E('div', { class: 'cbi-section' }, [
@@ -1303,13 +1326,14 @@ return view.extend({
 					E('strong', { style: 'display:block' }, _('Rule assignment')),
 					E('small', { style: 'display:block;margin-top:.2rem;opacity:.78' }, _('Changes remain staged until you apply the reviewed preview.'))
 				]),
-				statusPill(recoveryPending ? _('Recovery required') : (canPlan ? _('Ready to review') : _('Needs attention')),
+					statusPill(recoveryPending ? _('Recovery required') : (canPlan ? _('Ready to review') :
+						(capability.inspection === 'available' ? _('Read-only') : _('Needs attention'))),
 					recoveryPending ? 'warn' : (canPlan ? 'good' : 'warn'))
 			]),
 			E('div', { style: 'display:grid;grid-template-columns:repeat(auto-fit,minmax(13rem,1fr));gap:.7rem;margin:1rem 0' }, [
 				E('div', { style: 'padding:.85rem 1rem;border:1px solid var(--border-color-medium,#ccc);border-radius:.45rem' }, [
 					E('small', { style: 'display:block;opacity:.75;margin-bottom:.3rem' }, _('PassWall2')), statusPill(
-						compatible ? _('Ready') : _('Needs attention'), readinessTone)
+						canPlan ? _('Ready') : (capability.inspection === 'available' ? _('Read-only') : _('Needs attention')), readinessTone)
 				]),
 				E('div', { style: 'padding:.85rem 1rem;border:1px solid var(--border-color-medium,#ccc);border-radius:.45rem' }, [
 					E('small', { style: 'display:block;opacity:.75;margin-bottom:.3rem' }, _('MITM service')), statusPill(
@@ -1329,11 +1353,25 @@ return view.extend({
 					click: ui.createHandlerFn(this, 'recoverRouting')
 				}, _('Recover previous PassWall2 file'))
 			]) : '',
-			!compatible && !recoveryPending ? E('div', { class: 'alert-message warning' },
-				textNode(inspect.message || inspect.error, _('Create or select a PassWall2 shunt and add at least one working VPN node, then return to this page.'))) : '',
-			compatible && !canPlan ? E('div', { class: 'alert-message warning' }, _(
-				'Save or revert pending PassWall2 changes before creating a routing preview.'
-			)) : '',
+				capability.presence === 'absent' && !recoveryPending ? E('div', { class: 'alert-message warning' }, _(
+					'PassWall2 was not detected. The standalone MITM service can still run, but automatic routing is disabled.'
+				)) : '',
+				capability.presence !== 'absent' && capability.schema !== 'verified' && !recoveryPending ? E('div', { class: 'alert-message warning' },
+					textNode(inspect.error, _('PassWall2 schema could not be verified. Automatic routing is disabled.'))) : '',
+				!compatible && !recoveryPending && capability.schema === 'verified' ? E('div', { class: 'alert-message warning' },
+					textNode(inspect.message || inspect.error, _('Create or select a PassWall2 shunt and add at least one working VPN node, then return to this page.'))) : '',
+				compatible && !canPlan && capability.schema === 'verified' && inspect.pending_changes === true ? E('div', { class: 'alert-message warning' }, _(
+					'Save or revert pending PassWall2 changes before creating a routing preview.'
+				)) : '',
+				!canPlan && !recoveryPending && capability.manualGuide === 'available' ? E('div', { class: 'alert-message notice' }, [
+					E('strong', {}, _('Manual routing guidance')),
+					E('p', {}, _('Automatic routing is disabled for this capability state. No PassWall2 configuration was changed. The standalone MITM service remains available.')),
+					E('ol', {}, [
+						E('li', {}, _('In PassWall2, confirm a tested shunt profile and a working VPN node.')),
+						E('li', {}, _('Keep the MITM listener local at 127.0.0.1:10808 and assign routes manually.')),
+						E('li', {}, _('Save and test the manual routing in PassWall2 before relying on it.'))
+					])
+				]) : '',
 			compatible ? E('div', {}, [
 				E('h4', {}, _('1. Choose your existing connections')),
 				E('p', { style: 'opacity:.82' }, _(

@@ -285,6 +285,13 @@ class PassWall2Fixture(unittest.TestCase):
         self.assertTrue(payload["compatible"])
         self.assertTrue(payload["writable"])
         self.assertEqual(payload["package_manager"], "apk")
+        self.assertEqual(payload["passwall2_present"], "present")
+        self.assertEqual(payload["passwall2_schema"], "verified")
+        self.assertEqual(payload["passwall2_inspect"], "available")
+        self.assertEqual(payload["passwall2_plan_apply"], "enabled")
+        self.assertEqual(payload["manual_routing_guide"], "available")
+        self.assertTrue(payload["capabilities"]["plan"])
+        self.assertTrue(payload["capabilities"]["apply"])
         self.assertEqual(payload["selected_shunt"], "main_shunt")
         self.assertEqual(payload["selected_vpn"], "vpn_node")
         self.assertEqual(payload["mitm_node"]["status"], "missing")
@@ -294,6 +301,66 @@ class PassWall2Fixture(unittest.TestCase):
         self.assertNotIn("fixture-private-value-7391", serialized)
         self.assertNotIn("private.fixture.invalid", serialized)
         self.assertNotIn("uuid", serialized.lower())
+        self.assertEqual(self.config.read_bytes(), self.original)
+        self.assertEqual(self.restart_count(), 0)
+
+    def test_inspect_distinguishes_unknown_and_absent_passwall2(self) -> None:
+        app = self.root / "usr/share/passwall2/app.sh"
+        app.unlink()
+
+        _, unknown = self.helper("inspect")
+        self.assertEqual(unknown["passwall2_present"], "present")
+        self.assertEqual(unknown["passwall2_schema"], "unknown")
+        self.assertEqual(unknown["passwall2_inspect"], "available")
+        self.assertEqual(unknown["passwall2_plan_apply"], "disabled")
+        self.assertFalse(unknown["capabilities"]["plan"])
+        self.assertIn("required files", unknown["error"])
+
+        self.config.unlink()
+        (self.root / "etc/init.d/passwall2").unlink()
+        _, absent = self.helper("inspect")
+        self.assertEqual(absent["passwall2_present"], "absent")
+        self.assertEqual(absent["passwall2_schema"], "unknown")
+        self.assertEqual(absent["passwall2_inspect"], "available")
+        self.assertEqual(absent["passwall2_plan_apply"], "disabled")
+        self.assertFalse(absent["capabilities"]["apply"])
+        self.assertIn("not detected", absent["error"])
+
+    def test_inspect_reports_unsupported_passwall2_schema(self) -> None:
+        self.config.write_text(
+            BASE_CONFIG.replace("config global 'global'", "config legacy 'global'"),
+            encoding="utf-8",
+        )
+
+        _, inspection = self.helper("inspect")
+        self.assertEqual(inspection["passwall2_present"], "present")
+        self.assertEqual(inspection["passwall2_schema"], "unsupported")
+        self.assertEqual(inspection["passwall2_inspect"], "available")
+        self.assertEqual(inspection["passwall2_plan_apply"], "disabled")
+        self.assertFalse(inspection["capabilities"]["plan"])
+        self.assertIn("not one of the tested schemas", inspection["error"])
+
+    def test_plan_fails_closed_when_node_inventory_is_empty(self) -> None:
+        self.config.write_text(
+            "config global 'global'\n"
+            "\toption enabled '1'\n",
+            encoding="utf-8",
+        )
+        self.config.chmod(0o600)
+        self.original = self.config.read_bytes()
+
+        _, inspection = self.helper("inspect")
+        self.assertTrue(inspection["available"])
+        self.assertEqual(inspection["passwall2_schema"], "verified")
+        self.assertFalse(inspection["compatible"])
+        self.assertEqual(inspection["passwall2_plan_apply"], "disabled")
+        self.assertFalse(inspection["capabilities"]["plan"])
+
+        _, blocked = self.helper(
+            "plan", str(self.request_file()), expected_status=69
+        )
+        self.assertFalse(blocked["ok"])
+        self.assertEqual(blocked["error"], "unsupported_capability")
         self.assertEqual(self.config.read_bytes(), self.original)
         self.assertEqual(self.restart_count(), 0)
 

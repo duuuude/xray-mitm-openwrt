@@ -229,6 +229,39 @@ schema_check() {
 	return 0
 }
 
+path_present() {
+	[ -e "$1" ] || [ -L "$1" ]
+}
+
+capability_probe() {
+	CAP_PRESENT=unknown
+	CAP_SCHEMA=unknown
+	CAP_INSPECT=available
+	CAP_PLAN_APPLY=disabled
+	CAP_MANUAL_GUIDE=available
+
+	if ! path_present "$PW_CONFIG" && ! path_present "$PW_APP" && ! path_present "$PW_INIT"; then
+		CAP_PRESENT=absent
+		return 0
+	fi
+
+	CAP_PRESENT=present
+	[ -f "$PW_CONFIG" ] && [ ! -L "$PW_CONFIG" ] || return 0
+	[ -f "$PW_APP" ] && [ -x "$PW_INIT" ] || return 0
+	command -v uci >/dev/null 2>&1 || return 0
+	command -v jsonfilter >/dev/null 2>&1 || return 0
+	command -v sha256sum >/dev/null 2>&1 || return 0
+	command -v stat >/dev/null 2>&1 || return 0
+	command -v base64 >/dev/null 2>&1 || return 0
+
+	if [ "$(uci -c "$CONFIG_DIR" -q get 'passwall2.@global[0]' 2>/dev/null || true)" != 'global' ]; then
+		CAP_SCHEMA=unsupported
+		return 0
+	fi
+
+	CAP_SCHEMA=verified
+}
+
 section_type() {
 	uci -c "$CONFIG_DIR" -q get "passwall2.$1" 2>/dev/null || true
 }
@@ -447,6 +480,48 @@ json_bool() {
 	if "$@"; then printf true; else printf false; fi
 }
 
+inspect_node_item() {
+	kind=$1
+	id=$2
+	valid_id "$id" || return 1
+	protocol=$(section_option "$id" protocol)
+	type=$(section_option "$id" type)
+	case "$kind" in
+		shunts)
+			[ "$protocol" = '_shunt' ] || return 1
+			group=$(section_option "$id" shunt_group)
+			case "$group" in ''|*[!A-Za-z0-9_-]*) return 1 ;; esac
+			INSPECT_ITEM=$(printf '{"id":"%s","group":"%s","remarks_b64":"%s"}' "$id" "$group" "$(remark_b64 "$id")")
+			;;
+		targets)
+			is_local_mitm_node "$id" && return 1
+			case "$protocol" in ''|_shunt) return 1 ;; esac
+			case "$type" in ''|*[!A-Za-z0-9_-]*) type='unknown' ;; esac
+			case "$protocol" in *[!A-Za-z0-9_.+-]*) protocol='unknown' ;; esac
+			INSPECT_ITEM=$(printf '{"id":"%s","type":"%s","protocol":"%s","remarks_b64":"%s"}' "$id" "$type" "$protocol" "$(remark_b64 "$id")")
+			;;
+		*)
+			return 1
+			;;
+	esac
+}
+
+inspect_inventory() {
+	kind=$1
+	count=0
+	truncated=0
+	for id in $(section_ids_by_type nodes); do
+		inspect_node_item "$kind" "$id" || continue
+		count=$((count + 1))
+		if [ "$count" -gt "$MAX_INSPECT_NODES" ]; then
+			truncated=1
+			break
+		fi
+	done
+	INSPECT_COUNT=$count
+	INSPECT_TRUNCATED=$truncated
+}
+
 emit_inspect_array() {
 	kind=$1
 	first=1
@@ -454,36 +529,30 @@ emit_inspect_array() {
 	truncated=0
 	printf '['
 	for id in $(section_ids_by_type nodes); do
-		valid_id "$id" || continue
-		protocol=$(section_option "$id" protocol)
-		type=$(section_option "$id" type)
-		case "$kind" in
-			shunts)
-				[ "$protocol" = '_shunt' ] || continue
-				group=$(section_option "$id" shunt_group)
-				case "$group" in ''|*[!A-Za-z0-9_-]*) continue ;; esac
-				item=$(printf '{"id":"%s","group":"%s","remarks_b64":"%s"}' "$id" "$group" "$(remark_b64 "$id")")
-				;;
-			targets)
-				is_local_mitm_node "$id" && continue
-				case "$protocol" in ''|_shunt) continue ;; esac
-				case "$type" in ''|*[!A-Za-z0-9_-]*) type='unknown' ;; esac
-				case "$protocol" in *[!A-Za-z0-9_.+-]*) protocol='unknown' ;; esac
-				item=$(printf '{"id":"%s","type":"%s","protocol":"%s","remarks_b64":"%s"}' "$id" "$type" "$protocol" "$(remark_b64 "$id")")
-				;;
-		esac
+		inspect_node_item "$kind" "$id" || continue
 		count=$((count + 1))
 		if [ "$count" -gt "$MAX_INSPECT_NODES" ]; then
 			truncated=1
 			break
 		fi
 		[ "$first" -eq 1 ] || printf ','
-		printf '%s' "$item"
+		printf '%s' "$INSPECT_ITEM"
 		first=0
 	done
 	printf ']'
 	INSPECT_TRUNCATED=$truncated
 	INSPECT_COUNT=$count
+}
+
+capability_plan_apply() {
+	capability_probe
+	[ "$CAP_SCHEMA" = verified ] || return 1
+	pending_changes && return 1
+	inspect_inventory shunts
+	[ "$INSPECT_TRUNCATED" -eq 0 ] && [ "$INSPECT_COUNT" -gt 0 ] || return 1
+	inspect_inventory targets
+	[ "$INSPECT_TRUNCATED" -eq 0 ] && [ "$INSPECT_COUNT" -gt 0 ] || return 1
+	return 0
 }
 
 valid_rollback_transaction() {
@@ -512,14 +581,22 @@ latest_rollback_token() {
 
 inspect() {
 	acquire_lock
+	capability_probe
 	if [ -e "$RECOVERY_MARKER" ] || [ -L "$RECOVERY_MARKER" ]; then
 		release_lock
-		printf '%s\n' '{"ok":true,"available":true,"compatible":false,"writable":false,"recovery_pending":true,"schema":"recovery-required","error":"An interrupted routing transaction must be recovered before PassWall2 can be inspected.","capabilities":{"plan":false,"apply":false,"rollback":false,"recover":true,"dns":false}}'
+		printf '{"ok":true,"available":true,"compatible":false,"writable":false,"recovery_pending":true,"schema":"recovery-required","passwall2_present":"%s","passwall2_schema":"%s","passwall2_inspect":"%s","passwall2_plan_apply":"disabled","manual_routing_guide":"%s","error":"An interrupted routing transaction must be recovered before PassWall2 can be inspected.","capabilities":{"plan":false,"apply":false,"rollback":false,"recover":true,"dns":false}}\n' \
+			"$CAP_PRESENT" "$CAP_SCHEMA" "$CAP_INSPECT" "$CAP_MANUAL_GUIDE"
 		return 0
 	fi
 	if ! schema_check; then
 		release_lock
-		printf '%s\n' '{"ok":true,"available":false,"compatible":false,"writable":false,"recovery_pending":false,"schema":"unsupported","error":"PassWall2 UCI schema or required helper files were not detected.","capabilities":{"plan":false,"apply":false,"rollback":false,"recover":false,"dns":false}}'
+		case "$CAP_PRESENT:$CAP_SCHEMA" in
+			absent:*) capability_error='PassWall2 was not detected. Standalone MITM operation remains available; automatic routing is disabled.'; schema_label=unsupported ;;
+			present:unsupported) capability_error='PassWall2 is present, but its UCI schema is not one of the tested schemas. Automatic routing is disabled.'; schema_label=unsupported ;;
+			*) capability_error='PassWall2 is present, but its required files or dependencies could not be verified. Automatic routing is disabled.'; schema_label=unknown ;;
+		esac
+		printf '{"ok":true,"available":false,"compatible":false,"writable":false,"recovery_pending":false,"schema":"%s","passwall2_present":"%s","passwall2_schema":"%s","passwall2_inspect":"%s","passwall2_plan_apply":"disabled","manual_routing_guide":"%s","error":"%s","capabilities":{"plan":false,"apply":false,"rollback":false,"recover":false,"dns":false}}\n' \
+			"$schema_label" "$CAP_PRESENT" "$CAP_SCHEMA" "$CAP_INSPECT" "$CAP_MANUAL_GUIDE" "$capability_error"
 		return 0
 	fi
 
@@ -536,6 +613,10 @@ inspect() {
 	target_count=$INSPECT_COUNT
 	if [ "$shunt_count" -gt 0 ] && [ "$target_count" -gt 0 ]; then compatible=true; else compatible=false; fi
 	if [ "$compatible" = true ] && [ "$pending" = false ]; then writable=true; else writable=false; fi
+	if [ "$CAP_SCHEMA" = verified ] && [ "$compatible" = true ] && [ "$pending" = false ] &&
+		[ "$truncated_shunts" -eq 0 ] && [ "$truncated_targets" -eq 0 ]; then
+		CAP_PLAN_APPLY=enabled
+	fi
 	printf ',"compatible":%s,"writable":%s,"shunt_available":%s,"vpn_available":%s,"truncated":%s,' \
 		"$compatible" "$writable" \
 		"$([ "$shunt_count" -gt 0 ] && printf true || printf false)" \
@@ -609,7 +690,14 @@ inspect() {
 		printf '"rollback_transaction":null,'
 	fi
 	release_lock
-	printf '%s\n' '"capabilities":{"plan":true,"apply":true,"rollback":true,"recover":true,"dns":false},"note":"Node remarks, IDs, types, protocols, and routing state are returned; credentials and full UCI data are never returned."}'
+	rollback_capability=false
+	[ "$CAP_SCHEMA" = verified ] && rollback_capability=true
+	printf '"passwall2_present":"%s","passwall2_schema":"%s","passwall2_inspect":"%s","passwall2_plan_apply":"%s","manual_routing_guide":"%s",' \
+		"$CAP_PRESENT" "$CAP_SCHEMA" "$CAP_INSPECT" "$CAP_PLAN_APPLY" "$CAP_MANUAL_GUIDE"
+	printf '"capabilities":{"plan":%s,"apply":%s,"rollback":%s,"recover":true,"dns":false},"note":"Node remarks, IDs, types, protocols, and routing state are returned; credentials and full UCI data are never returned."}\n' \
+		"$([ "$CAP_PLAN_APPLY" = enabled ] && printf true || printf false)" \
+		"$([ "$CAP_PLAN_APPLY" = enabled ] && printf true || printf false)" \
+		"$rollback_capability"
 }
 
 safe_request_path() {
@@ -910,6 +998,7 @@ plan() {
 	recover_interrupted || die recovery_failed 'An interrupted routing transaction could not restore the prior PassWall2 file.' 70
 	schema_check || die unsupported_schema 'PassWall2 changed while the routing preview was being prepared.' 69
 	pending_changes && die pending_changes 'Save or revert existing PassWall2 or firewall UCI changes before planning.' 73
+	capability_plan_apply || die unsupported_capability 'PassWall2 capability is not fully verified; automatic routing is disabled. Use the manual routing guidance.' 69
 
 	shunt=$(request_value "$request" '@.shunt_node')
 	vpn=$(request_value "$request" '@.vpn_node')
@@ -1581,6 +1670,7 @@ apply_plan_now() {
 	acquire_lock
 	recover_interrupted || die recovery_failed 'An interrupted routing transaction could not restore the prior PassWall2 file.' 70
 	schema_check || die unsupported_schema 'Compatible PassWall2 files and UCI schema were not detected.' 69
+	capability_plan_apply || die unsupported_capability 'PassWall2 capability is not fully verified; automatic routing is disabled. Use the manual routing guidance.' 69
 	meta="$PLAN_DIR/$token.meta"
 	stage="$PLAN_DIR/$token.stage/config/passwall2"
 	[ -f "$meta" ] && [ -f "$stage" ] || die plan_not_found 'The plan does not exist or was already consumed.' 66
@@ -1685,6 +1775,8 @@ rollback() {
 	acquire_lock
 	recover_interrupted || die recovery_failed 'An interrupted routing transaction could not restore the prior PassWall2 file.' 70
 	schema_check || die unsupported_schema 'Compatible PassWall2 files and UCI schema were not detected.' 69
+	capability_probe
+	[ "$CAP_SCHEMA" = verified ] || die unsupported_capability 'PassWall2 capability is not fully verified; rollback is disabled until the tested schema is available.' 69
 	backup="$BACKUP_DIR/$token.passwall2"
 	tx="$TX_DIR/$token.meta"
 	[ -f "$backup" ] && [ -f "$tx" ] || die transaction_not_found 'The rollback transaction was not found.' 66
