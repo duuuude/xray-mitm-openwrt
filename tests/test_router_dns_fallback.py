@@ -51,11 +51,28 @@ class RouterDnsFallbackTests(unittest.TestCase):
 
     def test_remove_refuses_to_leave_dnsmasq_without_a_listener(self) -> None:
         script = (ROOT / "scripts" / "router-dns-fallback.sh").read_text()
-        self.assertIn("dns_server=$(uci -q get dhcp.@dnsmasq[0].server || true)", script)
         self.assertIn(
-            "test \"$dns_server\" != '127.0.0.1#2005'",
+            "dnsmasq_config=$(uci -q show dhcp.@dnsmasq[0]) || {",
             script,
         )
+        self.assertIn(
+            "grep -Eq '\\.server=.*127\\.0\\.0\\.1#2005'",
+            script,
+        )
+        self.assertIn("test \"$(uci changes | wc -l | tr -d ' ')\" = 0", script)
+
+    def test_rollback_preserves_helper_when_cleanup_fails(self) -> None:
+        script = (ROOT / "scripts" / "router-dns-fallback.sh").read_text()
+        self.assertIn("rollback_ok=1", script)
+        self.assertIn('"$init_target" disable >/dev/null 2>&1 || rollback_ok=0', script)
+        self.assertIn('"$init_target" stop >/dev/null 2>&1 || rollback_ok=0', script)
+        self.assertIn("if listener_present; then", script)
+        self.assertIn('if [ "$rollback_ok" -eq 1 ]; then', script)
+
+    def test_local_hashing_supports_macos_and_linux_tools(self) -> None:
+        script = (ROOT / "scripts" / "router-dns-fallback.sh").read_text()
+        self.assertIn("shasum -a 256", script)
+        self.assertIn("sha256sum", script)
 
     def test_script_does_not_contain_secret_bearing_fields(self) -> None:
         contents = "\n".join(

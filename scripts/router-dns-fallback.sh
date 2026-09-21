@@ -46,6 +46,17 @@ require_approval() {
 		die 'set XRAY_MITM_DNS_FALLBACK_APPROVED=1 for router mutation'
 }
 
+hash_file() {
+	path=$1
+	if command -v shasum >/dev/null 2>&1; then
+		shasum -a 256 "$path" | awk '{print $1}'
+	elif command -v sha256sum >/dev/null 2>&1; then
+		sha256sum "$path" | awk '{print $1}'
+	else
+		die 'neither shasum nor sha256sum is available'
+	fi
+}
+
 check() {
 	ssh_router sh -s <<'REMOTE'
 set -u
@@ -96,8 +107,8 @@ REMOTE
 }
 
 install_fallback() {
-	config_hash=$(sha256sum "$config_asset" | awk '{print $1}')
-	init_hash=$(sha256sum "$init_asset" | awk '{print $1}')
+	config_hash=$(hash_file "$config_asset")
+	init_hash=$(hash_file "$init_asset")
 	stage=$(ssh_router 'mktemp -d /tmp/xray-mitm-dns-fallback.XXXXXX')
 	cleanup_stage() {
 		ssh_router rm -rf "$stage" >/dev/null 2>&1 || true
@@ -116,11 +127,26 @@ init_target=/etc/init.d/xray-mitm-dns
 marker_target=/etc/xray-mitm/dns-fallback.managed
 installed=0
 
+listener_present() {
+	(ss -lntup 2>/dev/null || netstat -lntup 2>/dev/null) |
+		grep -qE '127\.0\.0\.1:2005|::1:2005'
+}
+
 rollback() {
 	if [ "$installed" -eq 0 ]; then
-		[ ! -x "$init_target" ] || "$init_target" disable >/dev/null 2>&1 || true
-		[ ! -x "$init_target" ] || "$init_target" stop >/dev/null 2>&1 || true
-		rm -f "$config_target" "$init_target" "$marker_target"
+		rollback_ok=1
+		if [ -x "$init_target" ]; then
+			"$init_target" disable >/dev/null 2>&1 || rollback_ok=0
+			"$init_target" stop >/dev/null 2>&1 || rollback_ok=0
+			if listener_present; then
+				rollback_ok=0
+			fi
+		fi
+		if [ "$rollback_ok" -eq 1 ]; then
+			rm -f "$config_target" "$init_target" "$marker_target"
+		else
+			printf '%s\n' 'router_dns_fallback: rollback incomplete; preserving helper files' >&2
+		fi
 	fi
 	rm -rf "$stage"
 }
@@ -183,11 +209,16 @@ remove_fallback() {
 set -eu
 test -f /etc/xray-mitm/dns-fallback.managed
 test "$(cat /etc/xray-mitm/dns-fallback.managed)" = xray-mitm-dns-fallback-v1
-dns_server=$(uci -q get dhcp.@dnsmasq[0].server || true)
-test "$dns_server" != '127.0.0.1#2005' || {
-	printf '%s\n' 'refusing removal while dnsmasq still targets 127.0.0.1#2005' >&2
+dnsmasq_config=$(uci -q show dhcp.@dnsmasq[0]) || {
+	printf '%s\n' 'refusing removal because dnsmasq configuration could not be read' >&2
 	exit 1
 }
+if printf '%s\n' "$dnsmasq_config" |
+	grep -Eq '\.server=.*127\.0\.0\.1#2005'; then
+	printf '%s\n' 'refusing removal while dnsmasq still targets 127.0.0.1#2005' >&2
+	exit 1
+fi
+test "$(uci changes | wc -l | tr -d ' ')" = 0
 /etc/init.d/xray-mitm-dns stop
 /etc/init.d/xray-mitm-dns disable
 rm -f /etc/xray-mitm/dns-proxy.json /etc/init.d/xray-mitm-dns /etc/xray-mitm/dns-fallback.managed
