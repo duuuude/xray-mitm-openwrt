@@ -11,8 +11,8 @@ The authoritative source is:
 
 - Repository: `https://github.com/duuuude/xray-mitm-openwrt.git`
 - Public branch: `main`
-- Review/audit baseline: `a39ebcd4d06ed2c8bdb1c38055bf16b691b06429`, the current
-  `main` commit after the dual-backend installer merged
+- Review/audit baseline: `bff3a9dc0654f9512819eb5051091edad70536a4`, the current
+  `main` commit after PR #59, the PassWall2 capability-fallback change, merged
 - Observed package baseline: `0.4.4-r2` in development metadata; the published
   25.12 release remains separately versioned and signed
 - Canonical clone root: `<repo-root>`
@@ -188,8 +188,9 @@ future work.
 ### Product correctness
 
 The P1 partial-bundle inspection defect is complete in merged PR #48. No
-product-correctness PR is active. The next approved item is the compatibility
-evidence initiative below.
+No product-correctness PR is active. The compatibility Stage 4 capability/fallback
+work is complete in merged PR #59. The next approved item is the build-once
+promotion initiative below.
 
 ## Workflow and tooling work
 
@@ -213,17 +214,21 @@ operating mode; unattended cutover is not qualified. PR #48 then completed
 the P1 partial-bundle inspection item with independent source review, protected
 artifact validation, AX4200 integration, synthetic-state inspection, trusted
 rollback, and exact recovery comparison. The official OpenWrt compatibility
-initiative has completed its contract, package-build, and dual-backend
-installer stages. Stage 3 evidence is now recorded with bounded 25.12/APK
-service and rollback proof and an explicit 24.10/IPK native-runtime
-limitation. Later stages remain
-separately scoped and reviewed, not one platform build.
+initiative has completed its contract, package-build, dual-backend installer,
+and capability-fallback stages. Stage 3 evidence is now recorded with bounded
+25.12/APK service and rollback proof and an explicit 24.10/IPK native-runtime
+limitation. PR #59 completed the compatibility Stage 4 capability/fallback
+slice; its exact candidate passed both package CI lanes, protected signing,
+25.12/APK AX4200 package/runtime validation, LuCI/browser validation, and
+trusted rollback. Native 24.10/IPK runtime behavior remains unproven. Later
+stages remain separately scoped and reviewed, not one platform build.
 `docs/ai/AUTONOMOUS_PR.md` records the stage order, independence, cost boundary,
 and owner gates. No unattended router/release authority is approved by this
 scheduling decision.
 
-The truthful partial-bundle inspection defect is complete in PR #48. Recheck
-the roadmap after every owner-approved merge before selecting another PR.
+The truthful partial-bundle inspection defect is complete in PR #48, and the
+compatibility capability/fallback work is complete in PR #59. Recheck the
+roadmap after every owner-approved merge before selecting another PR.
 
 ### Present automation
 
@@ -297,9 +302,8 @@ active initiative.
 
 | Priority | One coherent PR / initiative | Type | Reason |
 | --- | --- | --- | --- |
-| 1 | Probe PassWall2 capability and safe fallback on the 24.10 and 25.12 families | Compatibility/integration | Stage 3 records bounded standalone evidence; routing must remain optional and fail closed for unknown schemas. |
-| 2 | Build once and promote the exact tested artifact | Release workflow | Removes the remaining PR-build/tag-build provenance gap. |
-| 3 | Generate a standard machine-readable PR evidence artifact | Developer tooling | Makes commit-bound tests, checksums, and manual-gate ownership consistent. |
+| 1 | Build once and promote the exact tested artifact | Release workflow | Removes the remaining PR-build/tag-build provenance gap. |
+| 2 | Generate a standard machine-readable PR evidence artifact | Developer tooling | Makes commit-bound tests, checksums, and manual-gate ownership consistent. |
 
 ## Completed Stage 3 qualification record — merged PR #41
 
@@ -428,8 +432,9 @@ Qualification boundary:
   billing are unlimited or fully observable.
 
 This completes the staged autonomous workflow qualification without changing
-the required three-Work operating model. The official OpenWrt 25.12.x
-compatibility evidence initiative is now the next active implementation item.
+the required three-Work operating model. At the time of this qualification,
+the official OpenWrt compatibility evidence initiative was the next active
+implementation item; its capability/fallback slice is now complete in PR #59.
 
 ## Qualification history
 
@@ -459,44 +464,37 @@ Acceptance criteria:
 
 ## Recommended next item
 
-### Compatibility Stage 4 — probe PassWall2 capability and safe fallback
+### Release workflow — build once and promote the exact tested artifact
 
-Stage 3 is recorded in `docs/OPENWRT_24_25_STAGE3_EVIDENCE.md`: the bounded
-25.12/APK service and rollback path is proven on the AX4200, while 24.10/IPK
-native runtime remains unproven because no compatible target was available.
-The next substantive PR must probe PassWall2 capability separately from
-standalone service support and provide a safe fallback for unknown schemas.
+Compatibility Stage 4 is complete in PR #59. The next substantive PR should
+close the remaining provenance gap between the artifact tested during PR
+validation and the artifact later signed or published.
 
 Scope:
 
-- Detect tested PassWall2 schemas and report capability truthfully on both
-  package-manager families.
-- Keep PassWall2 optional; unknown or absent schemas must not block standalone
-  service operation or trigger routing changes.
-- Restrict any future plan/apply behavior to explicitly tested combinations
-  with complete transaction, recovery, rollback, and preservation evidence.
-- Use native M5 offline fixtures and bounded GitHub SDK jobs; do not use local
-  x86 emulation, Docker, paid capacity, or an AX4200 firmware downgrade.
+- Bind the built package bytes and metadata to the exact reviewed candidate
+  commit and record their checksums.
+- Reuse or cryptographically verify those exact bytes in the protected signing
+  and publication path instead of rebuilding an independent copy.
+- Fail closed when source, package metadata, artifact bytes, or release inputs
+  do not match.
 
 Out of scope:
 
 - Public 24.10 support or release publication.
-- Production OPKG signing, public feed rollout, or protected signing actions.
-- Automatic routing, PassWall2 plan/apply, certificate replacement, or broad
-  firewall/DNS changes unless a later stage explicitly qualifies them.
-- Replacing a compatible real-system gate with a VM, emulator, or mock-only
-  claim.
+- Native 24.10/IPK runtime claims; those remain a separate physical-router
+  evidence gate.
+- Automatic routing, certificate replacement, broad firewall/DNS changes, or
+  unattended signing/release authority.
 
 Acceptance criteria:
 
-- Exact release, architecture, package identity, and package-manager evidence
-  are recorded separately for 24.10/IPK and 25.12/APK.
-- PassWall2 presence, schema, inspectability, and safe-fallback results are
-  reported as proven, failed, or unproven without collapsing evidence levels.
-- Existing standalone service behavior and the dual-backend installer safety
-  boundaries are preserved.
-- The exact candidate receives independent review and owner merge approval;
-  later PassWall2, publication, and support-claim gates remain separate.
+- The exact reviewed candidate, built artifact checksums, package metadata, and
+  later signed/published bytes are demonstrably identical.
+- Independent review, protected signing, release ownership, and router gates
+  remain separate and fail closed on missing or mismatched evidence.
+- Existing 25.12/APK behavior, the dual-backend installer boundaries, and the
+  compatibility fallback remain unchanged.
 
 ## Validation and release gates for future work
 
@@ -527,9 +525,10 @@ owner-controlled release sequence.
 - No merge, tag, release, force-push, or signing action merely because tests
   are green.
 
-The next state change is the Compatibility Stage 4 PassWall2 capability/fallback PR above. Do
-not begin optional automatic routing, public 24.10 publication,
-build-promotion, or evidence-artifact work in parallel with it.
+The next state change is the build-once promotion initiative above. Do not
+begin optional automatic routing, public 24.10 publication, or machine-readable
+evidence-artifact work in parallel with it. Do not repeat the completed
+compatibility Stage 4 capability/fallback work.
 Revalidate this plan after the qualification and after every later
 owner-approved stage merge. Do not repeat the completed autonomous-PR Stage 4
 work or select a later compatibility stage without current-main verification.
