@@ -364,6 +364,33 @@ class PassWall2Fixture(unittest.TestCase):
         self.assertEqual(self.config.read_bytes(), self.original)
         self.assertEqual(self.restart_count(), 0)
 
+    def test_inspect_fails_closed_when_node_inventory_is_truncated(self) -> None:
+        with self.config.open("a", encoding="utf-8") as config:
+            for index in range(128):
+                config.write(
+                    f"\nconfig nodes 'extra_target_{index:03d}'\n"
+                    "\toption remarks 'Fixture extra target'\n"
+                    "\toption type 'Xray'\n"
+                    "\toption protocol 'vless'\n"
+                )
+        self.original = self.config.read_bytes()
+
+        _, inspection = self.helper("inspect")
+        self.assertTrue(inspection["truncated"])
+        self.assertTrue(inspection["compatible"])
+        self.assertEqual(inspection["passwall2_schema"], "verified")
+        self.assertEqual(inspection["passwall2_plan_apply"], "disabled")
+        self.assertFalse(inspection["capabilities"]["plan"])
+        self.assertFalse(inspection["capabilities"]["apply"])
+
+        _, blocked = self.helper(
+            "plan", str(self.request_file()), expected_status=69
+        )
+        self.assertFalse(blocked["ok"])
+        self.assertEqual(blocked["error"], "unsupported_capability")
+        self.assertEqual(self.config.read_bytes(), self.original)
+        self.assertEqual(self.restart_count(), 0)
+
     def test_inspect_requires_complete_managed_bundle_contents(self) -> None:
         _, plan = self.helper("plan", str(self.request_file({
             "meta_mitm": True,
@@ -591,6 +618,11 @@ class PassWall2Fixture(unittest.TestCase):
             with self.subTest(package=package):
                 pending = self.config.parent / f".pending-{package}"
                 pending.write_text("fixture\n", encoding="utf-8")
+                _, inspection = self.helper("inspect")
+                self.assertTrue(inspection["pending_changes"])
+                self.assertEqual(inspection["passwall2_plan_apply"], "disabled")
+                self.assertFalse(inspection["capabilities"]["plan"])
+                self.assertFalse(inspection["capabilities"]["apply"])
                 _, payload = self.helper(
                     "plan", str(self.request_file()), expected_status=73
                 )
@@ -629,26 +661,66 @@ class PassWall2Fixture(unittest.TestCase):
 
     def test_apply_returns_pending_before_slow_restart_finishes(self) -> None:
         app = self.root / "usr/share/passwall2/app.sh"
+        restart_started = self.root / "tmp/restart-started"
+        restart_release = self.root / "tmp/restart-release"
         app.write_text(
             "#!/bin/sh\n"
             "case \"${1:-}\" in\n"
             "  stop) exit 0 ;;\n"
-            "  start) sleep 2; printf 'restart\\n' >>\"$XRAY_MITM_TEST_ROOT/tmp/restarts\" ;;\n"
+            "  start) touch \"$XRAY_MITM_TEST_ROOT/tmp/restart-started\"; "
+            "while [ ! -e \"$XRAY_MITM_TEST_ROOT/tmp/restart-release\" ]; do sleep 0.05; done; "
+            "printf 'restart\\n' >>\"$XRAY_MITM_TEST_ROOT/tmp/restarts\" ;;\n"
             "  *) exit 64 ;;\n"
             "esac\n",
             encoding="utf-8",
         )
         app.chmod(0o755)
         token = str(self.plan_all()["token"])
-        started = time.monotonic()
-        _, queued = self.helper("apply", token)
-        self.assertLess(time.monotonic() - started, 1.0)
-        self.assertTrue(queued["pending"])
-        _, pending = self.helper("activation-status", token)
-        self.assertTrue(pending["pending"])
+        process = subprocess.Popen(
+            ["sh", str(HELPER), "apply", token],
+            env=self.env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        try:
+            # Hold the restart at a deterministic point. The request must return
+            # and expose a pending transaction before the worker is released.
+            deadline = time.monotonic() + 5
+            while not restart_started.exists():
+                if time.monotonic() >= deadline:
+                    self.fail("background routing activation did not reach restart")
+                time.sleep(0.05)
+            self.assertIsNotNone(
+                process.poll(),
+                "apply must return while the asynchronous restart is held",
+            )
+            stdout, stderr = process.communicate(timeout=5)
+            self.assertEqual(
+                process.returncode,
+                0,
+                f"stdout:\n{stdout}\nstderr:\n{stderr}",
+            )
+            lines = [line for line in stdout.splitlines() if line.strip()]
+            self.assertEqual(len(lines), 1, stdout)
+            queued = json.loads(lines[0])
+            self.assertTrue(queued["ok"])
+            self.assertTrue(queued["pending"])
+            self.assertEqual(queued["transaction"], token)
+
+            _, pending = self.helper("activation-status", token)
+            self.assertTrue(pending["pending"])
+        finally:
+            restart_release.touch()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
+
         # The request was already queued above; wait for its recorded outcome.
         applied = None
-        deadline = time.monotonic() + 8
+        deadline = time.monotonic() + 15
         while time.monotonic() < deadline:
             _, status = self.helper("activation-status", token)
             if status.get("pending"):
