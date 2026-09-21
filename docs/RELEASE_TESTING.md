@@ -57,7 +57,9 @@ preview only as a separate, deliberate test after the candidate has passed the
 browser gate.
 
 This file-level staging loop is for fast LuCI and service-interface testing. A
-public release still needs the protected APK build and signed-feed checks below.
+public release still needs the exact successful main-branch APK build and the
+signed-feed checks below. The tag workflow must promote those exact package
+bytes and sign only the package index; it must not rebuild the packages.
 
 ## 3. Recovering from a failed CI run
 
@@ -111,14 +113,25 @@ Before the tag:
 4. Confirm the private key exists only in protected storage and the `signed-feed` environment secret.
 5. Confirm required environment reviewers and GitHub Pages are configured.
 6. From the clean, synchronized `main` branch, run `sh scripts/release-preflight.sh`.
+7. Confirm a successful `Build OpenWrt APKs` push run exists for the exact
+   release commit, and record its run ID, artifact name, source commit, and
+   package checksums.
 
 After approving the tagged workflow:
 
 1. Confirm the protected job proves the private/public key match.
-2. Confirm exactly one core APK, one LuCI APK, and one `packages.adb` are produced.
-3. Confirm the GitHub Release also contains `SHA256SUMS`, `SOURCE_COMMIT`, `PUBLIC_KEY_SHA256`, and the public key.
-4. Confirm Pages serves the key and `feed/25.12/all/packages.adb` over HTTPS.
-5. Independently verify key SHA-256 `3e0dc07ffef69d1512500b6add486381d8c261a8ec3fcce54fa403b35320df8a`.
+2. Confirm the tag workflow downloaded the recorded main-build artifact for the
+   exact commit and verified its package checksums before signing.
+3. Confirm exactly one core APK, one LuCI APK, and one `packages.adb` are
+   present, and that the package bytes match the main-build checksums.
+4. Confirm the protected job signed only `packages.adb` and did not rebuild the
+   packages.
+5. Confirm the protected signing/verifier SDK image uses the reviewed immutable
+   digest `sha256:d7759c08b2c0b0ffe57719bd8a293543708cbc27b18941478ebeae04c42986ed`.
+6. Confirm the GitHub Release also contains `SHA256SUMS`, `SOURCE_COMMIT`,
+   `RELEASE_COMMIT`, build provenance, `PUBLIC_KEY_SHA256`, and the public key.
+7. Confirm Pages serves the key and `feed/25.12/all/packages.adb` over HTTPS.
+8. Independently verify key SHA-256 `3e0dc07ffef69d1512500b6add486381d8c261a8ec3fcce54fa403b35320df8a`.
 
 ## 6. Clean-router installation
 

@@ -19,7 +19,7 @@ The trust chain is:
 2. The installer accepts only the public key with the hard-coded fingerprint.
 3. APK stores that key in `/etc/apk/keys/xray-mitm-feed-v1.pem`.
 4. APK verifies the signed `packages.adb` index and packages on every install or update.
-5. The tag-only publishing workflow receives the signing key only after the `signed-feed` environment gate. The separate protected candidate workflow uses that same gate for an owner-approved lab artifact and does not publish it.
+5. The tag-only publishing workflow receives the signing key only after the `signed-feed` environment gate. It promotes the exact successful main-build APK bytes for the tag commit and signs only the repository index; it does not rebuild the packages. The protected signing/verifier container is pinned to `ghcr.io/openwrt/sdk@sha256:d7759c08b2c0b0ffe57719bd8a293543708cbc27b18941478ebeae04c42986ed`, the reviewed digest for `aarch64_generic-25.12.5`. The separate protected candidate workflow uses that same gate for an owner-approved lab artifact and does not publish it.
 
 Never put the private feed key in the repository, a pull-request secret, workflow artifact, release, router image, or command transcript.
 
@@ -49,12 +49,13 @@ The private key remains only in the protected environment and the short-lived ru
 2. Set `PKG_VERSION` in `xray-mitm/Makefile` and reset `PKG_RELEASE` to `1`.
 3. Update the LuCI version only when the LuCI package changed.
 4. Run `sh scripts/validate-release.sh`.
-5. Merge the reviewed change to `main` and wait for its build.
+5. Merge the reviewed change to `main` and wait for the `Build OpenWrt APKs` main push run to succeed. Record its exact run ID, artifact name, source commit, package names, and checksums.
 6. Run `sh scripts/release-preflight.sh` from the clean, synchronized `main` branch.
 7. Create and push a signed tag exactly matching `v${PKG_VERSION}`.
-8. Review and approve the `signed-feed` environment job.
-9. Confirm Pages and the GitHub Release contain both APKs, `packages.adb`, checksums, source commit, public key, and fingerprint. Confirm the GitHub Release notes match the version section in `CHANGELOG.md`.
-10. Complete [RELEASE_TESTING.md](RELEASE_TESTING.md).
+8. Confirm the tag workflow resolves the successful main build for the exact tag commit and verifies the downloaded promotion artifact before the protected job starts.
+9. Review and approve the `signed-feed` environment job. The protected job signs the downloaded `packages.adb` index and must not rebuild either APK.
+10. Confirm Pages and the GitHub Release contain both exact APKs, the signed `packages.adb`, promotion run metadata, checksums, source and release commits, public key, and fingerprint. Confirm the GitHub Release notes match the version section in `CHANGELOG.md`.
+11. Complete [RELEASE_TESTING.md](RELEASE_TESTING.md).
 
 **MAC:**
 

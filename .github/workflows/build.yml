@@ -62,18 +62,39 @@ jobs:
           ARCH: ${{ env.SDK_ARCH }}-${{ env.OPENWRT_RELEASE }}
           BUILD_LOG: "1"
           FEEDNAME: xray_mitm
+          INDEX: "1"
           PACKAGES: xray-mitm luci-app-xray-mitm
           V: s
 
       - name: Collect packages and checksums
         shell: bash
+        env:
+          BASE_COMMIT: ${{ github.event.pull_request.base.sha || '' }}
+          PR_NUMBER: ${{ github.event.pull_request.number || '' }}
         run: |
           set -euo pipefail
           mkdir -p dist
+          mapfile -t indexes < <(find bin -type f -path '*/xray_mitm/packages.adb' | LC_ALL=C sort)
           find bin -type f -name 'xray-mitm-*.apk' -exec cp '{}' dist/ \;
           find bin -type f -name 'luci-app-xray-mitm-*.apk' -exec cp '{}' dist/ \;
+          test "${#indexes[@]}" -eq 1
+          cp "${indexes[0]}" dist/packages.adb
           cp LICENSE README.md README.fa.md THIRD_PARTY_NOTICES.md install.sh dist/
-          printf '%s\n' "$(git rev-parse HEAD)" > dist/SOURCE_COMMIT
+          source_commit="$(git rev-parse HEAD)"
+          printf '%s\n' "$source_commit" > dist/SOURCE_COMMIT
+          printf '%s\n' "$OPENWRT_RELEASE" > dist/OPENWRT_RELEASE
+          printf '%s\n' "$SDK_ARCH" > dist/SDK_ARCH
+          printf '%s\n' apk > dist/PACKAGE_FORMAT
+          printf '%s\n' 'promotable unsigned APK bundle' > dist/ARTIFACT_PURPOSE
+          printf '%s\n' "$GITHUB_RUN_ID" > dist/BUILD_RUN_ID
+          printf '%s\n' "$GITHUB_WORKFLOW" > dist/BUILD_WORKFLOW
+          printf '%s\n' "$GITHUB_EVENT_NAME" > dist/BUILD_EVENT
+          if [ -n "$BASE_COMMIT" ]; then
+            printf '%s\n' "$BASE_COMMIT" > dist/BASE_COMMIT
+          fi
+          if [ -n "$PR_NUMBER" ]; then
+            printf '%s\n' "$PR_NUMBER" > dist/PR_NUMBER
+          fi
 
           test "$(find dist -maxdepth 1 -type f -name 'xray-mitm-*.apk' | wc -l)" -eq 1
           test "$(find dist -maxdepth 1 -type f -name 'luci-app-xray-mitm-*.apk' | wc -l)" -eq 1
@@ -82,16 +103,24 @@ jobs:
           find . -maxdepth 1 -type f -name '*.apk' -print \
             | LC_ALL=C sort \
             | sed 's#^./##' \
+            | xargs sha256sum > PACKAGE_SHA256SUMS
+          find . -maxdepth 1 -type f -name '*.apk' -print \
+            | LC_ALL=C sort \
+            | sed 's#^./##' \
             | xargs sha256sum > SHA256SUMS
+          sha256sum packages.adb >> SHA256SUMS
           find . -maxdepth 1 -type f -name '*.apk' -print \
             | LC_ALL=C sort \
             | sed 's#^./##' > PACKAGES
+          sha256sum -c PACKAGE_SHA256SUMS
           sha256sum -c SHA256SUMS
+          cd ..
+          sh scripts/verify-promotion-artifact.sh dist "$source_commit" "$OPENWRT_RELEASE" "$SDK_ARCH"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: xray-mitm-openwrt-${{ env.OPENWRT_RELEASE }}-${{ env.SDK_ARCH }}
+          name: xray-mitm-openwrt-${{ env.OPENWRT_RELEASE }}-${{ env.SDK_ARCH }}-${{ github.event.pull_request.head.sha || github.sha }}
           path: dist/
           if-no-files-found: error
           retention-days: 30
