@@ -86,8 +86,11 @@ support unproven.
   native 24.10 runtime or hardware support; do not replace it with emulation.
 - Keep public 24.10 publication and production OPKG signing behind the later
   release and owner gates.
-- Treat PassWall2 capability probing as the next compatibility stage. It must
-  remain optional and must not mutate routing for unknown schemas.
+- The PassWall2 capability/fallback implementation is recorded in
+  `docs/OPENWRT_24_25_STAGE4_EVIDENCE.md`. Its browser/LuCI gate and native
+  24.10/IPK runtime remain unproven; do not treat this implementation evidence
+  as a public support or release declaration. The capability remains optional
+  and must not mutate routing for unknown schemas.
 
 No router, package, signing, release, feed, or persistent configuration
 mutation was performed by this documentation/evidence change.

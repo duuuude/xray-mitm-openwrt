@@ -188,9 +188,12 @@ future work.
 ### Product correctness
 
 The P1 partial-bundle inspection defect is complete in merged PR #48. No
-No product-correctness PR is active. The compatibility Stage 4 capability/fallback
-work is complete in merged PR #59. The next approved item is the build-once
-promotion initiative below.
+product-correctness PR is active. The compatibility Stage 4 capability/fallback
+implementation is complete in merged PR #59. Its bounded 25.12/APK runtime and
+rollback evidence is recorded in `docs/OPENWRT_24_25_STAGE4_EVIDENCE.md`; the
+required LuCI/browser gate remains unproven, and native 24.10/IPK runtime
+behavior remains unproven. The next approved item is the build-once promotion
+initiative below.
 
 ## Workflow and tooling work
 
@@ -215,20 +218,25 @@ the P1 partial-bundle inspection item with independent source review, protected
 artifact validation, AX4200 integration, synthetic-state inspection, trusted
 rollback, and exact recovery comparison. The official OpenWrt compatibility
 initiative has completed its contract, package-build, dual-backend installer,
-and capability-fallback stages. Stage 3 evidence is now recorded with bounded
-25.12/APK service and rollback proof and an explicit 24.10/IPK native-runtime
-limitation. PR #59 completed the compatibility Stage 4 capability/fallback
-slice; its exact candidate passed both package CI lanes, protected signing,
-25.12/APK AX4200 package/runtime validation, LuCI/browser validation, and
-trusted rollback. Native 24.10/IPK runtime behavior remains unproven. Later
-stages remain separately scoped and reviewed, not one platform build.
+and capability-fallback implementation stages. Stage 3 evidence is now recorded
+with bounded 25.12/APK service and rollback proof and an explicit 24.10/IPK
+native-runtime limitation. PR #59's exact candidate passed both package CI
+lanes, protected signing, bounded 25.12/APK AX4200 package/runtime validation,
+and trusted rollback; the complete evidence record is
+`docs/OPENWRT_24_25_STAGE4_EVIDENCE.md`. Its required LuCI/browser gate remains
+unproven because the router certificate did not match the browser hostname and
+no bypass was allowed. Native 24.10/IPK runtime behavior also remains
+unproven. Later stages remain separately scoped and reviewed, not one platform
+build.
 `docs/ai/AUTONOMOUS_PR.md` records the stage order, independence, cost boundary,
 and owner gates. No unattended router/release authority is approved by this
 scheduling decision.
 
 The truthful partial-bundle inspection defect is complete in PR #48, and the
-compatibility capability/fallback work is complete in PR #59. Recheck the
-roadmap after every owner-approved merge before selecting another PR.
+compatibility capability/fallback implementation slice is complete in PR #59.
+Its remaining browser and 24.10 evidence boundaries are recorded in
+`docs/OPENWRT_24_25_STAGE4_EVIDENCE.md`. Recheck the roadmap after every
+owner-approved merge before selecting another PR.
 
 ### Present automation
 
@@ -434,7 +442,9 @@ Qualification boundary:
 This completes the staged autonomous workflow qualification without changing
 the required three-Work operating model. At the time of this qualification,
 the official OpenWrt compatibility evidence initiative was the next active
-implementation item; its capability/fallback slice is now complete in PR #59.
+implementation item; its capability/fallback implementation slice is now
+complete in PR #59, with the remaining gates recorded in
+`docs/OPENWRT_24_25_STAGE4_EVIDENCE.md`.
 
 ## Qualification history
 
@@ -466,9 +476,11 @@ Acceptance criteria:
 
 ### Release workflow — build once and promote the exact tested artifact
 
-Compatibility Stage 4 is complete in PR #59. The next substantive PR should
-close the remaining provenance gap between the artifact tested during PR
-validation and the artifact later signed or published.
+The compatibility Stage 4 implementation is complete in PR #59, with its
+bounded evidence and remaining browser/24.10 limitations recorded in
+`docs/OPENWRT_24_25_STAGE4_EVIDENCE.md`. The next substantive PR should close
+the remaining provenance gap between the artifact tested during PR validation
+and the artifact later signed or published.
 
 Scope:
 
