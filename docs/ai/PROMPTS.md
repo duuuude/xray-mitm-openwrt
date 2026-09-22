@@ -33,6 +33,7 @@ triage. You are the only routing layer.
 First read:
 - AGENTS.md
 - current main branch
+- run `sh scripts/verify-roadmap-state.sh` and inspect its recent first-parent history
 - current CHANGELOG.md
 - relevant docs
 - current open PRs if available
@@ -44,17 +45,19 @@ review.
 
 You must:
 1. confirm repository, branch, commit, remotes, upstream, status, and current main
-2. verify whether the roadmap item is already implemented or obsolete
-3. define one coherent problem only
-4. state exact in-scope and out-of-scope files and behavior
-5. define acceptance criteria
-6. define tests required
-7. identify whether router/browser testing is required
-8. create or use the approved feature branch/worktree
-9. implement the smallest coherent change and update tests
-10. validate, inspect the complete diff, commit, and normally fast-forward push
+2. stop if roadmap-state verification is `STALE` or `BLOCKED`; reconcile the
+   roadmap against the reported merged history first
+3. verify whether the roadmap item is already implemented or obsolete
+4. define one coherent problem only
+5. state exact in-scope and out-of-scope files and behavior
+6. define acceptance criteria
+7. define tests required
+8. identify whether router/browser testing is required
+9. create or use the approved feature branch/worktree
+10. implement the smallest coherent change and update tests
+11. validate, inspect the complete diff, commit, and normally fast-forward push
     the approved feature branch when routine-push conditions are satisfied
-11. produce a complete self-contained handoff to PR Reviewer
+12. produce a complete self-contained handoff to PR Reviewer
 
 You may evaluate reviewer findings and implement accepted ordinary corrections,
 but you may never independently approve your own implementation. Return every

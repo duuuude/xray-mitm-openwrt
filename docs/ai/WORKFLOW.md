@@ -385,6 +385,17 @@ Use the implemented local helper:
 scripts/start-pr.sh
 ```
 
+It invokes the roadmap-state guard after synchronizing `main`. The same guard
+can be run directly after an account, token, or Codex task-context switch:
+
+```text
+scripts/verify-roadmap-state.sh
+```
+
+It prints the fetched first-parent `main` history and blocks when the roadmap
+baseline is stale or the canonical checkout is not clean. Duplicate Works or
+prior chat context never override that repository evidence.
+
 The helper can safely:
 
 ```text
