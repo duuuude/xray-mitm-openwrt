@@ -168,6 +168,10 @@ fi
             listener_command = """#!/bin/sh
 case "$LISTENER_MODE" in
     present) printf '%s\\n' 'LISTEN 0 128 127.0.0.1:2005 0.0.0.0:*' ;;
+    present_ipv6_bracketed) printf '%s\\n' 'LISTEN 0 128 [::1]:2005 [::]:*' ;;
+    present_ipv6_plain) printf '%s\\n' 'LISTEN 0 128 ::1:2005 :::*' ;;
+    impostor_port_suffix) printf '%s\\n' 'LISTEN 0 128 127.0.0.1:20050 0.0.0.0:*' ;;
+    impostor_address_suffix) printf '%s\\n' 'LISTEN 0 128 127.0.0.10:2005 0.0.0.0:*' ;;
     absent) : ;;
     fail) exit 1 ;;
 esac
@@ -221,6 +225,24 @@ esac
                 )
                 self.assertEqual(present.returncode, 0)
                 self.assertEqual(present.stdout, "present\n")
+
+                for ipv6_mode in ("present_ipv6_bracketed", "present_ipv6_plain"):
+                    ipv6_present = run_function(
+                        function,
+                        "listener_state",
+                        LISTENER_MODE=ipv6_mode,
+                    )
+                    self.assertEqual(ipv6_present.returncode, 0)
+                    self.assertEqual(ipv6_present.stdout, "present\n")
+
+                for impostor_mode in ("impostor_port_suffix", "impostor_address_suffix"):
+                    impostor = run_function(
+                        function,
+                        "listener_state",
+                        LISTENER_MODE=impostor_mode,
+                    )
+                    self.assertEqual(impostor.returncode, 0)
+                    self.assertEqual(impostor.stdout, "absent\n")
 
                 absent = run_function(
                     function,

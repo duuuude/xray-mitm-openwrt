@@ -88,7 +88,7 @@ listener_state() {
 	listener_output=
 	if listener_output=$(ss -lntup 2>/dev/null); then
 		if printf '%s\n' "$listener_output" |
-			grep -qE '127\.0\.0\.1:2005|::1:2005'; then
+			grep -qE '(^|[[:space:]])(127\.0\.0\.1:2005|\[::1\]:2005|::1:2005)([[:space:]]|$)'; then
 			printf 'present\n'
 		else
 			printf 'absent\n'
@@ -97,7 +97,7 @@ listener_state() {
 	fi
 	if listener_output=$(netstat -lntup 2>/dev/null); then
 		if printf '%s\n' "$listener_output" |
-			grep -qE '127\.0\.0\.1:2005|::1:2005'; then
+			grep -qE '(^|[[:space:]])(127\.0\.0\.1:2005|\[::1\]:2005|::1:2005)([[:space:]]|$)'; then
 			printf 'present\n'
 		else
 			printf 'absent\n'
@@ -200,7 +200,7 @@ listener_state() {
 	listener_output=
 	if listener_output=$(ss -lntup 2>/dev/null); then
 		if printf '%s\n' "$listener_output" |
-			grep -qE '127\.0\.0\.1:2005|::1:2005'; then
+			grep -qE '(^|[[:space:]])(127\.0\.0\.1:2005|\[::1\]:2005|::1:2005)([[:space:]]|$)'; then
 			printf 'present\n'
 		else
 			printf 'absent\n'
@@ -209,7 +209,7 @@ listener_state() {
 	fi
 	if listener_output=$(netstat -lntup 2>/dev/null); then
 		if printf '%s\n' "$listener_output" |
-			grep -qE '127\.0\.0\.1:2005|::1:2005'; then
+			grep -qE '(^|[[:space:]])(127\.0\.0\.1:2005|\[::1\]:2005|::1:2005)([[:space:]]|$)'; then
 			printf 'present\n'
 		else
 			printf 'absent\n'
@@ -318,7 +318,7 @@ listener_state() {
 	listener_output=
 	if listener_output=$(ss -lntup 2>/dev/null); then
 		if printf '%s\n' "$listener_output" |
-			grep -qE '127\.0\.0\.1:2005|::1:2005'; then
+			grep -qE '(^|[[:space:]])(127\.0\.0\.1:2005|\[::1\]:2005|::1:2005)([[:space:]]|$)'; then
 			printf 'present\n'
 		else
 			printf 'absent\n'
@@ -327,7 +327,7 @@ listener_state() {
 	fi
 	if listener_output=$(netstat -lntup 2>/dev/null); then
 		if printf '%s\n' "$listener_output" |
-			grep -qE '127\.0\.0\.1:2005|::1:2005'; then
+			grep -qE '(^|[[:space:]])(127\.0\.0\.1:2005|\[::1\]:2005|::1:2005)([[:space:]]|$)'; then
 			printf 'present\n'
 		else
 			printf 'absent\n'
