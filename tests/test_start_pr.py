@@ -249,7 +249,7 @@ exec "$real_git" "$@"
         result = self.run_start_pr(extra_env=self.failing_git_env("", mock_effective_urls=False))
 
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("Effective fetch URL", result.stderr)
+        self.assertIn("unverified effective fetch URL", result.stderr)
         self.assertEqual(self.git("rev-parse", "refs/heads/main"), old_main)
         self.assertEqual(self.git("rev-parse", "refs/remotes/origin/main"), old_tracking)
         self.assertFalse(self.ref_exists("refs/heads/feat/example"))

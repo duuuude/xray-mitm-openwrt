@@ -180,12 +180,16 @@ exec "$real_git" "$@"
         self.assertEqual(self.git("rev-parse", "origin/main"), current_main)
 
     def test_blocks_unverified_remote(self) -> None:
-        self.git("remote", "set-url", "origin", "https://example.invalid/project.git")
+        secret_url = "https://dummy-user:dummy-token@example.invalid/project.git"
+        self.git("remote", "set-url", "origin", secret_url)
 
         result = self.run_verify(mock_fetch_url=False, mock_push_url=False)
+        output = result.stdout + result.stderr
 
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("not the verified", result.stderr)
+        self.assertIn("unverified effective fetch URL", result.stderr)
+        self.assertNotIn("dummy-user", output)
+        self.assertNotIn("dummy-token", output)
         self.assertIn("ROADMAP_STATE=BLOCKED", result.stderr)
 
     def test_blocks_insteadof_redirect_before_tracking_ref_changes(self) -> None:
@@ -207,7 +211,7 @@ exec "$real_git" "$@"
         result = self.run_verify(mock_fetch_url=False, mock_push_url=False)
 
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("Effective fetch URL", result.stderr)
+        self.assertIn("unverified effective fetch URL", result.stderr)
         self.assertIn("ROADMAP_STATE=BLOCKED", result.stderr)
         self.assertEqual(self.git("rev-parse", "refs/remotes/origin/main"), original_tracking)
 
@@ -218,7 +222,20 @@ exec "$real_git" "$@"
         result = self.run_verify(mock_fetch_url=True, mock_push_url=False)
 
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("Effective push URL", result.stderr)
+        self.assertIn("unverified effective push URL", result.stderr)
+        self.assertIn("ROADMAP_STATE=BLOCKED", result.stderr)
+
+    def test_rejects_push_url_without_echoing_credentials(self) -> None:
+        secret_url = "https://dummy-user:dummy-token@example.invalid/project.git"
+        self.git("remote", "set-url", "--push", "origin", secret_url)
+
+        result = self.run_verify(mock_fetch_url=True, mock_push_url=False)
+        output = result.stdout + result.stderr
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("unverified effective push URL", result.stderr)
+        self.assertNotIn("dummy-user", output)
+        self.assertNotIn("dummy-token", output)
         self.assertIn("ROADMAP_STATE=BLOCKED", result.stderr)
 
 

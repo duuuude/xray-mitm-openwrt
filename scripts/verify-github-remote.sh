@@ -39,13 +39,13 @@ git_root=$(git_at rev-parse --show-toplevel 2>/dev/null) || die 'Could not inspe
 fetch_urls=$(git_at remote get-url --all "$remote_name" 2>/dev/null) || die "Could not resolve effective fetch URL(s) for remote '$remote_name'."
 [ -n "$fetch_urls" ] || die "Remote '$remote_name' has no effective fetch URL."
 for fetch_url in $fetch_urls; do
-	is_verified_remote "$fetch_url" || die "Effective fetch URL for remote '$remote_name' is not the verified duuuude/xray-mitm-openwrt GitHub repository: $fetch_url"
+	is_verified_remote "$fetch_url" || die "Remote '$remote_name' has an unverified effective fetch URL."
 done
 
 push_urls=$(git_at remote get-url --push --all "$remote_name" 2>/dev/null) || die "Could not resolve effective push URL(s) for remote '$remote_name'."
 [ -n "$push_urls" ] || die "Remote '$remote_name' has no effective push URL."
 for push_url in $push_urls; do
-	is_verified_remote "$push_url" || die "Effective push URL for remote '$remote_name' is not the verified duuuude/xray-mitm-openwrt GitHub repository: $push_url"
+	is_verified_remote "$push_url" || die "Remote '$remote_name' has an unverified effective push URL."
 done
 
 printf 'GITHUB_REMOTE=VERIFIED\n'
