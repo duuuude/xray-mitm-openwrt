@@ -277,14 +277,22 @@ Exact action after approval:
 <complete handoff or MAC command>
 ```
 
-PR Reviewer and Router & Release Validation report their evidence and
-recommendation to:
+PR Reviewer and Router & Release Validation must deliver their complete
+evidence and recommendation explicitly to the Development Lead task using the
+host's task/thread handoff mechanism, and must also identify the intended
+recipient as:
 
 ```text
 Development Lead — Owner Console
 ```
 
-They do not choose, authorize, or prompt the next Work.
+They do not choose, authorize, or prompt the next Work. A Work's completed or
+idle status is not a delivered report and must never be treated as approval.
+If a Work completes without a visible report, Development Lead re-requests it
+directly, records the result as unproven until it is received, and continues
+the safe workflow without asking the owner to copy or relay the report. If the
+Work cannot deliver the report, it must state `HANDOFF DELIVERY FAILED` so
+Development Lead can recover or replace the Work.
 
 ---
 

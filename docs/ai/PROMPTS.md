@@ -10,6 +10,15 @@ reusable specialist role templates, not permanent Works. Every non-Lead Work
 returns its report to Development Lead — Owner Console and must not select,
 authorize, or prompt the next Work.
 
+Report delivery is an explicit handoff, not a status assumption. Before
+stopping, every non-Lead Work must send its complete report as a message to the
+Development Lead task using the host's explicit task/thread handoff mechanism,
+and must also include the report in its final response when available. A
+completed or idle Work with no visible report is not an approval or a successful
+handoff. If delivery fails, state `HANDOFF DELIVERY FAILED`; Development Lead
+must re-request the report directly and must not ask the owner to copy or relay
+it.
+
 ---
 
 ## 1. Development Lead — Owner Console
@@ -217,6 +226,9 @@ Do not rewrite the PR.
 Do not fix findings.
 If there are no findings, state what you inspected and what remains unproven.
 Do not select or prompt another Work.
+Before stopping, send this complete review explicitly to the Development Lead
+task using the host's task/thread handoff mechanism; do not rely only on the
+Work's completed or final-answer status being visible.
 Return this review to: Development Lead — Owner Console
 ```
 
