@@ -385,16 +385,18 @@ Use the implemented local helper:
 scripts/start-pr.sh
 ```
 
-It invokes the roadmap-state guard after synchronizing `main`. The same guard
-can be run directly after an account, token, or Codex task-context switch:
+It verifies the effective fetch and push destinations before fetching, then
+invokes the roadmap-state guard after synchronizing `main`. The same guard can
+be run directly after an account, token, or Codex task-context switch:
 
 ```text
 scripts/verify-roadmap-state.sh
 ```
 
-It prints the fetched first-parent `main` history and blocks when the roadmap
-baseline is stale or the canonical checkout is not clean. Duplicate Works or
-prior chat context never override that repository evidence.
+It resolves Git URL rewrites, prints the fetched first-parent `main` history,
+and blocks when the remote is not canonical, the roadmap baseline is stale, or
+the canonical checkout is not clean. Duplicate Works or prior chat context
+never override that repository evidence.
 
 The helper can safely:
 

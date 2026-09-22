@@ -30,14 +30,16 @@ class StartPrTests(unittest.TestCase):
         self.worktrees.mkdir()
         (self.project / "scripts").mkdir(parents=True)
         (self.project / "docs/ai").mkdir(parents=True)
+        (self.root / "fake-bin").mkdir()
         shutil.copy2(START_PR, self.project / "scripts/start-pr.sh")
         shutil.copy2(ROOT / "scripts/verify-roadmap-state.sh", self.project / "scripts/verify-roadmap-state.sh")
+        shutil.copy2(ROOT / "scripts/verify-github-remote.sh", self.project / "scripts/verify-github-remote.sh")
 
         (self.project / "README.md").write_text("start-pr fixture\n", encoding="utf-8")
         self.git("init", "-b", "main")
         self.git("config", "user.email", "test@example.invalid")
         self.git("config", "user.name", "Start PR Test")
-        self.git("add", "README.md", "scripts/start-pr.sh", "scripts/verify-roadmap-state.sh")
+        self.git("add", "README.md", "scripts/start-pr.sh", "scripts/verify-roadmap-state.sh", "scripts/verify-github-remote.sh")
         self.git("commit", "-m", "prepare start-pr fixture")
         baseline = self.git("rev-parse", "HEAD")
         (self.project / "docs/ai/MASTER_PLAN.md").write_text(
@@ -88,6 +90,7 @@ class StartPrTests(unittest.TestCase):
     ) -> subprocess.CompletedProcess[str]:
         target = path or (self.worktrees / "example")
         env = os.environ.copy()
+        env.update(self.failing_git_env(""))
         if extra_env:
             env.update(extra_env)
         return subprocess.run(
@@ -100,7 +103,7 @@ class StartPrTests(unittest.TestCase):
             check=False,
         )
 
-    def failing_git_env(self, failure: str) -> dict[str, str]:
+    def failing_git_env(self, failure: str, mock_effective_urls: bool = True) -> dict[str, str]:
         fake_bin = self.root / "fake-bin"
         fake_bin.mkdir(exist_ok=True)
         fake_git = fake_bin / "git"
@@ -109,14 +112,25 @@ class StartPrTests(unittest.TestCase):
 set -eu
 
 real_git=${START_PR_REAL_GIT:?}
-failure=${START_PR_FAIL_GIT:?}
+failure=${START_PR_FAIL_GIT-}
 saw_worktree=0
 saw_list=0
+saw_remote=0
+saw_get_url=0
+saw_push=0
 
 for arg in "$@"; do
     [ "$arg" = worktree ] && saw_worktree=1
     [ "$arg" = list ] && saw_list=1
+    [ "$arg" = remote ] && saw_remote=1
+    [ "$arg" = get-url ] && saw_get_url=1
+    [ "$arg" = --push ] && saw_push=1
 done
+
+if [ "$saw_remote" -eq 1 ] && [ "$saw_get_url" -eq 1 ] && [ "${START_PR_MOCK_EFFECTIVE_URLS:-1}" = 1 ]; then
+    printf '%s\\n' 'https://github.com/duuuude/xray-mitm-openwrt.git'
+    exit 0
+fi
 
 case "$failure" in
     status)
@@ -143,6 +157,7 @@ exec "$real_git" "$@"
             "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
             "START_PR_FAIL_GIT": failure,
             "START_PR_REAL_GIT": self.real_git,
+            "START_PR_MOCK_EFFECTIVE_URLS": "1" if mock_effective_urls else "0",
         }
 
     def test_success_fast_forwards_clean_main_and_creates_worktree(self) -> None:
@@ -211,6 +226,32 @@ exec "$real_git" "$@"
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("ROADMAP_STATE=STALE", result.stderr)
         self.assertIn("unreconciled main implementation", result.stderr)
+        self.assertFalse(self.ref_exists("refs/heads/feat/example"))
+        self.assertFalse((self.worktrees / "example").exists())
+
+    def test_rejects_insteadof_redirect_before_fetch_or_worktree_creation(self) -> None:
+        old_main = self.git("rev-parse", "refs/heads/main")
+        old_tracking = self.git("rev-parse", "refs/remotes/origin/main")
+        rogue = self.root / "rogue.git"
+        subprocess.run(["git", "init", "--bare", str(rogue)], check=True, capture_output=True, text=True)
+        clone = self.root / "rogue-clone"
+        subprocess.run(["git", "clone", "--branch", "main", str(self.remote), str(clone)], check=True, capture_output=True, text=True)
+        self.git_at(clone, "config", "user.email", "rogue@example.invalid")
+        self.git_at(clone, "config", "user.name", "Rogue Mirror")
+        (clone / "README.md").write_text("unapproved source\n", encoding="utf-8")
+        self.git_at(clone, "add", "README.md")
+        self.git_at(clone, "commit", "-m", "rogue main update")
+        self.git_at(clone, "remote", "set-url", "origin", str(rogue))
+        self.git_at(clone, "push", "origin", "main")
+        self.git("config", "--unset-all", f"url.{self.remote}.insteadOf")
+        self.git("config", f"url.{rogue}.insteadOf", CANONICAL_URL)
+
+        result = self.run_start_pr(extra_env=self.failing_git_env("", mock_effective_urls=False))
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Effective fetch URL", result.stderr)
+        self.assertEqual(self.git("rev-parse", "refs/heads/main"), old_main)
+        self.assertEqual(self.git("rev-parse", "refs/remotes/origin/main"), old_tracking)
         self.assertFalse(self.ref_exists("refs/heads/feat/example"))
         self.assertFalse((self.worktrees / "example").exists())
 

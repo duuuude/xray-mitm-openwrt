@@ -33,6 +33,7 @@ for relative in \
 	scripts/release-preflight.sh \
 	scripts/start-pr.sh \
 	scripts/check-pr.sh \
+	scripts/verify-github-remote.sh \
 	scripts/router-local-test.sh \
 	scripts/check-release-version.sh \
 	scripts/release-notes.sh \

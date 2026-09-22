@@ -17,20 +17,10 @@ script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
 project_dir=$(CDPATH= cd -- "$script_dir/.." && pwd -P)
 remote_name=${1:-origin}
 plan_path=${2:-docs/ai/MASTER_PLAN.md}
+remote_verifier="$script_dir/verify-github-remote.sh"
 
 git_at() {
 	git -C "$project_dir" "$@"
-}
-
-is_verified_remote() {
-	case "$1" in
-		https://github.com/duuuude/xray-mitm-openwrt|https://github.com/duuuude/xray-mitm-openwrt.git|git@github.com:duuuude/xray-mitm-openwrt|git@github.com:duuuude/xray-mitm-openwrt.git|ssh://git@github.com/duuuude/xray-mitm-openwrt|ssh://git@github.com/duuuude/xray-mitm-openwrt.git)
-		return 0
-		;;
-		*)
-		return 1
-		;;
-	esac
 }
 
 [ -d "$project_dir" ] || die "Project directory does not exist: $project_dir"
@@ -51,19 +41,8 @@ esac
 
 plan_file="$project_dir/$plan_path"
 [ -f "$plan_file" ] || die "Roadmap file does not exist: $plan_path"
-
-remote_urls=$(git_at config --get-all "remote.$remote_name.url" 2>/dev/null || true)
-[ -n "$remote_urls" ] || die "Remote '$remote_name' was not found."
-for remote_url in $remote_urls; do
-	is_verified_remote "$remote_url" || die "Remote '$remote_name' is not the verified duuuude/xray-mitm-openwrt GitHub repository."
-done
-
-push_urls=$(git_at config --get-all "remote.$remote_name.pushurl" 2>/dev/null || true)
-if [ -n "$push_urls" ]; then
-	for push_url in $push_urls; do
-		is_verified_remote "$push_url" || die "Push URL for remote '$remote_name' is not the verified duuuude/xray-mitm-openwrt GitHub repository."
-	done
-fi
+[ -f "$remote_verifier" ] || die 'Required scripts/verify-github-remote.sh is missing.'
+sh "$remote_verifier" "$remote_name" || die 'The configured remote does not resolve to the verified GitHub repository.'
 
 if ! git_at fetch --quiet --no-tags "$remote_name" "refs/heads/main:refs/remotes/$remote_name/main"; then
 	die "Could not refresh main from verified GitHub remote '$remote_name'."

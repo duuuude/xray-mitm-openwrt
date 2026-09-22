@@ -100,6 +100,10 @@ class PackageMatrixTests(unittest.TestCase):
             2,
         )
         self.assertEqual(
+            workflow.count('      - "scripts/verify-github-remote.sh"'),
+            2,
+        )
+        self.assertEqual(
             workflow.count(
                 "ref: ${{ github.event.pull_request.head.sha || github.sha }}"
             ),

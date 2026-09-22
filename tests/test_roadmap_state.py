@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import shutil
+import os
 import subprocess
 import tempfile
 import unittest
@@ -22,15 +23,49 @@ class RoadmapStateTests(unittest.TestCase):
         root = Path(self.temp.name).resolve()
         self.project = root / "project"
         self.remote = root / "remote.git"
+        self.fake_bin = root / "fake-bin"
+        self.real_git = shutil.which("git")
+        if self.real_git is None:
+            raise unittest.SkipTest("git is required for roadmap-state tests")
         (self.project / "scripts").mkdir(parents=True)
         (self.project / "docs/ai").mkdir(parents=True)
+        self.fake_bin.mkdir()
         shutil.copy2(VERIFY, self.project / "scripts/verify-roadmap-state.sh")
+        shutil.copy2(ROOT / "scripts/verify-github-remote.sh", self.project / "scripts/verify-github-remote.sh")
+        shim = self.fake_bin / "git"
+        shim.write_text(
+            """#!/bin/sh
+set -eu
+real_git=${ROADMAP_TEST_REAL_GIT:?}
+saw_remote=0
+saw_get_url=0
+saw_push=0
+for arg in "$@"; do
+	[ "$arg" = remote ] && saw_remote=1
+	[ "$arg" = get-url ] && saw_get_url=1
+	[ "$arg" = --push ] && saw_push=1
+done
+if [ "$saw_remote" -eq 1 ] && [ "$saw_get_url" -eq 1 ]; then
+	if [ "$saw_push" -eq 1 ] && [ -n "${ROADMAP_TEST_EFFECTIVE_PUSH_URL:-}" ]; then
+		printf '%s\\n' "$ROADMAP_TEST_EFFECTIVE_PUSH_URL"
+		exit 0
+	fi
+	if [ "$saw_push" -eq 0 ] && [ -n "${ROADMAP_TEST_EFFECTIVE_FETCH_URL:-}" ]; then
+		printf '%s\\n' "$ROADMAP_TEST_EFFECTIVE_FETCH_URL"
+		exit 0
+	fi
+fi
+exec "$real_git" "$@"
+""",
+            encoding="utf-8",
+        )
+        shim.chmod(0o755)
 
         (self.project / "README.md").write_text("roadmap fixture\n", encoding="utf-8")
         self.git("init", "-b", "main")
         self.git("config", "user.email", "test@example.invalid")
         self.git("config", "user.name", "Roadmap State Test")
-        self.git("add", "README.md", "scripts/verify-roadmap-state.sh")
+        self.git("add", "README.md", "scripts/verify-roadmap-state.sh", "scripts/verify-github-remote.sh")
         self.git("commit", "-m", "prepare roadmap fixture")
         baseline = self.git("rev-parse", "HEAD")
         (self.project / "docs/ai/MASTER_PLAN.md").write_text(
@@ -64,7 +99,18 @@ class RoadmapStateTests(unittest.TestCase):
         )
         return result.stdout.strip()
 
-    def run_verify(self) -> subprocess.CompletedProcess[str]:
+    def run_verify(self, mock_fetch_url: bool = True, mock_push_url: bool = True) -> subprocess.CompletedProcess[str]:
+        env = os.environ.copy()
+        env["PATH"] = f"{self.fake_bin}{os.pathsep}{env['PATH']}"
+        env["ROADMAP_TEST_REAL_GIT"] = self.real_git or "git"
+        if mock_fetch_url:
+            env["ROADMAP_TEST_EFFECTIVE_FETCH_URL"] = CANONICAL_URL
+        else:
+            env.pop("ROADMAP_TEST_EFFECTIVE_FETCH_URL", None)
+        if mock_push_url:
+            env["ROADMAP_TEST_EFFECTIVE_PUSH_URL"] = CANONICAL_URL
+        else:
+            env.pop("ROADMAP_TEST_EFFECTIVE_PUSH_URL", None)
         return subprocess.run(
             ["sh", str(self.project / "scripts/verify-roadmap-state.sh"), "origin"],
             cwd=self.project,
@@ -72,6 +118,7 @@ class RoadmapStateTests(unittest.TestCase):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=False,
+            env=env,
         )
 
     def test_accepts_reconciled_plan_only_head(self) -> None:
@@ -135,10 +182,43 @@ class RoadmapStateTests(unittest.TestCase):
     def test_blocks_unverified_remote(self) -> None:
         self.git("remote", "set-url", "origin", "https://example.invalid/project.git")
 
-        result = self.run_verify()
+        result = self.run_verify(mock_fetch_url=False, mock_push_url=False)
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("not the verified", result.stderr)
+        self.assertIn("ROADMAP_STATE=BLOCKED", result.stderr)
+
+    def test_blocks_insteadof_redirect_before_tracking_ref_changes(self) -> None:
+        original_tracking = self.git("rev-parse", "refs/remotes/origin/main")
+        rogue = Path(self.temp.name) / "rogue.git"
+        subprocess.run(["git", "init", "--bare", str(rogue)], check=True, capture_output=True, text=True)
+        clone = Path(self.temp.name) / "rogue-clone"
+        subprocess.run(["git", "clone", "--branch", "main", str(self.remote), str(clone)], check=True, capture_output=True, text=True)
+        self.git_at(clone, "config", "user.email", "rogue@example.invalid")
+        self.git_at(clone, "config", "user.name", "Rogue Mirror")
+        (clone / "README.md").write_text("unapproved source\\n", encoding="utf-8")
+        self.git_at(clone, "add", "README.md")
+        self.git_at(clone, "commit", "-m", "rogue main update")
+        self.git_at(clone, "remote", "set-url", "origin", str(rogue))
+        self.git_at(clone, "push", "origin", "main")
+        self.git("config", "--unset-all", f"url.{self.remote}.insteadOf")
+        self.git("config", f"url.{rogue}.insteadOf", CANONICAL_URL)
+
+        result = self.run_verify(mock_fetch_url=False, mock_push_url=False)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Effective fetch URL", result.stderr)
+        self.assertIn("ROADMAP_STATE=BLOCKED", result.stderr)
+        self.assertEqual(self.git("rev-parse", "refs/remotes/origin/main"), original_tracking)
+
+    def test_blocks_pushinsteadof_redirect(self) -> None:
+        rogue = Path(self.temp.name) / "rogue-push.git"
+        self.git("config", f"url.{rogue}.pushInsteadOf", CANONICAL_URL)
+
+        result = self.run_verify(mock_fetch_url=True, mock_push_url=False)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Effective push URL", result.stderr)
         self.assertIn("ROADMAP_STATE=BLOCKED", result.stderr)
 
 

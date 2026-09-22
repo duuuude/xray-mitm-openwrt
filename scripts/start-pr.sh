@@ -121,6 +121,10 @@ else
 	remote_url="$(git_at config --get-all "remote.$verified_remote.url")"
 fi
 
+[ -f "$project_dir/scripts/verify-github-remote.sh" ] || die 'Required scripts/verify-github-remote.sh is missing; refusing to fetch or start new PR work.'
+sh "$project_dir/scripts/verify-github-remote.sh" "$verified_remote" || \
+	die 'The selected remote does not resolve to the verified GitHub repository; refusing to fetch or start new PR work.'
+
 push_url="$(git_at config --get-all "remote.$verified_remote.pushurl" 2>/dev/null || true)"
 [ -n "$push_url" ] || push_url="$remote_url"
 is_verified_remote "$push_url" || die "Push URL for remote '$verified_remote' is not the verified duuuude/xray-mitm-openwrt GitHub repository."
