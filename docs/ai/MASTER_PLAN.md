@@ -1,6 +1,6 @@
 # Xray MITM OpenWrt — Master Plan
 
-Status: current roadmap; last audited 2026-09-21
+Status: current roadmap; last audited 2026-09-22
 
 This plan is based on the actual canonical repository, not on an earlier plan
 or historical checkout.
@@ -11,8 +11,10 @@ The authoritative source is:
 
 - Repository: `https://github.com/duuuude/xray-mitm-openwrt.git`
 - Public branch: `main`
-- Review/audit baseline: `bff3a9dc0654f9512819eb5051091edad70536a4`, the current
-  `main` commit after PR #59, the PassWall2 capability-fallback change, merged
+- Review/audit baseline: `9ec0a9a1be5bec3f4d7d67fcec2a21177bdf5c39`, the current
+  `main` commit after PR #62, the guarded router DNS fallback correction,
+  merged after protected signing, AX4200 OpenWrt 25.12 validation, trusted
+  rollback/recovery, and post-merge IPK/APK verification
 - Observed package baseline: `0.4.4-r2` in development metadata; the published
   25.12 release remains separately versioned and signed
 - Canonical clone root: `<repo-root>`
@@ -26,6 +28,15 @@ remotes, upstream, and status before acting.
 Use one canonical clone for repository work and create isolated task worktrees
 only under `<workspace-root>/worktrees/`. Any destructive cleanup must follow
 the safety rules in `AGENTS.md`; ambiguous work is not removed automatically.
+
+Recent merged evidence:
+
+- PR #62 exact candidate `047d08a1bb78b1d3492efacaf6d8f3535e22441e` was
+  protected-signed as artifact `10697846012`, installed on the AX4200, tested
+  with the guarded helper, rolled back through the trusted feed, and restored
+  byte-for-byte. Post-merge 24.10/IPK and 25.12/APK verification both passed.
+  The full helper install/remove lifecycle from a PassWall2-disabled,
+  fallback-absent state and native 24.10/IPK runtime remain unproven.
 
 The current public product contract targets official OpenWrt 25.12.x with APK
 packages. The public feed and CI use the 25.12.5 `aarch64_generic` SDK baseline,
@@ -188,12 +199,13 @@ future work.
 ### Product correctness
 
 The P1 partial-bundle inspection defect is complete in merged PR #48. No
-product-correctness PR is active. The compatibility Stage 4 capability/fallback
-implementation is complete in merged PR #59. Its bounded 25.12/APK runtime and
-rollback evidence is recorded in `docs/OPENWRT_24_25_STAGE4_EVIDENCE.md`; the
-required LuCI/browser gate remains unproven, and native 24.10/IPK runtime
-behavior remains unproven. The next approved item is the build-once promotion
-initiative below.
+product-correctness PR is active. PR #59's compatibility Stage 4
+capability/fallback implementation and PR #62's guarded router DNS fallback
+correction are complete. PR #62 passed bounded 25.12/APK live package,
+service, DNS, and WAN checks, trusted rollback, byte-for-byte recovery, and
+post-merge verification. Its full disabled-PassWall2/fallback-absent lifecycle
+remains unproven, and native 24.10/IPK runtime behavior remains unproven. The
+next approved item is the build-once promotion initiative below.
 
 ## Workflow and tooling work
 
@@ -209,7 +221,10 @@ pilot. Stage 4 was completed through the local vertical slice recorded in PR
 #42; the exact candidate received independent approval, both required CI jobs
 passed, and the owner-approved squash merge is present on current `main`.
 Stage 5 was not invoked because the independent review returned no ordinary
-in-scope corrections. Stage 6 promotion was completed for this candidate.
+in-scope corrections. Stage 6 promotion was completed for this candidate. The
+protected exact-candidate signing and live validation
+gate was completed for PR #62 before merge; the long-term build-once promotion
+initiative below remains incomplete for future release publication.
 Stage 7 was not required because the candidate was documentation-only. Stage 8
 was then qualified for bounded local operation through the replay and safety
 cases recorded below. The default three-Work workflow remains the supported
@@ -228,6 +243,10 @@ unproven because the router certificate did not match the browser hostname and
 no bypass was allowed. Native 24.10/IPK runtime behavior also remains
 unproven. Later stages remain separately scoped and reviewed, not one platform
 build.
+PR #62 then corrected the guarded router DNS fallback and passed exact-head
+package CI, protected signing, AX4200 25.12 package/runtime validation,
+trusted rollback, and post-merge 24.10/IPK plus 25.12/APK verification. Its
+remaining helper lifecycle and native 24.10/IPK limits stay explicit.
 `docs/ai/AUTONOMOUS_PR.md` records the stage order, independence, cost boundary,
 and owner gates. No unattended router/release authority is approved by this
 scheduling decision.
@@ -295,6 +314,10 @@ unproven because no compatible target was available. The 25.12 APK path remains
 public and protected; 24.10 OPKG requires enabled signature checking plus
 explicit authenticated feed inputs and has no default public feed. Production
 publication and final 24.10 support claims remain future gates.
+
+The guarded router DNS fallback correction is complete in PR #62. Its protected
+candidate passed the 25.12/APK live gate and exact recovery; this does not
+establish native 24.10/IPK runtime support.
 
 The build workflow also accepts arbitrary `workflow_dispatch` release and
 architecture strings while the publish workflow is fixed to one baseline.
@@ -443,7 +466,8 @@ This completes the staged autonomous workflow qualification without changing
 the required three-Work operating model. At the time of this qualification,
 the official OpenWrt compatibility evidence initiative was the next active
 implementation item; its capability/fallback implementation slice is now
-complete in PR #59, with the remaining gates recorded in
+complete in PR #59 and its guarded router DNS fallback correction is complete
+in PR #62, with the remaining gates recorded in
 `docs/OPENWRT_24_25_STAGE4_EVIDENCE.md`.
 
 ## Qualification history
@@ -476,8 +500,9 @@ Acceptance criteria:
 
 ### Release workflow — build once and promote the exact tested artifact
 
-The compatibility Stage 4 implementation is complete in PR #59, with its
-bounded evidence and remaining browser/24.10 limitations recorded in
+The compatibility implementation and guarded DNS fallback correction are
+complete in PRs #59 and #62, with the bounded evidence and remaining
+browser/24.10 limitations recorded in
 `docs/OPENWRT_24_25_STAGE4_EVIDENCE.md`. The next substantive PR should close
 the remaining provenance gap between the artifact tested during PR validation
 and the artifact later signed or published.
