@@ -401,8 +401,20 @@ Do not automatically proceed to the next task.
 
 ## 25. Golden workflow
 
+After switching ChatGPT accounts, local project tokens, or Codex task contexts,
+previous task memory and duplicate Works are not repository state. Refresh the
+verified remote through the canonical workflow and run
+`sh scripts/verify-roadmap-state.sh` before choosing the next roadmap item.
+The guard verifies Git's effective fetch and push URLs after URL rewrites, then
+fetches current `main` before comparing the recorded roadmap baseline.
+Treat `ROADMAP_STATE=STALE` or `BLOCKED` as a stop condition: inspect the
+reported first-parent history, reconcile `MASTER_PLAN.md`, and only then start
+new work.
+
 ```text
 read current main
+→ run sh scripts/verify-roadmap-state.sh
+→ inspect its recent first-parent main history before selecting roadmap work
 → understand one problem
 → define scope
 → create branch/worktree

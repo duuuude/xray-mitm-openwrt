@@ -11,10 +11,9 @@ The authoritative source is:
 
 - Repository: `https://github.com/duuuude/xray-mitm-openwrt.git`
 - Public branch: `main`
-- Review/audit baseline: `9ec0a9a1be5bec3f4d7d67fcec2a21177bdf5c39`, the current
-  `main` commit after PR #62, the guarded router DNS fallback correction,
-  merged after protected signing, AX4200 OpenWrt 25.12 validation, trusted
-  rollback/recovery, and post-merge IPK/APK verification
+- Review/audit baseline: `4cddc4c7a8f03fd288c1d94cd4f43caa31aa6694`, the current
+  `main` commit after PR #63, the master-plan reconciliation following the
+  guarded router DNS fallback correction
 - Observed package baseline: `0.4.4-r2` in development metadata; the published
   25.12 release remains separately versioned and signed
 - Canonical clone root: `<repo-root>`
@@ -37,6 +36,16 @@ Recent merged evidence:
   byte-for-byte. Post-merge 24.10/IPK and 25.12/APK verification both passed.
   The full helper install/remove lifecycle from a PassWall2-disabled,
   fallback-absent state and native 24.10/IPK runtime remain unproven.
+
+- PR #61's build-once promotion path was merged in `main` as
+  `12bf2d5a66f6ad381dbf21988ebf90e9e4bf4572`. The main build records exact
+  source and package checksums; the protected tag workflow resolves, verifies,
+  and reuses that artifact without rebuilding packages. A real protected tag
+  publication remains an owner-gated release execution, not an unverified
+  support claim.
+
+- PR #63 merged this roadmap reconciliation as
+  `4cddc4c7a8f03fd288c1d94cd4f43caa31aa6694`; it changed documentation only.
 
 The current public product contract targets official OpenWrt 25.12.x with APK
 packages. The public feed and CI use the 25.12.5 `aarch64_generic` SDK baseline,
@@ -205,7 +214,7 @@ correction are complete. PR #62 passed bounded 25.12/APK live package,
 service, DNS, and WAN checks, trusted rollback, byte-for-byte recovery, and
 post-merge verification. Its full disabled-PassWall2/fallback-absent lifecycle
 remains unproven, and native 24.10/IPK runtime behavior remains unproven. The
-next approved item is the build-once promotion initiative below.
+next approved item is the machine-readable evidence initiative below.
 
 ## Workflow and tooling work
 
@@ -222,9 +231,12 @@ pilot. Stage 4 was completed through the local vertical slice recorded in PR
 passed, and the owner-approved squash merge is present on current `main`.
 Stage 5 was not invoked because the independent review returned no ordinary
 in-scope corrections. Stage 6 promotion was completed for this candidate. The
-protected exact-candidate signing and live validation
-gate was completed for PR #62 before merge; the long-term build-once promotion
-initiative below remains incomplete for future release publication.
+protected exact-candidate signing and live validation gate was completed for PR
+#62 before merge. PR #61 then implemented the build-once promotion path: the
+tag-triggered protected workflow resolves and verifies the successful main-build
+artifact for the exact release commit, and signs the reused package index
+without rebuilding package bytes. Actual protected tag/publication execution
+remains owner-gated.
 Stage 7 was not required because the candidate was documentation-only. Stage 8
 was then qualified for bounded local operation through the replay and safety
 cases recorded below. The default three-Work workflow remains the supported
@@ -247,6 +259,8 @@ PR #62 then corrected the guarded router DNS fallback and passed exact-head
 package CI, protected signing, AX4200 25.12 package/runtime validation,
 trusted rollback, and post-merge 24.10/IPK plus 25.12/APK verification. Its
 remaining helper lifecycle and native 24.10/IPK limits stay explicit.
+PR #61's promotion implementation is also complete; only a real protected
+tag/publication run remains an owner-gated operational release step.
 `docs/ai/AUTONOMOUS_PR.md` records the stage order, independence, cost boundary,
 and owner gates. No unattended router/release authority is approved by this
 scheduling decision.
@@ -283,10 +297,11 @@ owner-approved merge before selecting another PR.
    test results, built-artifact checksums, and browser/router gate ownership.
    This should follow the change-aware check, not replace human approval.
 
-2. **Build-once promotion.** The PR build and tag-triggered signed-feed build
-   currently build separately. The long-term workflow should prove that the
-   tested package bytes, metadata, and source commit are the exact bytes later
-   signed and published. Signing remains protected and owner-controlled.
+2. **Protected release execution evidence.** The build-once promotion path is
+   implemented and fails closed on source, metadata, package-byte, and checksum
+   mismatches. A real owner-approved tag-triggered publication still needs to
+   exercise that path and record the resulting release, Pages, and signed-feed
+   evidence; no release should be inferred from offline tests alone.
 
 ## OpenWrt compatibility work
 
@@ -326,15 +341,14 @@ matrix or clearly label manual inputs as unsupported experiments.
 
 ## Priority order and PR discipline
 
-Only the first item is active. The rest are queued; do not start a later item
-in parallel with an active PR. The priority order reflects the owner's
-workflow scheduling choice and records completed work separately from the one
-active initiative.
+Only the first item is active. The protected tag/publication run is an
+owner-gated operational release step, not a parallel implementation PR. The
+priority order reflects the owner's workflow scheduling choice and records
+completed work separately from the one active initiative.
 
 | Priority | One coherent PR / initiative | Type | Reason |
 | --- | --- | --- | --- |
-| 1 | Build once and promote the exact tested artifact | Release workflow | Removes the remaining PR-build/tag-build provenance gap. |
-| 2 | Generate a standard machine-readable PR evidence artifact | Developer tooling | Makes commit-bound tests, checksums, and manual-gate ownership consistent. |
+| 1 | Generate a standard machine-readable PR evidence artifact | Developer tooling | Makes commit-bound tests, checksums, and manual-gate ownership consistent. |
 
 ## Completed Stage 3 qualification record — merged PR #41
 
@@ -496,16 +510,17 @@ Acceptance criteria:
   cutover, unattended merge/release/signing/router authority, or product PR is
   implied by a passing replay.
 
-## Recommended next item
+## Completed release workflow record — PR #61
 
 ### Release workflow — build once and promote the exact tested artifact
 
 The compatibility implementation and guarded DNS fallback correction are
 complete in PRs #59 and #62, with the bounded evidence and remaining
 browser/24.10 limitations recorded in
-`docs/OPENWRT_24_25_STAGE4_EVIDENCE.md`. The next substantive PR should close
-the remaining provenance gap between the artifact tested during PR validation
-and the artifact later signed or published.
+`docs/OPENWRT_24_25_STAGE4_EVIDENCE.md`. PR #61 closes the provenance gap
+between the artifact tested during main-build validation and the artifact later
+signed or published; a real protected tag/publication run remains a separate
+owner-gated release operation.
 
 Scope:
 
@@ -532,6 +547,42 @@ Acceptance criteria:
   remain separate and fail closed on missing or mismatched evidence.
 - Existing 25.12/APK behavior, the dual-backend installer boundaries, and the
   compatibility fallback remain unchanged.
+
+## Recommended next item
+
+### Developer tooling — standard machine-readable PR evidence artifact
+
+The next substantive implementation should make the existing commit-bound
+`scripts/check-pr.sh` evidence durable and machine-readable without replacing
+the human report or independent review. It should let CI and the Development
+Lead consume one exact record for base/head, changed paths, commands, results,
+artifact checksums, and manual-gate ownership.
+
+Scope:
+
+- Define a versioned, secret-free evidence schema for exact base and candidate
+  commits, changed files/categories, executed checks, skipped checks, results,
+  package/artifact checksums when applicable, and manual-gate status.
+- Emit the record from the existing change-aware checker and attach it as a
+  bounded CI artifact for the candidate without changing router or release
+  authority.
+- Keep the human-readable report, independent review, protected signing,
+  release ownership, and router/browser gates separate and fail closed.
+
+Out of scope:
+
+- Rebuilding or republishing package artifacts.
+- Public 24.10 support, router mutation, certificate changes, or automatic
+  signing/release/merge authority.
+
+Acceptance criteria:
+
+- The schema is stable, versioned, deterministic, and contains no secrets or
+  private router data.
+- The exact base/head and every reported command/result are demonstrably bound
+  to the candidate; missing or changed evidence is a failure.
+- Documentation-only candidates remain lightweight and do not trigger package
+  workflows, while package candidates retain their existing gates.
 
 ## Validation and release gates for future work
 
@@ -562,10 +613,10 @@ owner-controlled release sequence.
 - No merge, tag, release, force-push, or signing action merely because tests
   are green.
 
-The next state change is the build-once promotion initiative above. Do not
-begin optional automatic routing, public 24.10 publication, or machine-readable
-evidence-artifact work in parallel with it. Do not repeat the completed
-compatibility Stage 4 capability/fallback work.
+The next state change is the machine-readable evidence-artifact initiative
+above. Do not begin optional automatic routing, public 24.10 publication, or a
+protected tag/publication run in parallel with it. Do not repeat the completed
+build-once promotion or compatibility Stage 4 capability/fallback work.
 Revalidate this plan after the qualification and after every later
 owner-approved stage merge. Do not repeat the completed autonomous-PR Stage 4
 work or select a later compatibility stage without current-main verification.

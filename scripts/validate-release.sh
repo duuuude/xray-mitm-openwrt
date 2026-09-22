@@ -14,6 +14,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_promotion_artifact.py
 PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_signed_feed.py"
 PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_release_preflight.py"
 PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_start_pr.py"
+PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_roadmap_state.py"
 PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_check_pr.py"
 PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_startup.py"
 PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_package_matrix.py"
@@ -32,6 +33,7 @@ for relative in \
 	scripts/release-preflight.sh \
 	scripts/start-pr.sh \
 	scripts/check-pr.sh \
+	scripts/verify-github-remote.sh \
 	scripts/router-local-test.sh \
 	scripts/check-release-version.sh \
 	scripts/release-notes.sh \

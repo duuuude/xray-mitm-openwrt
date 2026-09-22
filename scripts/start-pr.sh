@@ -121,6 +121,10 @@ else
 	remote_url="$(git_at config --get-all "remote.$verified_remote.url")"
 fi
 
+[ -f "$project_dir/scripts/verify-github-remote.sh" ] || die 'Required scripts/verify-github-remote.sh is missing; refusing to fetch or start new PR work.'
+sh "$project_dir/scripts/verify-github-remote.sh" "$verified_remote" || \
+	die 'The selected remote does not resolve to the verified GitHub repository; refusing to fetch or start new PR work.'
+
 push_url="$(git_at config --get-all "remote.$verified_remote.pushurl" 2>/dev/null || true)"
 [ -n "$push_url" ] || push_url="$remote_url"
 is_verified_remote "$push_url" || die "Push URL for remote '$verified_remote' is not the verified duuuude/xray-mitm-openwrt GitHub repository."
@@ -149,6 +153,12 @@ main_status="$(git_at status --porcelain --untracked-files=all)" || die 'Could n
 [ -z "$main_status" ] || die 'The canonical main checkout became dirty during synchronization.'
 base_commit="$(git_at rev-parse --verify refs/heads/main)"
 [ ! -L "$worktrees_root" ] || die "The worktrees root became a symlink: $worktrees_root"
+
+[ -f "$project_dir/docs/ai/MASTER_PLAN.md" ] || die 'Required docs/ai/MASTER_PLAN.md is missing; refusing to start new PR work.'
+[ -f "$project_dir/scripts/verify-roadmap-state.sh" ] || die 'Required scripts/verify-roadmap-state.sh is missing; refusing to start new PR work.'
+sh "$project_dir/scripts/verify-roadmap-state.sh" "$verified_remote" || \
+	die 'Current main and MASTER_PLAN.md are not reconciled; refusing to start new PR work.'
+
 mkdir -p "$worktrees_root"
 canonical_worktrees_root="$(CDPATH= cd -- "$worktrees_root" 2>/dev/null && pwd -P)" || die 'The worktrees root could not be resolved after synchronization.'
 [ "$canonical_worktrees_root" = "$worktrees_root" ] || die "The worktrees root must not resolve outside $worktrees_root."
