@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+import os
 import pathlib
+import re
 import subprocess
+import tempfile
 import unittest
 
 
@@ -66,11 +69,57 @@ class RouterDnsFallbackTests(unittest.TestCase):
         self.assertGreaterEqual(script.count("dns_lookup_ok()"), 2)
         self.assertIn('while [ "$attempt" -le 3 ]; do', script)
         self.assertIn('timeout 4 nslookup "$name" 127.0.0.1', script)
+        self.assertEqual(script.count('grep -Fqx "$name"'), 2)
+        self.assertNotIn('grep -Fq "Name: $name"', script)
         self.assertIn("printf 'dns_example='", script)
         self.assertIn("printf 'dns_iana='", script)
         self.assertIn("printf 'dns_checks='", script)
         self.assertIn("for name in openwrt.org iana.org; do", script)
         self.assertNotIn("for name in example.com openwrt.org; do", script)
+
+    def test_dns_name_match_rejects_non_exact_nslookup_names(self) -> None:
+        script = (ROOT / "scripts" / "router-dns-fallback.sh").read_text()
+        functions = re.findall(
+            r"(?ms)^dns_lookup_ok\(\) \{\n.*?^\}\n", script
+        )
+        self.assertEqual(len(functions), 2)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            bin_dir = pathlib.Path(temp_dir) / "bin"
+            bin_dir.mkdir()
+            (bin_dir / "timeout").write_text("#!/bin/sh\nshift\nexec \"$@\"\n")
+            (bin_dir / "nslookup").write_text(
+                "#!/bin/sh\ncat \"$DNS_OUTPUT\"\n"
+            )
+            (bin_dir / "sleep").write_text("#!/bin/sh\nexit 0\n")
+            for path in bin_dir.iterdir():
+                path.chmod(0o755)
+
+            env = os.environ.copy()
+            env["PATH"] = f"{bin_dir}:{env['PATH']}"
+            output_path = pathlib.Path(temp_dir) / "nslookup.out"
+            env["DNS_OUTPUT"] = str(output_path)
+
+            def run_lookup(output: str) -> subprocess.CompletedProcess[str]:
+                output_path.write_text(output)
+                return subprocess.run(
+                    ["sh", "-c", f"{functions[0]}\ndns_lookup_ok openwrt.org"],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    env=env,
+                )
+
+            self.assertEqual(
+                run_lookup("Name: openwrt.org  \nAddress: 192.0.2.1\n").returncode,
+                0,
+            )
+            for impostor in (
+                "Name: openwrt.org.evil\nAddress: 192.0.2.1\n",
+                "Name: evil.openwrt.org\nAddress: 192.0.2.1\n",
+                "Answer contains openwrt.org\nAddress: 192.0.2.1\n",
+            ):
+                self.assertNotEqual(run_lookup(impostor).returncode, 0)
 
     def test_rollback_preserves_helper_when_cleanup_fails(self) -> None:
         script = (ROOT / "scripts" / "router-dns-fallback.sh").read_text()

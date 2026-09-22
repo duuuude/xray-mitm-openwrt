@@ -65,7 +65,9 @@ dns_lookup_ok() {
 	attempt=1
 	while [ "$attempt" -le 3 ]; do
 		if timeout 4 nslookup "$name" 127.0.0.1 2>/dev/null |
-			grep -Fq "Name: $name"; then
+			sed -n 's/^Name:[[:space:]]*//p' |
+			sed 's/[[:space:]]*$//' |
+			grep -Fqx "$name"; then
 			return 0
 		fi
 		[ "$attempt" -ge 3 ] || sleep 1
@@ -152,7 +154,9 @@ dns_lookup_ok() {
 	attempt=1
 	while [ "$attempt" -le 3 ]; do
 		if timeout 4 nslookup "$name" 127.0.0.1 2>&1 |
-			grep -Fq "Name: $name"; then
+			sed -n 's/^Name:[[:space:]]*//p' |
+			sed 's/[[:space:]]*$//' |
+			grep -Fqx "$name"; then
 			return 0
 		fi
 		[ "$attempt" -ge 3 ] || sleep 1
