@@ -62,7 +62,12 @@ class RouterDnsFallbackTests(unittest.TestCase):
             "grep -Eq '\\.server=.*127\\.0\\.0\\.1#2005'",
             script,
         )
-        self.assertIn("test \"$(uci changes | wc -l | tr -d ' ')\" = 0", script)
+        self.assertIn("uci_changes_clean", script)
+        self.assertIn(
+            "if ! uci_changes_output=$(uci changes 2>/dev/null); then",
+            script,
+        )
+        self.assertNotIn("uci changes | wc -l | tr -d ' '", script)
 
     def test_dns_gate_retries_and_uses_stable_domains(self) -> None:
         script = (ROOT / "scripts" / "router-dns-fallback.sh").read_text()
@@ -124,10 +129,135 @@ class RouterDnsFallbackTests(unittest.TestCase):
     def test_rollback_preserves_helper_when_cleanup_fails(self) -> None:
         script = (ROOT / "scripts" / "router-dns-fallback.sh").read_text()
         self.assertIn("rollback_ok=1", script)
-        self.assertIn('"$init_target" disable >/dev/null 2>&1 || rollback_ok=0', script)
-        self.assertIn('"$init_target" stop >/dev/null 2>&1 || rollback_ok=0', script)
-        self.assertIn("if listener_present; then", script)
+        self.assertIn(
+            'if "$init_target" disable >/dev/null 2>&1; then :; else rollback_ok=0; fi',
+            script,
+        )
+        self.assertIn(
+            'if "$init_target" stop >/dev/null 2>&1; then :; else rollback_ok=0; fi',
+            script,
+        )
+        self.assertIn("if listener_state_value=$(listener_state); then", script)
+        self.assertIn("rollback_ok=0", script)
         self.assertIn('if [ "$rollback_ok" -eq 1 ]; then', script)
+
+    def test_uci_and_listener_inspection_fail_closed(self) -> None:
+        script = (ROOT / "scripts" / "router-dns-fallback.sh").read_text()
+        uci_functions = re.findall(
+            r"(?ms)^uci_changes_clean\(\) \{\n.*?^\}\n", script
+        )
+        listener_functions = re.findall(
+            r"(?ms)^listener_state\(\) \{\n.*?^\}\n", script
+        )
+        self.assertEqual(len(uci_functions), 2)
+        self.assertEqual(len(listener_functions), 3)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            bin_dir = pathlib.Path(temp_dir) / "bin"
+            bin_dir.mkdir()
+            (bin_dir / "uci").write_text(
+                """#!/bin/sh
+if [ "$1" = changes ]; then
+    case "$UCI_MODE" in
+        fail) exit 1 ;;
+        pending) printf '%s\\n' pending-change ;;
+    esac
+fi
+"""
+            )
+            listener_command = """#!/bin/sh
+case "$LISTENER_MODE" in
+    present) printf '%s\\n' 'LISTEN 0 128 127.0.0.1:2005 0.0.0.0:*' ;;
+    absent) : ;;
+    fail) exit 1 ;;
+esac
+"""
+            (bin_dir / "ss").write_text(listener_command)
+            (bin_dir / "netstat").write_text(listener_command)
+            for path in bin_dir.iterdir():
+                path.chmod(0o755)
+
+            env = os.environ.copy()
+            env["PATH"] = f"{bin_dir}:{env['PATH']}"
+
+            def run_function(
+                function: str,
+                invocation: str,
+                **updates: str,
+            ) -> subprocess.CompletedProcess:
+                trial_env = env.copy()
+                trial_env.update(updates)
+                return subprocess.run(
+                    ["sh", "-c", f"{function}\n{invocation}"],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    env=trial_env,
+                )
+
+            for function in uci_functions:
+                self.assertNotEqual(
+                    run_function(function, "uci_changes_clean", UCI_MODE="fail").returncode,
+                    0,
+                )
+                self.assertNotEqual(
+                    run_function(
+                        function,
+                        "uci_changes_clean",
+                        UCI_MODE="pending",
+                    ).returncode,
+                    0,
+                )
+                self.assertEqual(
+                    run_function(function, "uci_changes_clean", UCI_MODE="clean").returncode,
+                    0,
+                )
+
+            for function in listener_functions:
+                present = run_function(
+                    function,
+                    "listener_state",
+                    LISTENER_MODE="present",
+                )
+                self.assertEqual(present.returncode, 0)
+                self.assertEqual(present.stdout, "present\n")
+
+                absent = run_function(
+                    function,
+                    "listener_state",
+                    LISTENER_MODE="absent",
+                )
+                self.assertEqual(absent.returncode, 0)
+                self.assertEqual(absent.stdout, "absent\n")
+
+                failed = run_function(
+                    function,
+                    "listener_state",
+                    LISTENER_MODE="fail",
+                )
+                self.assertNotEqual(failed.returncode, 0)
+                self.assertEqual(failed.stdout, "unknown\n")
+
+    def test_remove_verifies_listener_absence_before_deleting_owned_files(self) -> None:
+        script = (ROOT / "scripts" / "router-dns-fallback.sh").read_text()
+        remove_body = re.search(
+            r"(?ms)remove_fallback\(\) \{\n\tssh_router sh -s <<'REMOTE'\n(.*?)\nREMOTE",
+            script,
+        )
+        self.assertIsNotNone(remove_body)
+        body = remove_body.group(1)
+        self.assertIn("uci_changes_clean", body)
+        self.assertIn("removal_ok=1", body)
+        self.assertIn("if listener_state_value=$(listener_state); then", body)
+        self.assertIn('if [ "$listener_state_value" = absent ]; then', body)
+        self.assertIn(
+            "router_dns_fallback: refusing removal until DNS listener absence is verified",
+            body,
+        )
+        self.assertLess(
+            body.index("if [ \"$removal_ok\" -ne 1 ] || [ \"$i\" -ge 10 ]; then"),
+            body.index("rm -f /etc/xray-mitm/dns-proxy.json"),
+        )
 
     def test_local_hashing_supports_macos_and_linux_tools(self) -> None:
         script = (ROOT / "scripts" / "router-dns-fallback.sh").read_text()

@@ -84,6 +84,42 @@ dns_result() {
 	fi
 }
 
+listener_state() {
+	listener_output=
+	if listener_output=$(ss -lntup 2>/dev/null); then
+		if printf '%s\n' "$listener_output" |
+			grep -qE '127\.0\.0\.1:2005|::1:2005'; then
+			printf 'present\n'
+		else
+			printf 'absent\n'
+		fi
+		return 0
+	fi
+	if listener_output=$(netstat -lntup 2>/dev/null); then
+		if printf '%s\n' "$listener_output" |
+			grep -qE '127\.0\.0\.1:2005|::1:2005'; then
+			printf 'present\n'
+		else
+			printf 'absent\n'
+		fi
+		return 0
+	fi
+	printf 'unknown\n'
+	return 1
+}
+
+uci_changes_result() {
+	if uci_changes_output=$(uci changes 2>/dev/null); then
+		if [ -n "$uci_changes_output" ]; then
+			printf 'pending\n'
+		else
+			printf '0\n'
+		fi
+	else
+		printf 'unknown\n'
+	fi
+}
+
 printf 'passwall2='
 uci -q get passwall2.@global[0].enabled || true
 printf 'dns_noresolv='
@@ -98,12 +134,8 @@ else
 	printf 'absent\n'
 fi
 printf 'listener='
-if (ss -lntup 2>/dev/null || netstat -lntup 2>/dev/null) |
-   grep -qE '127\.0\.0\.1:2005|::1:2005'; then
-	printf 'present\n'
-else
-	printf 'absent\n'
-fi
+listener_state_value=$(listener_state) || listener_state_value=unknown
+printf '%s\n' "$listener_state_value"
 printf 'dns_example='
 dns_result example.com
 printf 'dns_openwrt='
@@ -123,8 +155,7 @@ else
 	printf 'fail\n'
 fi
 printf 'uci_changes='
-uci changes | wc -l | tr -d ' '
-printf '\n'
+uci_changes_result
 REMOTE
 }
 
@@ -165,20 +196,54 @@ dns_lookup_ok() {
 	return 1
 }
 
-listener_present() {
-	(ss -lntup 2>/dev/null || netstat -lntup 2>/dev/null) |
-		grep -qE '127\.0\.0\.1:2005|::1:2005'
+listener_state() {
+	listener_output=
+	if listener_output=$(ss -lntup 2>/dev/null); then
+		if printf '%s\n' "$listener_output" |
+			grep -qE '127\.0\.0\.1:2005|::1:2005'; then
+			printf 'present\n'
+		else
+			printf 'absent\n'
+		fi
+		return 0
+	fi
+	if listener_output=$(netstat -lntup 2>/dev/null); then
+		if printf '%s\n' "$listener_output" |
+			grep -qE '127\.0\.0\.1:2005|::1:2005'; then
+			printf 'present\n'
+		else
+			printf 'absent\n'
+		fi
+		return 0
+	fi
+	printf 'unknown\n'
+	return 1
+}
+
+uci_changes_clean() {
+	if ! uci_changes_output=$(uci changes 2>/dev/null); then
+		printf '%s\n' 'router_dns_fallback: unable to inspect UCI changes' >&2
+		return 1
+	fi
+	if [ -n "$uci_changes_output" ]; then
+		printf '%s\n' 'router_dns_fallback: refusing while UCI changes are pending' >&2
+		return 1
+	fi
 }
 
 rollback() {
 	if [ "$installed" -eq 0 ]; then
 		rollback_ok=1
 		if [ -x "$init_target" ]; then
-			"$init_target" disable >/dev/null 2>&1 || rollback_ok=0
-			"$init_target" stop >/dev/null 2>&1 || rollback_ok=0
-			if listener_present; then
+			if "$init_target" disable >/dev/null 2>&1; then :; else rollback_ok=0; fi
+			if "$init_target" stop >/dev/null 2>&1; then :; else rollback_ok=0; fi
+		fi
+		if listener_state_value=$(listener_state); then
+			if [ "$listener_state_value" != absent ]; then
 				rollback_ok=0
 			fi
+		else
+			rollback_ok=0
 		fi
 		if [ "$rollback_ok" -eq 1 ]; then
 			rm -f "$config_target" "$init_target" "$marker_target"
@@ -197,7 +262,7 @@ test ! -e "$init_target"
 test ! -e "$marker_target"
 test "$(uci -q get passwall2.@global[0].enabled || true)" = 0
 test "$(uci -q get dhcp.@dnsmasq[0].server || true)" = '127.0.0.1#2005'
-test "$(uci changes | wc -l | tr -d ' ')" = 0
+uci_changes_clean
 test -x /usr/bin/xray
 XRAY_LOCATION_ASSET=/usr/share/v2ray /usr/bin/xray run -test -c "$stage/config.json" >/dev/null 2>&1
 
@@ -214,9 +279,13 @@ chmod 0600 "$marker_target"
 "$init_target" start
 i=0
 while [ "$i" -lt 10 ]; do
-	if (ss -lntup 2>/dev/null || netstat -lntup 2>/dev/null) |
-		grep -qE '127\.0\.0\.1:2005|::1:2005'; then
-		break
+	if listener_state_value=$(listener_state); then
+		if [ "$listener_state_value" = present ]; then
+			break
+		fi
+	else
+		printf '%s\n' 'router_dns_fallback: unable to inspect DNS listener' >&2
+		exit 1
 	fi
 	i=$((i + 1))
 	sleep 1
@@ -231,7 +300,7 @@ for name in openwrt.org iana.org; do
 done
 
 test "$(uci -q get passwall2.@global[0].enabled || true)" = 0
-test "$(uci changes | wc -l | tr -d ' ')" = 0
+uci_changes_clean
 ping -c 1 -W 3 1.1.1.1 >/dev/null 2>&1
 installed=1
 trap - EXIT INT TERM
@@ -244,6 +313,42 @@ REMOTE
 remove_fallback() {
 	ssh_router sh -s <<'REMOTE'
 set -eu
+
+listener_state() {
+	listener_output=
+	if listener_output=$(ss -lntup 2>/dev/null); then
+		if printf '%s\n' "$listener_output" |
+			grep -qE '127\.0\.0\.1:2005|::1:2005'; then
+			printf 'present\n'
+		else
+			printf 'absent\n'
+		fi
+		return 0
+	fi
+	if listener_output=$(netstat -lntup 2>/dev/null); then
+		if printf '%s\n' "$listener_output" |
+			grep -qE '127\.0\.0\.1:2005|::1:2005'; then
+			printf 'present\n'
+		else
+			printf 'absent\n'
+		fi
+		return 0
+	fi
+	printf 'unknown\n'
+	return 1
+}
+
+uci_changes_clean() {
+	if ! uci_changes_output=$(uci changes 2>/dev/null); then
+		printf '%s\n' 'router_dns_fallback: unable to inspect UCI changes' >&2
+		return 1
+	fi
+	if [ -n "$uci_changes_output" ]; then
+		printf '%s\n' 'router_dns_fallback: refusing while UCI changes are pending' >&2
+		return 1
+	fi
+}
+
 test -f /etc/xray-mitm/dns-fallback.managed
 test "$(cat /etc/xray-mitm/dns-fallback.managed)" = xray-mitm-dns-fallback-v1
 dnsmasq_config=$(uci -q show dhcp.@dnsmasq[0]) || {
@@ -255,9 +360,27 @@ if printf '%s\n' "$dnsmasq_config" |
 	printf '%s\n' 'refusing removal while dnsmasq still targets 127.0.0.1#2005' >&2
 	exit 1
 fi
-test "$(uci changes | wc -l | tr -d ' ')" = 0
-/etc/init.d/xray-mitm-dns stop
-/etc/init.d/xray-mitm-dns disable
+uci_changes_clean
+removal_ok=1
+if /etc/init.d/xray-mitm-dns stop; then :; else removal_ok=0; fi
+if /etc/init.d/xray-mitm-dns disable; then :; else removal_ok=0; fi
+i=0
+while [ "$i" -lt 10 ]; do
+	if listener_state_value=$(listener_state); then
+		if [ "$listener_state_value" = absent ]; then
+			break
+		fi
+	else
+		removal_ok=0
+		break
+	fi
+	i=$((i + 1))
+	sleep 1
+done
+if [ "$removal_ok" -ne 1 ] || [ "$i" -ge 10 ]; then
+	printf '%s\n' 'router_dns_fallback: refusing removal until DNS listener absence is verified' >&2
+	exit 1
+fi
 rm -f /etc/xray-mitm/dns-proxy.json /etc/init.d/xray-mitm-dns /etc/xray-mitm/dns-fallback.managed
 printf 'router_dns_fallback=removed\n'
 REMOTE
