@@ -124,6 +124,16 @@ LUCI_DEPENDENCIES = {
     "+ucode-mod-fs",
 }
 
+APK_BUILD_TRIGGER_PATHS = (
+    ".github/workflows/build.yml",
+    "ci/**",
+    "install.sh",
+    "luci-app-xray-mitm/**",
+    "scripts/**",
+    "tests/**",
+    "xray-mitm/**",
+)
+
 EXPECTED_INBOUNDS = {
     ("mixed-in", "mixed", "127.0.0.1", 10808),
     ("tls-decrypt-h11", "tunnel", "127.0.0.1", 11666),
@@ -397,6 +407,15 @@ def check_workflow(root: Path, errors: list[str]) -> None:
 
     relative = ".github/workflows/build.yml"
     text = (root / relative).read_text(encoding="utf-8", errors="replace")
+    if not re.search(r"(?ms)^  pull_request:\n    paths:\n", text):
+        errors.append(f"{relative} must path-filter its pull_request trigger")
+    if not re.search(
+        r"(?ms)^  push:\n    branches:\n(?:      - .+\n)+    paths:\n", text
+    ):
+        errors.append(f"{relative} must path-filter its push trigger")
+    for path in APK_BUILD_TRIGGER_PATHS:
+        if f'      - "{path}"' not in text:
+            errors.append(f"{relative} is missing package-build path filter {path}")
     for required in (
         "install.sh",
         "PACKAGES",

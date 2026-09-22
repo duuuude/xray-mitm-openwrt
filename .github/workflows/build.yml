@@ -4,7 +4,23 @@ on:
   push:
     branches:
       - main
+    paths:
+      - ".github/workflows/build.yml"
+      - "ci/**"
+      - "install.sh"
+      - "luci-app-xray-mitm/**"
+      - "scripts/**"
+      - "tests/**"
+      - "xray-mitm/**"
   pull_request:
+    paths:
+      - ".github/workflows/build.yml"
+      - "ci/**"
+      - "install.sh"
+      - "luci-app-xray-mitm/**"
+      - "scripts/**"
+      - "tests/**"
+      - "xray-mitm/**"
   workflow_dispatch:
     inputs:
       openwrt_release:
@@ -22,6 +38,7 @@ permissions:
   contents: read
 
 concurrency:
+  # A newer candidate supersedes older artifacts; stale runs must not be used.
   group: apk-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
