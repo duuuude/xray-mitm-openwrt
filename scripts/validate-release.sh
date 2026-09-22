@@ -17,6 +17,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_start_pr.py"
 PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_check_pr.py"
 PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_startup.py"
 PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_package_matrix.py"
+PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_router_dns_fallback.py"
 
 for relative in \
 	xray-mitm/files/etc/init.d/xray-mitm \
@@ -34,6 +35,8 @@ for relative in \
 	scripts/router-local-test.sh \
 	scripts/check-release-version.sh \
 	scripts/release-notes.sh \
+	scripts/router-dns-fallback.sh \
+	scripts/router-dns-fallback/init.d-xray-mitm-dns \
 	scripts/sign-apk-index.sh \
 	scripts/verify-promotion-artifact.sh \
 	ci/test-init-enable.sh

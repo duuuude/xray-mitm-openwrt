@@ -172,6 +172,28 @@ class CheckPrTests(unittest.TestCase):
         self.assertIn("OpenWrt integration: REQUIRED", result.stdout)
         self.assertIn("CHECK_PR_RESULT=BLOCKED", result.stdout)
 
+    def test_router_dns_fallback_changes_run_focus_and_block_for_openwrt_gate(self) -> None:
+        (self.project / "tests").mkdir()
+        (self.project / "tests/test_router_dns_fallback.py").write_text(
+            "print('fixture router DNS fallback test')\n", encoding="utf-8"
+        )
+        self.git("add", "tests/test_router_dns_fallback.py")
+        self.git("commit", "-m", "add fixture router DNS fallback test")
+        self.base = self.git("rev-parse", "HEAD")
+        head = self.commit_file(
+            "scripts/router-dns-fallback.sh",
+            "#!/bin/sh\nprintf '%s\\n' router-dns-fallback\n",
+        )
+
+        result = self.run_check(head)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Focused router-DNS fallback tests", result.stdout)
+        self.assertIn("Result: PASS", result.stdout)
+        self.assertIn("OpenWrt integration: REQUIRED", result.stdout)
+        self.assertIn("AX4200/browser validation: not required", result.stdout)
+        self.assertIn("CHECK_PR_RESULT=BLOCKED", result.stdout)
+
     def test_dirty_checkout_is_rejected_before_evidence(self) -> None:
         self.commit_file("docs/guide.md", "documentation\n")
         (self.project / "untracked.txt").write_text("uncommitted\n", encoding="utf-8")

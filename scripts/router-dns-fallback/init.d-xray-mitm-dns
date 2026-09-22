@@ -1,0 +1,25 @@
+#!/bin/sh /etc/rc.common
+
+START=97
+STOP=11
+USE_PROCD=1
+
+PROG="/usr/bin/xray"
+CONFIG="/etc/xray-mitm/dns-proxy.json"
+ASSET_DIR="/usr/share/v2ray"
+
+start_service() {
+	[ -x "$PROG" ] || return 1
+	[ -s "$CONFIG" ] || return 1
+	XRAY_LOCATION_ASSET="$ASSET_DIR" "$PROG" run -test -c "$CONFIG" >/dev/null 2>&1 || return 1
+
+	procd_open_instance
+	procd_set_param command "$PROG" run -c "$CONFIG"
+	procd_set_param env "XRAY_LOCATION_ASSET=$ASSET_DIR"
+	procd_set_param respawn 3600 5 5
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_set_param file "$CONFIG"
+	procd_set_param limits nofile="65536 65536"
+	procd_close_instance
+}

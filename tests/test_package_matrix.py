@@ -63,6 +63,25 @@ class PackageMatrixTests(unittest.TestCase):
         self.assertIn('printf \'%s\\n\' "$source_commit" > dist/SOURCE_COMMIT', workflow)
         self.assertNotIn('printf \'%s\\n\' "$GITHUB_SHA" > dist/SOURCE_COMMIT', workflow)
 
+    def test_apk_lane_is_path_filtered_to_package_changes(self) -> None:
+        workflow = APK_WORKFLOW.read_text(encoding="utf-8")
+
+        self.assertRegex(workflow, r"(?ms)^  pull_request:\n    paths:\n")
+        self.assertRegex(
+            workflow,
+            r"(?ms)^  push:\n    branches:\n(?:      - .+\n)+    paths:\n",
+        )
+        for path in (
+            ".github/workflows/build.yml",
+            "ci/**",
+            "install.sh",
+            "luci-app-xray-mitm/**",
+            "scripts/**",
+            "tests/**",
+            "xray-mitm/**",
+        ):
+            self.assertIn(f'      - "{path}"', workflow)
+
     def test_24_10_lane_is_bounded_unsigned_ipk_build(self) -> None:
         workflow = IPK_WORKFLOW.read_text(encoding="utf-8")
 

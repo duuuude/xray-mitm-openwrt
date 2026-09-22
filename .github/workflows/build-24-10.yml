@@ -7,7 +7,10 @@ on:
       - "ci/**"
       - "luci-app-xray-mitm/**"
       - "scripts/validate-release.sh"
+      - "scripts/router-dns-fallback.sh"
+      - "scripts/router-dns-fallback/**"
       - "tests/test_package_matrix.py"
+      - "tests/test_router_dns_fallback.py"
       - "xray-mitm/**"
   push:
     branches:
@@ -17,7 +20,10 @@ on:
       - "ci/**"
       - "luci-app-xray-mitm/**"
       - "scripts/validate-release.sh"
+      - "scripts/router-dns-fallback.sh"
+      - "scripts/router-dns-fallback/**"
       - "tests/test_package_matrix.py"
+      - "tests/test_router_dns_fallback.py"
       - "xray-mitm/**"
 
 permissions:

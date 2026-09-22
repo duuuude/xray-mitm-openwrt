@@ -72,6 +72,7 @@ python=0
 frontend=0
 passwall2=0
 installer=0
+router_dns_fallback=0
 package=0
 release=0
 workflow_security=0
@@ -88,6 +89,7 @@ focus_signed_feed=0
 focus_start_pr=0
 focus_startup=0
 focus_check_pr=0
+focus_router_dns_fallback=0
 
 classify_path() {
 	path=$1
@@ -133,6 +135,13 @@ classify_path() {
 			;;
 	esac
 	case "$path" in
+		scripts/router-dns-fallback.sh|scripts/router-dns-fallback/*)
+			router_dns_fallback=1
+			focus_router_dns_fallback=1
+			known=1
+			;;
+	esac
+	case "$path" in
 		xray-mitm/*|luci-app-xray-mitm/*|*/Makefile|Makefile)
 			package=1
 			known=1
@@ -163,6 +172,7 @@ classify_path() {
 		tests/test_start_pr.py) focus_start_pr=1 ;;
 		tests/test_startup.py) focus_startup=1 ;;
 		tests/test_check_pr.py) focus_check_pr=1 ;;
+		tests/test_router_dns_fallback.py) focus_router_dns_fallback=1 ;;
 	esac
 	case "$path" in
 		scripts/release-preflight.sh) focus_release_preflight=1 ;;
@@ -197,6 +207,7 @@ add_category() {
 [ "$package" -eq 1 ] && add_category package
 [ "$passwall2" -eq 1 ] && add_category passwall2
 [ "$installer" -eq 1 ] && add_category installer
+[ "$router_dns_fallback" -eq 1 ] && add_category router-dns-fallback
 [ "$release" -eq 1 ] && add_category release
 [ "$workflow_security" -eq 1 ] && add_category workflow-security
 [ "$unknown" -eq 1 ] && add_category unknown
@@ -367,6 +378,9 @@ fi
 if [ "$focus_check_pr" -eq 1 ]; then
 	run_check 'Focused check-pr tests' 'PYTHONDONTWRITEBYTECODE=1 python3 tests/test_check_pr.py' env PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_check_pr.py"
 fi
+if [ "$focus_router_dns_fallback" -eq 1 ]; then
+	run_check 'Focused router-DNS fallback tests' 'PYTHONDONTWRITEBYTECODE=1 python3 tests/test_router_dns_fallback.py' env PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_router_dns_fallback.py"
+fi
 
 run_check 'Exact base/candidate whitespace check' "git diff --check $base_sha $candidate_sha" git -C "$project_dir" diff --check "$base_sha" "$candidate_sha"
 
@@ -410,7 +424,7 @@ if [ "$frontend" -eq 1 ]; then
 	printf '%s\n' 'OpenWrt integration: REQUIRED (not performed by this read-only check)'
 	printf '%s\n' 'AX4200/browser validation: REQUIRED (not performed by this read-only check)'
 	manual_blocked=1
-elif [ "$passwall2" -eq 1 ] || [ "$package" -eq 1 ] || [ "$installer" -eq 1 ]; then
+elif [ "$passwall2" -eq 1 ] || [ "$package" -eq 1 ] || [ "$installer" -eq 1 ] || [ "$router_dns_fallback" -eq 1 ]; then
 	printf '%s\n' 'OpenWrt integration: REQUIRED (not performed by this read-only check)'
 	printf '%s\n' 'AX4200/browser validation: not required by the changed categories'
 	manual_blocked=1
@@ -439,6 +453,9 @@ if [ "$frontend" -eq 1 ]; then
 fi
 if [ "$passwall2" -eq 1 ]; then
 	printf '%s\n' '- Live PassWall2 routing and rollback behavior: UNPROVEN until the required AX4200 gate is completed.'
+fi
+if [ "$router_dns_fallback" -eq 1 ]; then
+	printf '%s\n' '- Live router DNS fallback lifecycle and rollback behavior: UNPROVEN until the required OpenWrt gate is completed.'
 fi
 
 if [ "$test_failures" -ne 0 ]; then
