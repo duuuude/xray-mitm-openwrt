@@ -23,12 +23,18 @@ class RoadmapStateTests(unittest.TestCase):
         root = Path(self.temp.name).resolve()
         self.project = root / "project"
         self.remote = root / "remote.git"
+        self.outside_docs = root / "outside-docs"
+        self.outside_docs.mkdir()
+        self.outside_plan = root / "outside-plan.md"
         self.fake_bin = root / "fake-bin"
         self.real_git = shutil.which("git")
         if self.real_git is None:
             raise unittest.SkipTest("git is required for roadmap-state tests")
         (self.project / "scripts").mkdir(parents=True)
         (self.project / "docs/ai").mkdir(parents=True)
+        (self.project / "docs/ai/escaped-plan.md").symlink_to("../../../outside-plan.md")
+        (self.project / "docs/ai/in-repo-plan-link.md").symlink_to("MASTER_PLAN.md")
+        (self.project / "linked-docs").symlink_to("../outside-docs", target_is_directory=True)
         self.fake_bin.mkdir()
         shutil.copy2(VERIFY, self.project / "scripts/verify-roadmap-state.sh")
         shutil.copy2(ROOT / "scripts/verify-github-remote.sh", self.project / "scripts/verify-github-remote.sh")
@@ -65,11 +71,22 @@ exec "$real_git" "$@"
         self.git("init", "-b", "main")
         self.git("config", "user.email", "test@example.invalid")
         self.git("config", "user.name", "Roadmap State Test")
-        self.git("add", "README.md", "scripts/verify-roadmap-state.sh", "scripts/verify-github-remote.sh")
+        self.git(
+            "add",
+            "README.md",
+            "linked-docs",
+            "docs/ai/escaped-plan.md",
+            "docs/ai/in-repo-plan-link.md",
+            "scripts/verify-roadmap-state.sh",
+            "scripts/verify-github-remote.sh",
+        )
         self.git("commit", "-m", "prepare roadmap fixture")
         baseline = self.git("rev-parse", "HEAD")
+        fixture_plan = f"# Fixture plan\n\n- Review/audit baseline: `{baseline}`, fixture main\n"
+        self.outside_plan.write_text(fixture_plan, encoding="utf-8")
+        (self.outside_docs / "MASTER_PLAN.md").write_text(fixture_plan, encoding="utf-8")
         (self.project / "docs/ai/MASTER_PLAN.md").write_text(
-            f"# Fixture plan\n\n- Review/audit baseline: `{baseline}`, fixture main\n",
+            fixture_plan,
             encoding="utf-8",
         )
         self.git("add", "docs/ai/MASTER_PLAN.md")
@@ -99,7 +116,12 @@ exec "$real_git" "$@"
         )
         return result.stdout.strip()
 
-    def run_verify(self, mock_fetch_url: bool = True, mock_push_url: bool = True) -> subprocess.CompletedProcess[str]:
+    def run_verify(
+        self,
+        mock_fetch_url: bool = True,
+        mock_push_url: bool = True,
+        plan_path: str = "docs/ai/MASTER_PLAN.md",
+    ) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
         env["PATH"] = f"{self.fake_bin}{os.pathsep}{env['PATH']}"
         env["ROADMAP_TEST_REAL_GIT"] = self.real_git or "git"
@@ -112,7 +134,7 @@ exec "$real_git" "$@"
         else:
             env.pop("ROADMAP_TEST_EFFECTIVE_PUSH_URL", None)
         return subprocess.run(
-            ["sh", str(self.project / "scripts/verify-roadmap-state.sh"), "origin"],
+            ["sh", str(self.project / "scripts/verify-roadmap-state.sh"), "origin", plan_path],
             cwd=self.project,
             text=True,
             stdout=subprocess.PIPE,
@@ -150,6 +172,39 @@ exec "$real_git" "$@"
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("main checkout is not clean", result.stderr)
+
+    def test_rejects_leading_parent_path_components(self) -> None:
+        for plan_path in ("../outside-plan.md", "..//outside-plan.md", "docs/../outside-plan.md"):
+            with self.subTest(plan_path=plan_path):
+                result = self.run_verify(plan_path=plan_path)
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("repository-relative file within the repository", result.stderr)
+                self.assertIn("ROADMAP_STATE=BLOCKED", result.stderr)
+                self.assertNotIn("ROADMAP_STATE=READY", result.stdout + result.stderr)
+
+    def test_rejects_final_file_symlink_escape(self) -> None:
+        result = self.run_verify(plan_path="docs/ai/escaped-plan.md")
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("repository-relative file within the repository", result.stderr)
+        self.assertIn("ROADMAP_STATE=BLOCKED", result.stderr)
+        self.assertNotIn("ROADMAP_STATE=READY", result.stdout + result.stderr)
+
+    def test_rejects_symlinked_parent_directory_escape(self) -> None:
+        result = self.run_verify(plan_path="linked-docs/MASTER_PLAN.md")
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("repository-relative file within the repository", result.stderr)
+        self.assertIn("ROADMAP_STATE=BLOCKED", result.stderr)
+        self.assertNotIn("ROADMAP_STATE=READY", result.stdout + result.stderr)
+
+    def test_accepts_symlink_resolving_within_repository(self) -> None:
+        result = self.run_verify(plan_path="docs/ai/in-repo-plan-link.md")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("ROADMAP_STATE=READY", result.stdout)
+        self.assertIn("Audit relation: plan-only-head-parent", result.stdout)
 
     def test_refreshes_remote_and_blocks_unreconciled_main(self) -> None:
         remote_clone = Path(self.temp.name) / "remote-clone"

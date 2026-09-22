@@ -23,6 +23,39 @@ git_at() {
 	git -C "$project_dir" "$@"
 }
 
+resolve_plan_path() (
+	path=$1
+
+	case "$path" in
+		''|/*) exit 1 ;;
+	esac
+	case "/$path/" in
+		*/../*|*/./*) exit 1 ;;
+	esac
+
+	path="$project_dir/$path"
+	symlink_count=0
+	while [ -L "$path" ]; do
+		[ "$symlink_count" -lt 40 ] || exit 1
+		parent=$(CDPATH= cd -- "$(dirname -- "$path")" && pwd -P) || exit 1
+		name=$(basename -- "$path") || exit 1
+		target=$(readlink "$parent/$name") || exit 1
+		case "$target" in
+			/*) path=$target ;;
+			*) path="$parent/$target" ;;
+		esac
+		symlink_count=$((symlink_count + 1))
+	done
+
+	parent=$(CDPATH= cd -- "$(dirname -- "$path")" && pwd -P) || exit 1
+	resolved="$parent/$(basename -- "$path")"
+	[ -f "$resolved" ] || exit 1
+	case "$resolved" in
+		"$project_dir"/*) printf '%s\n' "$resolved" ;;
+		*) exit 1 ;;
+	esac
+)
+
 [ -d "$project_dir" ] || die "Project directory does not exist: $project_dir"
 git_root=$(git_at rev-parse --show-toplevel 2>/dev/null) || die 'Could not inspect the Git repository root.'
 [ "$git_root" = "$project_dir" ] || die 'The helper must run from the canonical repository checkout.'
@@ -33,14 +66,8 @@ current_branch=$(git_at symbolic-ref --quiet --short HEAD 2>/dev/null || true)
 status_output=$(git_at status --porcelain --untracked-files=all 2>/dev/null) || die 'Could not inspect the canonical main status.'
 [ -z "$status_output" ] || die 'The canonical main checkout is not clean.'
 
-case "$plan_path" in
-	''|/*|*'/../'*|*'/./'*)
-		die 'The roadmap path must be a non-empty repository-relative path without dot components.'
-		;;
-esac
-
-plan_file="$project_dir/$plan_path"
-[ -f "$plan_file" ] || die "Roadmap file does not exist: $plan_path"
+plan_file=$(resolve_plan_path "$plan_path") || die 'The roadmap path must resolve to an existing repository-relative file within the repository.'
+plan_path=${plan_file#"$project_dir"/}
 [ -f "$remote_verifier" ] || die 'Required scripts/verify-github-remote.sh is missing.'
 sh "$remote_verifier" "$remote_name" || die 'The configured remote does not resolve to the verified GitHub repository.'
 
