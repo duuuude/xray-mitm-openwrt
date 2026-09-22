@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -13,6 +14,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CHECK_PR = ROOT / "scripts/check-pr.sh"
+PR_EVIDENCE = ROOT / "scripts/pr-evidence.py"
 
 
 class CheckPrTests(unittest.TestCase):
@@ -23,6 +25,7 @@ class CheckPrTests(unittest.TestCase):
         self.project = self.root / "project"
         (self.project / "scripts").mkdir(parents=True)
         shutil.copy2(CHECK_PR, self.project / "scripts/check-pr.sh")
+        shutil.copy2(PR_EVIDENCE, self.project / "scripts/pr-evidence.py")
         (self.project / "scripts/validate-release.sh").write_text(
             "#!/bin/sh\nset -eu\nprintf '%s\\n' 'fixture validation passed'\n",
             encoding="utf-8",
@@ -86,6 +89,83 @@ class CheckPrTests(unittest.TestCase):
         self.assertIn("Result: PASS", result.stdout)
         self.assertIn("OpenWrt integration: not required", result.stdout)
         self.assertIn("CHECK_PR_RESULT=READY_FOR_REVIEW", result.stdout)
+
+    def test_machine_evidence_is_exact_deterministic_and_secret_free(self) -> None:
+        head = self.commit_file("docs/guide.md", "documentation\n")
+        evidence = Path(self.temp.name) / "pr-evidence.json"
+        result = self.run_check(
+            head,
+            {
+                "PR_EVIDENCE_PATH": str(evidence),
+                "GITHUB_RUN_ID": "123456",
+                "GITHUB_RUN_ATTEMPT": "2",
+                "GITHUB_WORKFLOW": "PR evidence",
+                "GITHUB_EVENT_NAME": "pull_request",
+                "GITHUB_TOKEN": "PR_EVIDENCE_SECRET_SENTINEL",
+            },
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout)
+        first_bytes = evidence.read_bytes()
+        document = json.loads(first_bytes)
+        self.assertEqual(document["schema_version"], 1)
+        self.assertEqual(document["candidate"]["base_sha"], self.base)
+        self.assertEqual(document["candidate"]["candidate_sha"], head)
+        self.assertEqual(document["candidate"]["changed_files"], ["docs/guide.md"])
+        self.assertEqual(document["candidate"]["categories"], ["documentation"])
+        self.assertEqual(document["result"], "READY_FOR_REVIEW")
+        self.assertEqual(document["ci"]["run_id"], "123456")
+        self.assertTrue(any(item["name"] == "Full repository validation" for item in document["checks"]))
+        self.assertNotIn("PR_EVIDENCE_SECRET_SENTINEL", first_bytes.decode("utf-8"))
+
+        rerun = self.run_check(
+            head,
+            {
+                "PR_EVIDENCE_PATH": str(evidence),
+                "GITHUB_RUN_ID": "123456",
+                "GITHUB_RUN_ATTEMPT": "2",
+                "GITHUB_WORKFLOW": "PR evidence",
+                "GITHUB_EVENT_NAME": "pull_request",
+            },
+        )
+        self.assertEqual(rerun.returncode, 0, rerun.stdout)
+        self.assertEqual(evidence.read_bytes(), first_bytes)
+
+    def test_machine_evidence_preserves_blocked_manual_gates_and_skips(self) -> None:
+        head = self.commit_file(
+            "luci-app-xray-mitm/htdocs/example.js",
+            "const example = 1;\n",
+        )
+        evidence = Path(self.temp.name) / "blocked-evidence.json"
+        result = self.run_check(
+            head,
+            {
+                "PR_EVIDENCE_PATH": str(evidence),
+                "NODE_BIN": "/path/that/does/not/exist",
+            },
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        document = json.loads(evidence.read_text(encoding="utf-8"))
+        self.assertEqual(document["result"], "BLOCKED")
+        gates = {item["type"]: item for item in document["manual_gates"]}
+        self.assertEqual(gates["openwrt_integration"]["status"], "required")
+        self.assertEqual(gates["ax4200_browser"]["status"], "required")
+        self.assertFalse(gates["ax4200_browser"]["performed"])
+        self.assertTrue(any(item["result"] == "SKIPPED" for item in document["checks"]))
+
+        ci_evidence = Path(self.temp.name) / "ci-blocked-evidence.json"
+        ci_result = self.run_check(
+            head,
+            {
+                "PR_EVIDENCE_PATH": str(ci_evidence),
+                "NODE_BIN": "/path/that/does/not/exist",
+                "CHECK_PR_ALLOW_MANUAL_GATES": "1",
+            },
+        )
+        self.assertEqual(ci_result.returncode, 0, ci_result.stdout)
+        ci_document = json.loads(ci_evidence.read_text(encoding="utf-8"))
+        self.assertEqual(ci_document["result"], "BLOCKED")
 
     def test_shell_changes_receive_focused_syntax_check(self) -> None:
         head = self.commit_file("scripts/changed.sh", "#!/bin/sh\nprintf '%s\\n' ok\n")

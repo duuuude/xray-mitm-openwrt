@@ -1,0 +1,45 @@
+name: PR Evidence
+
+on:
+  pull_request:
+    paths:
+      - "*.md"
+      - "**/*.md"
+      - "*.markdown"
+      - "**/*.markdown"
+      - "*.txt"
+      - "**/*.txt"
+      - "docs/**"
+      - ".github/workflows/pr-evidence.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out exact pull-request candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Run change-aware checks and write versioned evidence
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CANDIDATE_SHA: ${{ github.event.pull_request.head.sha }}
+          CHECK_PR_ALLOW_MANUAL_GATES: "1"
+          PR_EVIDENCE_PATH: ${{ runner.temp }}/pr-evidence.json
+        run: sh scripts/check-pr.sh "$BASE_SHA" "$CANDIDATE_SHA"
+
+      - name: Upload exact-candidate PR evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pr-evidence-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/pr-evidence.json
+          if-no-files-found: error
+          retention-days: 30

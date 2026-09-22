@@ -13,6 +13,7 @@ CORE_MAKEFILE = ROOT / "xray-mitm/Makefile"
 LUCI_MAKEFILE = ROOT / "luci-app-xray-mitm/Makefile"
 APK_WORKFLOW = ROOT / ".github/workflows/build.yml"
 IPK_WORKFLOW = ROOT / ".github/workflows/build-24-10.yml"
+PR_EVIDENCE_WORKFLOW = ROOT / ".github/workflows/pr-evidence.yml"
 
 
 class PackageMatrixTests(unittest.TestCase):
@@ -81,6 +82,7 @@ class PackageMatrixTests(unittest.TestCase):
             "xray-mitm/**",
         ):
             self.assertIn(f'      - "{path}"', workflow)
+        self.assertNotIn('      - "docs/**"', workflow)
 
     def test_24_10_lane_is_bounded_unsigned_ipk_build(self) -> None:
         workflow = IPK_WORKFLOW.read_text(encoding="utf-8")
@@ -109,6 +111,12 @@ class PackageMatrixTests(unittest.TestCase):
             ),
             2,
         )
+        self.assertIn('CHECK_PR_ALLOW_MANUAL_GATES: "1"', workflow)
+        self.assertIn("sh scripts/check-pr.sh", workflow)
+        self.assertIn("pr-evidence-source-", workflow)
+        self.assertIn("actions/download-artifact@", workflow)
+        self.assertIn("scripts/pr-evidence.py attach-build", workflow)
+        self.assertIn("pr-evidence-ipk-", workflow)
 
         for forbidden in (
             "KEY_BUILD",
@@ -122,6 +130,39 @@ class PackageMatrixTests(unittest.TestCase):
         self.assertRegex(workflow, r"uses: actions/checkout@[0-9a-f]{40}")
         self.assertRegex(workflow, r"uses: openwrt/gh-action-sdk@[0-9a-f]{40}")
         self.assertRegex(workflow, r"uses: actions/upload-artifact@[0-9a-f]{40}")
+
+    def test_docs_evidence_workflow_is_lightweight_and_candidate_bound(self) -> None:
+        workflow = PR_EVIDENCE_WORKFLOW.read_text(encoding="utf-8")
+
+        self.assertIn("pull_request:", workflow)
+        self.assertIn('      - "*.md"', workflow)
+        self.assertIn('      - "**/*.md"', workflow)
+        self.assertIn("github.event.pull_request.base.sha", workflow)
+        self.assertIn("github.event.pull_request.head.sha", workflow)
+        self.assertIn("PR_EVIDENCE_PATH:", workflow)
+        self.assertIn("sh scripts/check-pr.sh", workflow)
+        self.assertIn("retention-days: 30", workflow)
+        self.assertNotIn("openwrt/gh-action-sdk", workflow)
+        self.assertNotIn("actions/download-artifact", workflow)
+        self.assertNotIn('      - "scripts/**"', workflow)
+        self.assertNotIn('      - "tests/**"', workflow)
+        self.assertNotIn('      - "xray-mitm/**"', workflow)
+
+    def test_both_package_workflows_attach_verified_hashes_to_standard_evidence(self) -> None:
+        for workflow_path, artifact_prefix in (
+            (APK_WORKFLOW, "pr-evidence-apk-"),
+            (IPK_WORKFLOW, "pr-evidence-ipk-"),
+        ):
+            with self.subTest(workflow=workflow_path.name):
+                workflow = workflow_path.read_text(encoding="utf-8")
+                self.assertIn("PR_EVIDENCE_PATH:", workflow)
+                self.assertIn("sh scripts/check-pr.sh", workflow)
+                self.assertIn("pr-evidence-source-", workflow)
+                self.assertIn("actions/download-artifact@", workflow)
+                self.assertIn("scripts/pr-evidence.py attach-build", workflow)
+                self.assertIn('--source-sha "$CANDIDATE_SHA"', workflow)
+                self.assertIn(artifact_prefix, workflow)
+                self.assertIn("retention-days: 30", workflow)
 
 
 if __name__ == "__main__":
