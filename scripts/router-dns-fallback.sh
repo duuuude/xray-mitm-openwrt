@@ -60,6 +60,28 @@ hash_file() {
 check() {
 	ssh_router sh -s <<'REMOTE'
 set -u
+dns_lookup_ok() {
+	name=$1
+	attempt=1
+	while [ "$attempt" -le 3 ]; do
+		if timeout 4 nslookup "$name" 127.0.0.1 2>/dev/null |
+			grep -Fq "Name: $name"; then
+			return 0
+		fi
+		[ "$attempt" -ge 3 ] || sleep 1
+		attempt=$((attempt + 1))
+	done
+	return 1
+}
+
+dns_result() {
+	if dns_lookup_ok "$1"; then
+		printf 'pass\n'
+	else
+		printf 'fail\n'
+	fi
+}
+
 printf 'passwall2='
 uci -q get passwall2.@global[0].enabled || true
 printf 'dns_noresolv='
@@ -81,15 +103,13 @@ else
 	printf 'absent\n'
 fi
 printf 'dns_example='
-if timeout 8 nslookup example.com 127.0.0.1 2>/dev/null |
-   grep -Eq '^Name:[[:space:]]*example\.com$'; then
-	printf 'pass\n'
-else
-	printf 'fail\n'
-fi
+dns_result example.com
 printf 'dns_openwrt='
-if timeout 8 nslookup openwrt.org 127.0.0.1 2>/dev/null |
-   grep -Eq '^Name:[[:space:]]*openwrt\.org$'; then
+dns_result openwrt.org
+printf 'dns_iana='
+dns_result iana.org
+printf 'dns_checks='
+if dns_lookup_ok openwrt.org && dns_lookup_ok iana.org; then
 	printf 'pass\n'
 else
 	printf 'fail\n'
@@ -126,6 +146,20 @@ config_target=/etc/xray-mitm/dns-proxy.json
 init_target=/etc/init.d/xray-mitm-dns
 marker_target=/etc/xray-mitm/dns-fallback.managed
 installed=0
+
+dns_lookup_ok() {
+	name=$1
+	attempt=1
+	while [ "$attempt" -le 3 ]; do
+		if timeout 4 nslookup "$name" 127.0.0.1 2>&1 |
+			grep -Fq "Name: $name"; then
+			return 0
+		fi
+		[ "$attempt" -ge 3 ] || sleep 1
+		attempt=$((attempt + 1))
+	done
+	return 1
+}
 
 listener_present() {
 	(ss -lntup 2>/dev/null || netstat -lntup 2>/dev/null) |
@@ -185,12 +219,11 @@ while [ "$i" -lt 10 ]; do
 done
 test "$i" -lt 10
 
-for name in example.com openwrt.org; do
-	answer=$(timeout 8 nslookup "$name" 127.0.0.1 2>&1) || {
-		printf '%s\n' "$answer" >&2
+for name in openwrt.org iana.org; do
+	dns_lookup_ok "$name" || {
+		printf 'router_dns_fallback: stable DNS probe failed for %s\n' "$name" >&2
 		exit 1
 	}
-	printf '%s\n' "$answer" | grep -Eq "^Name:[[:space:]]*$name$"
 done
 
 test "$(uci -q get passwall2.@global[0].enabled || true)" = 0

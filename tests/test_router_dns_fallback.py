@@ -61,6 +61,17 @@ class RouterDnsFallbackTests(unittest.TestCase):
         )
         self.assertIn("test \"$(uci changes | wc -l | tr -d ' ')\" = 0", script)
 
+    def test_dns_gate_retries_and_uses_stable_domains(self) -> None:
+        script = (ROOT / "scripts" / "router-dns-fallback.sh").read_text()
+        self.assertGreaterEqual(script.count("dns_lookup_ok()"), 2)
+        self.assertIn('while [ "$attempt" -le 3 ]; do', script)
+        self.assertIn('timeout 4 nslookup "$name" 127.0.0.1', script)
+        self.assertIn("printf 'dns_example='", script)
+        self.assertIn("printf 'dns_iana='", script)
+        self.assertIn("printf 'dns_checks='", script)
+        self.assertIn("for name in openwrt.org iana.org; do", script)
+        self.assertNotIn("for name in example.com openwrt.org; do", script)
+
     def test_rollback_preserves_helper_when_cleanup_fails(self) -> None:
         script = (ROOT / "scripts" / "router-dns-fallback.sh").read_text()
         self.assertIn("rollback_ok=1", script)
