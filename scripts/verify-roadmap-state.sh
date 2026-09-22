@@ -22,6 +22,17 @@ git_at() {
 	git -C "$project_dir" "$@"
 }
 
+is_verified_remote() {
+	case "$1" in
+		https://github.com/duuuude/xray-mitm-openwrt|https://github.com/duuuude/xray-mitm-openwrt.git|git@github.com:duuuude/xray-mitm-openwrt|git@github.com:duuuude/xray-mitm-openwrt.git|ssh://git@github.com/duuuude/xray-mitm-openwrt|ssh://git@github.com/duuuude/xray-mitm-openwrt.git)
+		return 0
+		;;
+		*)
+		return 1
+		;;
+	esac
+}
+
 [ -d "$project_dir" ] || die "Project directory does not exist: $project_dir"
 git_root=$(git_at rev-parse --show-toplevel 2>/dev/null) || die 'Could not inspect the Git repository root.'
 [ "$git_root" = "$project_dir" ] || die 'The helper must run from the canonical repository checkout.'
@@ -40,6 +51,23 @@ esac
 
 plan_file="$project_dir/$plan_path"
 [ -f "$plan_file" ] || die "Roadmap file does not exist: $plan_path"
+
+remote_urls=$(git_at config --get-all "remote.$remote_name.url" 2>/dev/null || true)
+[ -n "$remote_urls" ] || die "Remote '$remote_name' was not found."
+for remote_url in $remote_urls; do
+	is_verified_remote "$remote_url" || die "Remote '$remote_name' is not the verified duuuude/xray-mitm-openwrt GitHub repository."
+done
+
+push_urls=$(git_at config --get-all "remote.$remote_name.pushurl" 2>/dev/null || true)
+if [ -n "$push_urls" ]; then
+	for push_url in $push_urls; do
+		is_verified_remote "$push_url" || die "Push URL for remote '$remote_name' is not the verified duuuude/xray-mitm-openwrt GitHub repository."
+	done
+fi
+
+if ! git_at fetch --quiet --no-tags "$remote_name" "refs/heads/main:refs/remotes/$remote_name/main"; then
+	die "Could not refresh main from verified GitHub remote '$remote_name'."
+fi
 
 local_main=$(git_at rev-parse --verify refs/heads/main 2>/dev/null) || die 'The local main branch does not exist.'
 remote_main=$(git_at rev-parse --verify "refs/remotes/$remote_name/main" 2>/dev/null) || die "The fetched $remote_name/main ref does not exist; refresh the verified remote first."

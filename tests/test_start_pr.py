@@ -29,14 +29,23 @@ class StartPrTests(unittest.TestCase):
             raise unittest.SkipTest("git is required for start-pr tests")
         self.worktrees.mkdir()
         (self.project / "scripts").mkdir(parents=True)
+        (self.project / "docs/ai").mkdir(parents=True)
         shutil.copy2(START_PR, self.project / "scripts/start-pr.sh")
+        shutil.copy2(ROOT / "scripts/verify-roadmap-state.sh", self.project / "scripts/verify-roadmap-state.sh")
 
         (self.project / "README.md").write_text("start-pr fixture\n", encoding="utf-8")
         self.git("init", "-b", "main")
         self.git("config", "user.email", "test@example.invalid")
         self.git("config", "user.name", "Start PR Test")
-        self.git("add", "README.md", "scripts/start-pr.sh")
+        self.git("add", "README.md", "scripts/start-pr.sh", "scripts/verify-roadmap-state.sh")
         self.git("commit", "-m", "prepare start-pr fixture")
+        baseline = self.git("rev-parse", "HEAD")
+        (self.project / "docs/ai/MASTER_PLAN.md").write_text(
+            f"# Fixture plan\n\n- Review/audit baseline: `{baseline}`, fixture main\n",
+            encoding="utf-8",
+        )
+        self.git("add", "docs/ai/MASTER_PLAN.md")
+        self.git("commit", "-m", "reconcile fixture roadmap")
         subprocess.run(
             ["git", "init", "--bare", str(self.remote)],
             check=True,
@@ -140,8 +149,15 @@ exec "$real_git" "$@"
         (self.project / "README.md").write_text("remote update\n", encoding="utf-8")
         self.git("add", "README.md")
         self.git("commit", "-m", "advance remote main")
+        baseline = self.git("rev-parse", "HEAD")
+        (self.project / "docs/ai/MASTER_PLAN.md").write_text(
+            f"# Fixture plan\n\n- Review/audit baseline: `{baseline}`, fixture main\n",
+            encoding="utf-8",
+        )
+        self.git("add", "docs/ai/MASTER_PLAN.md")
+        self.git("commit", "-m", "reconcile remote update")
         self.git("push", "origin", "main")
-        self.git("reset", "--hard", "HEAD^")
+        self.git("reset", "--hard", "HEAD^^")
 
         result = self.run_start_pr()
 
@@ -170,6 +186,44 @@ exec "$real_git" "$@"
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("main checkout is not clean", result.stderr)
+        self.assertFalse(self.ref_exists("refs/heads/feat/example"))
+
+    def test_rejects_stale_roadmap_after_main_is_synchronized(self) -> None:
+        remote_clone = self.root / "remote-clone"
+        subprocess.run(
+            ["git", "clone", "--branch", "main", str(self.remote), str(remote_clone)],
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.git_at(remote_clone, "config", "user.email", "remote@example.invalid")
+        self.git_at(remote_clone, "config", "user.name", "Remote Main")
+        (remote_clone / "README.md").write_text("unreconciled remote\n", encoding="utf-8")
+        self.git_at(remote_clone, "add", "README.md")
+        self.git_at(remote_clone, "commit", "-m", "unreconciled main implementation")
+        self.git_at(remote_clone, "push", "origin", "main")
+        self.git("fetch", "origin", "main")
+        self.git("merge", "--ff-only", "origin/main")
+
+        result = self.run_start_pr()
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("ROADMAP_STATE=STALE", result.stderr)
+        self.assertIn("unreconciled main implementation", result.stderr)
+        self.assertFalse(self.ref_exists("refs/heads/feat/example"))
+        self.assertFalse((self.worktrees / "example").exists())
+
+    def test_rejects_missing_roadmap_contract(self) -> None:
+        self.git("rm", "docs/ai/MASTER_PLAN.md")
+        self.git("commit", "-m", "remove roadmap contract")
+        self.git("push", "origin", "main")
+        self.git("reset", "--hard", "HEAD^")
+
+        result = self.run_start_pr()
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Required docs/ai/MASTER_PLAN.md is missing", result.stderr)
         self.assertFalse(self.ref_exists("refs/heads/feat/example"))
 
     def test_rejects_git_status_inspection_failure(self) -> None:

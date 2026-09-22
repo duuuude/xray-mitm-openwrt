@@ -150,10 +150,10 @@ main_status="$(git_at status --porcelain --untracked-files=all)" || die 'Could n
 base_commit="$(git_at rev-parse --verify refs/heads/main)"
 [ ! -L "$worktrees_root" ] || die "The worktrees root became a symlink: $worktrees_root"
 
-if [ -f "$project_dir/docs/ai/MASTER_PLAN.md" ] && [ -f "$project_dir/scripts/verify-roadmap-state.sh" ]; then
-	sh "$project_dir/scripts/verify-roadmap-state.sh" "$verified_remote" || \
-		die 'Current main and MASTER_PLAN.md are not reconciled; refusing to start new PR work.'
-fi
+[ -f "$project_dir/docs/ai/MASTER_PLAN.md" ] || die 'Required docs/ai/MASTER_PLAN.md is missing; refusing to start new PR work.'
+[ -f "$project_dir/scripts/verify-roadmap-state.sh" ] || die 'Required scripts/verify-roadmap-state.sh is missing; refusing to start new PR work.'
+sh "$project_dir/scripts/verify-roadmap-state.sh" "$verified_remote" || \
+	die 'Current main and MASTER_PLAN.md are not reconciled; refusing to start new PR work.'
 
 mkdir -p "$worktrees_root"
 canonical_worktrees_root="$(CDPATH= cd -- "$worktrees_root" 2>/dev/null && pwd -P)" || die 'The worktrees root could not be resolved after synchronization.'

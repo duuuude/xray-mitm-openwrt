@@ -52,8 +52,11 @@ class RoadmapStateTests(unittest.TestCase):
         self.git("push", "-u", "origin", "main")
 
     def git(self, *args: str) -> str:
+        return self.git_at(self.project, *args)
+
+    def git_at(self, directory: Path, *args: str) -> str:
         result = subprocess.run(
-            ["git", "-C", str(self.project), *args],
+            ["git", "-C", str(directory), *args],
             check=True,
             text=True,
             stdout=subprocess.PIPE,
@@ -100,6 +103,43 @@ class RoadmapStateTests(unittest.TestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("main checkout is not clean", result.stderr)
+
+    def test_refreshes_remote_and_blocks_unreconciled_main(self) -> None:
+        remote_clone = Path(self.temp.name) / "remote-clone"
+        subprocess.run(
+            ["git", "clone", "--branch", "main", str(self.remote), str(remote_clone)],
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.git_at(remote_clone, "config", "user.email", "remote@example.invalid")
+        self.git_at(remote_clone, "config", "user.name", "Remote Main")
+        clone_readme = Path(remote_clone) / "README.md"
+        clone_readme.write_text("unreconciled remote\n", encoding="utf-8")
+        self.git_at(remote_clone, "add", "README.md")
+        self.git_at(remote_clone, "commit", "-m", "unreconciled remote implementation")
+        self.git_at(remote_clone, "push", "origin", "main")
+        self.git("fetch", "origin", "main")
+        self.git("merge", "--ff-only", "origin/main")
+        current_main = self.git("rev-parse", "HEAD")
+        self.git("update-ref", "refs/remotes/origin/main", f"{current_main}^")
+
+        result = self.run_verify()
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("ROADMAP_STATE=STALE", result.stderr)
+        self.assertIn("unreconciled remote implementation", result.stderr)
+        self.assertEqual(self.git("rev-parse", "origin/main"), current_main)
+
+    def test_blocks_unverified_remote(self) -> None:
+        self.git("remote", "set-url", "origin", "https://example.invalid/project.git")
+
+        result = self.run_verify()
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("not the verified", result.stderr)
+        self.assertIn("ROADMAP_STATE=BLOCKED", result.stderr)
 
 
 if __name__ == "__main__":
