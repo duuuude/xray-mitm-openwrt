@@ -385,10 +385,23 @@ When uncertain, stop and ask rather than inventing architecture.
 Task/thread status is a live snapshot. Before claiming that a Work is active,
 idle, or complete—or deciding to wait or continue—refresh that exact task with
 `wait_threads` using `timeoutMs: 0` (or read it directly if that tool is
-unavailable). Base “active” only on the current `latestTurn.status` being
-`inProgress`; never reuse an earlier heartbeat, cached thread-list status,
-title, summary, or memory. If the task is idle or its latest turn is
-`completed`, inspect that latest completed turn before describing its result.
+unavailable). Read the response shape for the tool actually used; the two
+tools do not expose a shared status field:
+
+- For `wait_threads`, find exactly one entry in `polls[]` whose
+  `thread.id` matches the requested task, then read that entry's
+  `latestTurn.status`.
+- For `read_thread`, require the returned `thread.id` to match and
+  `page.order` to be `newest_first`, then read `turns[0].status`. This response
+  has no `latestTurn` field.
+
+Say a task is active only when the extracted current-turn status is
+`inProgress`. If there is no unique matching poll, no current turn/status, an
+unexpected ordering, or any ambiguous response, report `UNPROVEN (status not
+verified)` and do not infer status from `thread.status`, history, a heartbeat,
+a cached thread list, title, summary, or memory. If the task is idle or its
+latest turn is `completed`, inspect that latest completed turn before
+describing its result.
 
 Before relying on a handoff, verify the complete report is visible in the
 Development Lead task itself. A source task's status, summary, GitHub review,

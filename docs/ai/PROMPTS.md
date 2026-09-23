@@ -27,11 +27,17 @@ report is received.
 
 Refresh live task state before every status claim or wait/continue decision:
 call `wait_threads` with `timeoutMs: 0` for the exact task (or read that task
-directly if unavailable), and base “active” only on its current
-`latestTurn.status` being `inProgress`. Never reuse an earlier heartbeat or
-cached thread-list status. When the task is idle or the latest turn is
-`completed`, inspect that latest completed turn and verify the complete report
-in the Lead task. A missing report is `UNPROVEN / NOT DELIVERED`, not evidence
+directly with `read_thread` if unavailable). For `wait_threads`, match exactly
+one `polls[]` entry by `thread.id` and use its `latestTurn.status`. For
+`read_thread`, require the matching `thread.id` and `page.order ==
+newest_first`, then use `turns[0].status`; it has no `latestTurn` property. If
+the match is absent/ambiguous, the current turn/status is missing, or the page
+is not newest-first, report `UNPROVEN (status not verified)` and make no status
+claim. Say active only if the extracted latest-turn status is `inProgress`.
+Never substitute `thread.status`, an earlier heartbeat, cached thread-list
+status, title, summary, or memory. When the latest turn is idle or
+`completed`, inspect that latest completed turn and verify the full report in
+the Lead task. A missing report is `UNPROVEN / NOT DELIVERED`, not evidence
 that the Work is still running or that delivery succeeded.
 
 ---

@@ -223,12 +223,23 @@ acting when rollback is unclear or material evidence is missing
 Task/thread status is a live snapshot, not durable evidence. Before telling the
 owner that a Work is active, idle, or complete—or deciding whether to wait,
 continue, or hand off—refresh that exact task with `wait_threads` using
-`timeoutMs: 0` (or read the task directly if the wait tool is unavailable).
-Use the returned `latestTurn.status`, not an earlier heartbeat, cached thread
-list, title, summary, or memory. Say a Work is active only when its latest turn
-is actually `inProgress`. If the result is `completed` or the task is idle,
-inspect the latest completed turn before deciding what happened; never say it
-is still working based on an older active snapshot.
+`timeoutMs: 0` (or use `read_thread` if the wait tool is unavailable). Extract
+the current-turn status according to the response shape:
+
+- `wait_threads`: locate exactly one entry in `polls[]` whose `thread.id`
+  matches the requested task; use that entry's `latestTurn.status`.
+- `read_thread`: require a matching `thread.id` and `page.order` equal to
+  `newest_first`; use `turns[0].status`. `read_thread` has no `latestTurn`
+  property.
+
+If the matching poll is missing or duplicated, the current turn/status is
+missing, or the `read_thread` ordering is not `newest_first`, report
+`UNPROVEN (status not verified)` and make no status claim. Never substitute
+`thread.status`, older turns, a heartbeat, cached thread list, title, summary,
+or memory. Say a Work is active only when the extracted latest-turn status is
+actually `inProgress`. If it is completed or idle, inspect the latest completed
+turn before deciding what happened; never say it is still working based on an
+older active snapshot.
 
 For a report handoff, inspect the destination Lead task itself and verify that
 the complete report is visible there before relying on it. A source task's
