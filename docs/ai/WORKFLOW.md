@@ -279,20 +279,45 @@ Exact action after approval:
 
 PR Reviewer and Router & Release Validation must deliver their complete
 evidence and recommendation explicitly to the Development Lead task using the
-host's task/thread handoff mechanism, and must also identify the intended
-recipient as:
+host's task/thread handoff mechanism. Every handoff request must carry the
+recipient's exact task/thread ID; the role title alone is not a routable
+destination. Development Lead includes this field in the request:
 
 ```text
-Development Lead — Owner Console
+Lead task thread ID: <exact Development Lead task/thread ID>
 ```
 
-They do not choose, authorize, or prompt the next Work. A Work's completed or
-idle status is not a delivered report and must never be treated as approval.
-If a Work completes without a visible report, Development Lead re-requests it
-directly, records the result as unproven until it is received, and continues
-the safe workflow without asking the owner to copy or relay the report. If the
-Work cannot deliver the report, it must state `HANDOFF DELIVERY FAILED` so
-Development Lead can recover or replace the Work.
+Before finalizing, each non-Lead Work must:
+
+1. Call `send_message_to_thread` using the exact recipient and the entire
+   completed report (including evidence, limits, and recommendation):
+
+   ```javascript
+   send_message_to_thread({
+     threadId: "<exact Lead task thread ID>",
+     prompt: "<complete report>"
+   })
+   ```
+
+   A task title or a statement such as “report delivered” is not a substitute
+   for this call.
+2. Confirm the tool returned success for the expected thread ID. Include a
+   short delivery receipt in the final response, and include the complete
+   report there as well when the host permits it.
+3. If the call fails or the destination cannot be confirmed, state exactly
+   `HANDOFF DELIVERY FAILED`; do not claim the handoff succeeded.
+
+They do not choose, authorize, or prompt the next Work. Development Lead
+checks that the complete report—not just a status or summary—is visible in the
+Lead task before relying on the recommendation. A Work's completed or idle
+status, successful CI, or a send attempt without a matching successful tool
+result is not a delivered report or approval. If the report is absent, Lead
+re-requests it directly using the exact source and destination task IDs. Until
+the complete report arrives, record the review as `UNPROVEN / NOT DELIVERED`,
+do not say the PR is merge-ready, and never ask the owner to copy or relay it.
+If the retry also fails, record `HANDOFF DELIVERY FAILED`, keep the gate
+blocked, and use the persistent Reviewer Work to regenerate/deliver the report
+from its evidence; do not infer a clean review from status alone.
 
 ---
 
