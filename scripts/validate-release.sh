@@ -20,6 +20,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_check_pr.py"
 PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_startup.py"
 PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_package_matrix.py"
 PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_router_dns_fallback.py"
+PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_router_backup_guard.py"
 PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_work_handoff_contract.py"
 
 for relative in \
@@ -37,6 +38,7 @@ for relative in \
 	scripts/check-pr.sh \
 	scripts/verify-github-remote.sh \
 	scripts/router-local-test.sh \
+	scripts/router-backup-guard.sh \
 	scripts/check-release-version.sh \
 	scripts/release-notes.sh \
 	scripts/router-dns-fallback.sh \
