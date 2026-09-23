@@ -131,6 +131,30 @@ class PackageMatrixTests(unittest.TestCase):
         self.assertRegex(workflow, r"uses: openwrt/gh-action-sdk@[0-9a-f]{40}")
         self.assertRegex(workflow, r"uses: actions/upload-artifact@[0-9a-f]{40}")
 
+    def test_24_10_path_filters_cover_evidence_helpers_and_tests(self) -> None:
+        workflow = IPK_WORKFLOW.read_text(encoding="utf-8")
+        trigger_blocks = {
+            "pull_request": workflow.split("  pull_request:\n", 1)[1].split(
+                "\n  push:\n", 1
+            )[0],
+            "push": workflow.split("  push:\n", 1)[1].split(
+                "\n\npermissions:", 1
+            )[0],
+        }
+
+        required_paths = (
+            "scripts/check-pr.sh",
+            "scripts/pr-evidence.py",
+            "tests/test_check_pr.py",
+            "tests/test_pr_evidence.py",
+        )
+        for trigger, block in trigger_blocks.items():
+            with self.subTest(trigger=trigger):
+                self.assertIn("    paths:\n", block)
+                paths_section = block.split("    paths:\n", 1)[1]
+                for path in required_paths:
+                    self.assertIn(f'      - "{path}"', paths_section)
+
     def test_docs_evidence_workflow_is_lightweight_and_candidate_bound(self) -> None:
         workflow = PR_EVIDENCE_WORKFLOW.read_text(encoding="utf-8")
 
