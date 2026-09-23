@@ -23,7 +23,7 @@ in its own task; status, summary, CI, or an unconfirmed send attempt never
 substitutes for the report. Missing reports remain `UNPROVEN / NOT DELIVERED`:
 Lead directly re-requests once using exact source/destination IDs, does not
 tell the owner to relay it, and does not declare merge readiness until the
-report is received.
+Important connector limitation: task-state snapshots are not necessarily message transcripts. `latestAssistantMessage: null` or `items: []` may appear even when a reply is visible in the task UI; those fields do not prove the Work failed to answer or send its report. If the current interface does not expose the report body, state `UNPROVEN / REPORT CONTENT NOT EXPOSED`, not `UNPROVEN / NOT DELIVERED`. Ask the existing Work to send the entire report directly to the exact Lead task ID and verify the content in the destination. Only use `UNPROVEN / NOT DELIVERED` after inspecting the destination's actual message content and confirming the report is absent. Never ask the owner to copy or relay it.
 
 Refresh live task state before every status claim or wait/continue decision:
 call `wait_threads` with `timeoutMs: 0` for the exact task (or read that task

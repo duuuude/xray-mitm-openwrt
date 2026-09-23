@@ -129,6 +129,17 @@ class WorkHandoffContractTests(unittest.TestCase):
         self.assertIn("entire report", reviewer)
         self.assertIn("HANDOFF DELIVERY FAILED", reviewer)
 
+    def test_metadata_only_snapshot_does_not_prove_report_absence(self) -> None:
+        for name, document in (("AGENTS.md", AGENTS), ("WORKFLOW.md", WORKFLOW), ("PROMPTS.md", PROMPTS)):
+            normalized = " ".join(document.split())
+            with self.subTest(document=name):
+                self.assertIn("latestAssistantMessage: null", normalized)
+                self.assertIn("items: []", normalized)
+                self.assertIn("do not prove", normalized)
+                self.assertIn("UNPROVEN / REPORT CONTENT NOT EXPOSED", normalized)
+                self.assertIn("Only use `UNPROVEN / NOT DELIVERED`", normalized)
+                self.assertIn("Never ask the owner", normalized)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -247,7 +247,7 @@ active/idle/completed state, a summary, a GitHub review, or a successful-send
 receipt alone does not prove the report is present. If the source task is no
 longer working and no complete report is visible in the Lead task, classify it
 as `UNPROVEN / NOT DELIVERED` and request direct recovery from that source using
-the exact source and destination task IDs. Do not ask the owner to relay it.
+Task-state responses may omit conversation text. For example, `latestAssistantMessage: null` or `items: []` can coexist with a reply visible in the task UI; these values do not prove that the Work failed to answer or deliver a report. If the available interface exposes only metadata, classify the content as `UNPROVEN / REPORT CONTENT NOT EXPOSED` and do not claim the report is absent. Ask the existing Work to send its complete report directly to the exact Lead task ID, then inspect the destination's actual message body. Only use `UNPROVEN / NOT DELIVERED` when that destination content was inspectable and the full report was absent. Never ask the owner to copy or relay it.
 
 ## Handoff and routing protocol
 

@@ -408,7 +408,7 @@ Development Lead task itself. A source task's status, summary, GitHub review,
 or send receipt alone does not prove report delivery. If the source task is no
 longer working and the full report is absent, record `UNPROVEN / NOT DELIVERED`
 and request direct recovery using the exact source and destination task IDs;
-never ask the owner to relay it.
+Do not treat a metadata-only task snapshot as a conversation transcript. `wait_threads` may return `latestAssistantMessage: null`, and `read_thread` may return `items: []`, even when a reply is visible in the task UI. These fields do not prove the source Work did not answer or that the report was not sent. If the available interface does not expose the message body, report `UNPROVEN / REPORT CONTENT NOT EXPOSED`; do not claim the report is missing. Request the existing Work to send its complete report directly to the exact Lead task ID, then verify the received content in the destination. Only use `UNPROVEN / NOT DELIVERED` after inspecting the destination's actual message content and confirming the report is absent. Never ask the owner to copy or relay it.
 
 ## 24. Completion report
 
