@@ -11,9 +11,9 @@ The authoritative source is:
 
 - Repository: `https://github.com/duuuude/xray-mitm-openwrt.git`
 - Public branch: `main`
-- Review/audit baseline: `2c1b73015f5ff52e108c744123323a3079f5fa9c`, the current
-  `main` commit after PR #65 implemented machine-readable, exact-candidate PR
-  evidence
+- Review/audit baseline: `395f1dde5caa6f82cccc7505b012ef9ffd7a7e07`, the current
+  `main` commit after PR #67 added fail-closed reviewer-report handoffs and
+  live task-state verification
 - Observed package baseline: `0.4.4-r2` in development metadata; the published
   25.12 release remains separately versioned and signed
 - Canonical clone root: `<repo-root>`
@@ -53,6 +53,14 @@ Recent merged evidence:
   candidate CI and both post-merge package builds passed. This proves the
   workflow/artifact path, not protected release publication or native
   24.10/IPK runtime behavior.
+
+- PR #66 merged as `5da74654fa18c8ab2ab4f42d1ce086a1676e81da`; it reconciled
+  this roadmap after PR #65. It changed documentation only.
+
+- PR #67 merged as `395f1dde5caa6f82cccc7505b012ef9ffd7a7e07`. It added
+  fail-closed task-status checks and verified direct delivery of complete
+  reviewer reports, including response-shape tests. It changed project
+  workflow and documentation, not product behavior.
 
 The current public product contract targets official OpenWrt 25.12.x with APK
 packages. The public feed and CI use the 25.12.5 `aarch64_generic` SDK baseline,
