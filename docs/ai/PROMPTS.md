@@ -10,14 +10,35 @@ reusable specialist role templates, not permanent Works. Every non-Lead Work
 returns its report to Development Lead — Owner Console and must not select,
 authorize, or prompt the next Work.
 
-Report delivery is an explicit handoff, not a status assumption. Before
-stopping, every non-Lead Work must send its complete report as a message to the
-Development Lead task using the host's explicit task/thread handoff mechanism,
-and must also include the report in its final response when available. A
-completed or idle Work with no visible report is not an approval or a successful
-handoff. If delivery fails, state `HANDOFF DELIVERY FAILED`; Development Lead
-must re-request the report directly and must not ask the owner to copy or relay
-it.
+Report delivery is a hard completion gate, not a status assumption. Every
+handoff request must include the exact `Lead task thread ID`; the Lead must not
+expect another Work to resolve a title to an ID. Before stopping, a non-Lead
+Work must call `send_message_to_thread` with that exact ID and its complete
+report as the `prompt`, confirm the tool returned success for that ID, and give
+the delivery receipt in its final response. It must also include the complete
+report in its final response when the host permits it. If the tool call fails
+or the destination cannot be confirmed, state `HANDOFF DELIVERY FAILED` and do
+not claim delivery. Development Lead verifies the complete report is visible
+in its own task; status, summary, CI, or an unconfirmed send attempt never
+substitutes for the report. Missing reports remain `UNPROVEN / NOT DELIVERED`:
+Lead directly re-requests once using exact source/destination IDs, does not
+tell the owner to relay it, and does not declare merge readiness until the
+Important connector limitation: task-state snapshots are not necessarily message transcripts. `latestAssistantMessage: null` or `items: []` may appear even when a reply is visible in the task UI; those fields do not prove the Work failed to answer or send its report. If the current interface does not expose the report body, state `UNPROVEN / REPORT CONTENT NOT EXPOSED`, not `UNPROVEN / NOT DELIVERED`. Ask the existing Work to send the entire report directly to the exact Lead task ID and verify the content in the destination. Only use `UNPROVEN / NOT DELIVERED` after inspecting the destination's actual message content and confirming the report is absent. Never ask the owner to copy or relay it.
+
+Refresh live task state before every status claim or wait/continue decision:
+call `wait_threads` with `timeoutMs: 0` for the exact task (or read that task
+directly with `read_thread` if unavailable). For `wait_threads`, match exactly
+one `polls[]` entry by `thread.id` and use its `latestTurn.status`. For
+`read_thread`, require the matching `thread.id` and `page.order ==
+newest_first`, then use `turns[0].status`; it has no `latestTurn` property. If
+the match is absent/ambiguous, the current turn/status is missing, or the page
+is not newest-first, report `UNPROVEN (status not verified)` and make no status
+claim. Say active only if the extracted latest-turn status is `inProgress`.
+Never substitute `thread.status`, an earlier heartbeat, cached thread-list
+status, title, summary, or memory. When the latest turn is idle or
+`completed`, inspect that latest completed turn and verify the full report in
+the Lead task. A missing report is `UNPROVEN / NOT DELIVERED`, not evidence
+that the Work is still running or that delivery succeeded.
 
 ---
 
@@ -57,7 +78,11 @@ You must:
 10. implement the smallest coherent change and update tests
 11. validate, inspect the complete diff, commit, and normally fast-forward push
     the approved feature branch when routine-push conditions are satisfied
-12. produce a complete self-contained handoff to PR Reviewer
+12. produce a complete self-contained handoff to PR Reviewer that includes
+    the exact Lead task thread ID and requires a direct report message to it
+13. refresh each Work's live status before reporting or deciding to wait;
+    inspect the latest completed turn and the Lead task for its full report
+    before claiming completion or delivery
 
 You may evaluate reviewer findings and implement accepted ordinary corrections,
 but you may never independently approve your own implementation. Return every
@@ -230,8 +255,12 @@ Do not fix findings.
 If there are no findings, state what you inspected and what remains unproven.
 Do not select or prompt another Work.
 Before stopping, send this complete review explicitly to the Development Lead
-task using the host's task/thread handoff mechanism; do not rely only on the
-Work's completed or final-answer status being visible.
+task using `send_message_to_thread` and the exact `Lead task thread ID` supplied
+in the review request. Put the entire report in that message, verify the tool
+returned success for the expected thread ID, and include the receipt plus the
+full report in your final response. If this direct send fails, state exactly
+`HANDOFF DELIVERY FAILED`; do not rely only on the Work's completed or
+final-answer status being visible.
 Return this review to: Development Lead — Owner Console
 ```
 
@@ -577,6 +606,9 @@ Read AGENTS.md first.
 Role:
 <AGENT ROLE>
 
+Lead task thread ID:
+<exact destination thread ID supplied by Development Lead; do not infer it>
+
 Task:
 <ONE CONCRETE GOAL>
 
@@ -607,7 +639,9 @@ local edit only / may push branch / no merge / no release
 Stop condition:
 <EXACT POINT WHERE AGENT MUST STOP>
 
-Return this report to: Development Lead — Owner Console
+Deliver this report with `send_message_to_thread` to the exact Lead task thread
+ID above, verify the successful tool result, then return this report to:
+Development Lead — Owner Console
 ```
 
 The most important fields are:

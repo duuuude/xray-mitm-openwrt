@@ -382,6 +382,34 @@ rollbackability
 
 When uncertain, stop and ask rather than inventing architecture.
 
+Task/thread status is a live snapshot. Before claiming that a Work is active,
+idle, or complete—or deciding to wait or continue—refresh that exact task with
+`wait_threads` using `timeoutMs: 0` (or read it directly if that tool is
+unavailable). Read the response shape for the tool actually used; the two
+tools do not expose a shared status field:
+
+- For `wait_threads`, find exactly one entry in `polls[]` whose
+  `thread.id` matches the requested task, then read that entry's
+  `latestTurn.status`.
+- For `read_thread`, require the returned `thread.id` to match and
+  `page.order` to be `newest_first`, then read `turns[0].status`. This response
+  has no `latestTurn` field.
+
+Say a task is active only when the extracted current-turn status is
+`inProgress`. If there is no unique matching poll, no current turn/status, an
+unexpected ordering, or any ambiguous response, report `UNPROVEN (status not
+verified)` and do not infer status from `thread.status`, history, a heartbeat,
+a cached thread list, title, summary, or memory. If the task is idle or its
+latest turn is `completed`, inspect that latest completed turn before
+describing its result.
+
+Before relying on a handoff, verify the complete report is visible in the
+Development Lead task itself. A source task's status, summary, GitHub review,
+or send receipt alone does not prove report delivery. If the source task is no
+longer working and the full report is absent, record `UNPROVEN / NOT DELIVERED`
+and request direct recovery using the exact source and destination task IDs;
+Do not treat a metadata-only task snapshot as a conversation transcript. `wait_threads` may return `latestAssistantMessage: null`, and `read_thread` may return `items: []`, even when a reply is visible in the task UI. These fields do not prove the source Work did not answer or that the report was not sent. If the available interface does not expose the message body, report `UNPROVEN / REPORT CONTENT NOT EXPOSED`; do not claim the report is missing. Request the existing Work to send its complete report directly to the exact Lead task ID, then verify the received content in the destination. Only use `UNPROVEN / NOT DELIVERED` after inspecting the destination's actual message content and confirming the report is absent. Never ask the owner to copy or relay it.
+
 ## 24. Completion report
 
 At the end of an implementation task, provide:

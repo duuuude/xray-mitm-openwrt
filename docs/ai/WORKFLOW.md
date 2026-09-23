@@ -218,6 +218,37 @@ acting when rollback is unclear or material evidence is missing
 
 ---
 
+## Live task status and report verification
+
+Task/thread status is a live snapshot, not durable evidence. Before telling the
+owner that a Work is active, idle, or complete—or deciding whether to wait,
+continue, or hand off—refresh that exact task with `wait_threads` using
+`timeoutMs: 0` (or use `read_thread` if the wait tool is unavailable). Extract
+the current-turn status according to the response shape:
+
+- `wait_threads`: locate exactly one entry in `polls[]` whose `thread.id`
+  matches the requested task; use that entry's `latestTurn.status`.
+- `read_thread`: require a matching `thread.id` and `page.order` equal to
+  `newest_first`; use `turns[0].status`. `read_thread` has no `latestTurn`
+  property.
+
+If the matching poll is missing or duplicated, the current turn/status is
+missing, or the `read_thread` ordering is not `newest_first`, report
+`UNPROVEN (status not verified)` and make no status claim. Never substitute
+`thread.status`, older turns, a heartbeat, cached thread list, title, summary,
+or memory. Say a Work is active only when the extracted latest-turn status is
+actually `inProgress`. If it is completed or idle, inspect the latest completed
+turn before deciding what happened; never say it is still working based on an
+older active snapshot.
+
+For a report handoff, inspect the destination Lead task itself and verify that
+the complete report is visible there before relying on it. A source task's
+active/idle/completed state, a summary, a GitHub review, or a successful-send
+receipt alone does not prove the report is present. If the source task is no
+longer working and no complete report is visible in the Lead task, classify it
+as `UNPROVEN / NOT DELIVERED` and request direct recovery from that source using
+Task-state responses may omit conversation text. For example, `latestAssistantMessage: null` or `items: []` can coexist with a reply visible in the task UI; these values do not prove that the Work failed to answer or deliver a report. If the available interface exposes only metadata, classify the content as `UNPROVEN / REPORT CONTENT NOT EXPOSED` and do not claim the report is absent. Ask the existing Work to send its complete report directly to the exact Lead task ID, then inspect the destination's actual message body. Only use `UNPROVEN / NOT DELIVERED` when that destination content was inspectable and the full report was absent. Never ask the owner to copy or relay it.
+
 ## Handoff and routing protocol
 
 Development Lead is the only routing layer. When another Work returns a
@@ -279,20 +310,45 @@ Exact action after approval:
 
 PR Reviewer and Router & Release Validation must deliver their complete
 evidence and recommendation explicitly to the Development Lead task using the
-host's task/thread handoff mechanism, and must also identify the intended
-recipient as:
+host's task/thread handoff mechanism. Every handoff request must carry the
+recipient's exact task/thread ID; the role title alone is not a routable
+destination. Development Lead includes this field in the request:
 
 ```text
-Development Lead — Owner Console
+Lead task thread ID: <exact Development Lead task/thread ID>
 ```
 
-They do not choose, authorize, or prompt the next Work. A Work's completed or
-idle status is not a delivered report and must never be treated as approval.
-If a Work completes without a visible report, Development Lead re-requests it
-directly, records the result as unproven until it is received, and continues
-the safe workflow without asking the owner to copy or relay the report. If the
-Work cannot deliver the report, it must state `HANDOFF DELIVERY FAILED` so
-Development Lead can recover or replace the Work.
+Before finalizing, each non-Lead Work must:
+
+1. Call `send_message_to_thread` using the exact recipient and the entire
+   completed report (including evidence, limits, and recommendation):
+
+   ```javascript
+   send_message_to_thread({
+     threadId: "<exact Lead task thread ID>",
+     prompt: "<complete report>"
+   })
+   ```
+
+   A task title or a statement such as “report delivered” is not a substitute
+   for this call.
+2. Confirm the tool returned success for the expected thread ID. Include a
+   short delivery receipt in the final response, and include the complete
+   report there as well when the host permits it.
+3. If the call fails or the destination cannot be confirmed, state exactly
+   `HANDOFF DELIVERY FAILED`; do not claim the handoff succeeded.
+
+They do not choose, authorize, or prompt the next Work. Development Lead
+checks that the complete report—not just a status or summary—is visible in the
+Lead task before relying on the recommendation. A Work's completed or idle
+status, successful CI, or a send attempt without a matching successful tool
+result is not a delivered report or approval. If the report is absent, Lead
+re-requests it directly using the exact source and destination task IDs. Until
+the complete report arrives, record the review as `UNPROVEN / NOT DELIVERED`,
+do not say the PR is merge-ready, and never ask the owner to copy or relay it.
+If the retry also fails, record `HANDOFF DELIVERY FAILED`, keep the gate
+blocked, and use the persistent Reviewer Work to regenerate/deliver the report
+from its evidence; do not infer a clean review from status alone.
 
 ---
 
