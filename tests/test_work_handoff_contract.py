@@ -6,6 +6,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
+AGENTS = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
 WORKFLOW = (ROOT / "docs/ai/WORKFLOW.md").read_text(encoding="utf-8")
 PROMPTS = (ROOT / "docs/ai/PROMPTS.md").read_text(encoding="utf-8")
 
@@ -26,6 +27,17 @@ class WorkHandoffContractTests(unittest.TestCase):
         self.assertIn("HANDOFF DELIVERY FAILED", WORKFLOW)
         self.assertIn("UNPROVEN / NOT DELIVERED", PROMPTS)
         self.assertIn("HANDOFF DELIVERY FAILED", PROMPTS)
+
+    def test_status_claims_require_a_fresh_task_snapshot(self) -> None:
+        for name, document in (("AGENTS.md", AGENTS), ("WORKFLOW.md", WORKFLOW), ("PROMPTS.md", PROMPTS)):
+            with self.subTest(document=name):
+                self.assertIn("wait_threads", document)
+                self.assertIn("timeoutMs: 0", document)
+                self.assertIn("latestTurn.status", document)
+                self.assertIn("inProgress", document)
+                self.assertIn("latest completed turn", document)
+                self.assertIn("earlier heartbeat", document)
+                self.assertIn("UNPROVEN / NOT DELIVERED", document)
 
     def test_reviewer_prompt_requires_direct_delivery_before_finalizing(self) -> None:
         reviewer = PROMPTS.split("## 3. Reviewer Agent", 1)[1].split("## 4.", 1)[0]

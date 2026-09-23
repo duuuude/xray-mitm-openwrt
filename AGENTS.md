@@ -382,6 +382,21 @@ rollbackability
 
 When uncertain, stop and ask rather than inventing architecture.
 
+Task/thread status is a live snapshot. Before claiming that a Work is active,
+idle, or complete—or deciding to wait or continue—refresh that exact task with
+`wait_threads` using `timeoutMs: 0` (or read it directly if that tool is
+unavailable). Base “active” only on the current `latestTurn.status` being
+`inProgress`; never reuse an earlier heartbeat, cached thread-list status,
+title, summary, or memory. If the task is idle or its latest turn is
+`completed`, inspect that latest completed turn before describing its result.
+
+Before relying on a handoff, verify the complete report is visible in the
+Development Lead task itself. A source task's status, summary, GitHub review,
+or send receipt alone does not prove report delivery. If the source task is no
+longer working and the full report is absent, record `UNPROVEN / NOT DELIVERED`
+and request direct recovery using the exact source and destination task IDs;
+never ask the owner to relay it.
+
 ## 24. Completion report
 
 At the end of an implementation task, provide:

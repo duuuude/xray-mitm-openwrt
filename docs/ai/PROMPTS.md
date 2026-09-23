@@ -25,6 +25,15 @@ Lead directly re-requests once using exact source/destination IDs, does not
 tell the owner to relay it, and does not declare merge readiness until the
 report is received.
 
+Refresh live task state before every status claim or wait/continue decision:
+call `wait_threads` with `timeoutMs: 0` for the exact task (or read that task
+directly if unavailable), and base “active” only on its current
+`latestTurn.status` being `inProgress`. Never reuse an earlier heartbeat or
+cached thread-list status. When the task is idle or the latest turn is
+`completed`, inspect that latest completed turn and verify the complete report
+in the Lead task. A missing report is `UNPROVEN / NOT DELIVERED`, not evidence
+that the Work is still running or that delivery succeeded.
+
 ---
 
 ## 1. Development Lead — Owner Console
@@ -65,6 +74,9 @@ You must:
     the approved feature branch when routine-push conditions are satisfied
 12. produce a complete self-contained handoff to PR Reviewer that includes
     the exact Lead task thread ID and requires a direct report message to it
+13. refresh each Work's live status before reporting or deciding to wait;
+    inspect the latest completed turn and the Lead task for its full report
+    before claiming completion or delivery
 
 You may evaluate reviewer findings and implement accepted ordinary corrections,
 but you may never independently approve your own implementation. Return every

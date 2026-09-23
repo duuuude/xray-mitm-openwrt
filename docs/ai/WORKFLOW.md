@@ -218,6 +218,26 @@ acting when rollback is unclear or material evidence is missing
 
 ---
 
+## Live task status and report verification
+
+Task/thread status is a live snapshot, not durable evidence. Before telling the
+owner that a Work is active, idle, or complete—or deciding whether to wait,
+continue, or hand off—refresh that exact task with `wait_threads` using
+`timeoutMs: 0` (or read the task directly if the wait tool is unavailable).
+Use the returned `latestTurn.status`, not an earlier heartbeat, cached thread
+list, title, summary, or memory. Say a Work is active only when its latest turn
+is actually `inProgress`. If the result is `completed` or the task is idle,
+inspect the latest completed turn before deciding what happened; never say it
+is still working based on an older active snapshot.
+
+For a report handoff, inspect the destination Lead task itself and verify that
+the complete report is visible there before relying on it. A source task's
+active/idle/completed state, a summary, a GitHub review, or a successful-send
+receipt alone does not prove the report is present. If the source task is no
+longer working and no complete report is visible in the Lead task, classify it
+as `UNPROVEN / NOT DELIVERED` and request direct recovery from that source using
+the exact source and destination task IDs. Do not ask the owner to relay it.
+
 ## Handoff and routing protocol
 
 Development Lead is the only routing layer. When another Work returns a
