@@ -11,6 +11,12 @@ die() {
   exit 1
 }
 
+stat_metadata() {
+  metadata=$(stat -c '%u %a' "$1" 2>/dev/null) || \
+    metadata=$(stat -f '%u %Lp' "$1" 2>/dev/null) || \
+    die "cannot inspect ownership and permissions for $1"
+  printf '%s\n' "$metadata"
+}
 [ -n "$backup_dir" ] || die 'backup directory argument is required'
 case "$backup_dir" in
   /*) ;;
@@ -35,6 +41,19 @@ if [ "$filesystem_root" != / ]; then
   filesystem_root=${filesystem_root%/}
 fi
 
+trusted_root=$filesystem_root
+[ -d "$trusted_root" ] && [ ! -L "$trusted_root" ] || die 'ROUTER_GUARD_ROOT must be an existing real directory'
+root_metadata=$(stat_metadata "$trusted_root")
+set -- $root_metadata
+[ "$#" -eq 2 ] || die 'cannot parse filesystem-root ownership and permissions'
+trusted_owner_uid=$1
+root_mode=$2
+if [ "$trusted_root" = / ]; then
+  [ "$trusted_owner_uid" = 0 ] || die 'filesystem root is not owned by root'
+  trusted_owner_uid=0
+fi
+root_write_bits=$((0$root_mode & 0022))
+[ "$root_write_bits" -eq 0 ] || die 'filesystem root is group/other writable; refusing to trust it'
 live_path() {
   case "$1" in
     passwall2) relative_path=/usr/libexec/xray-mitm/passwall2 ;;
@@ -56,6 +75,80 @@ is_regular_file() {
   [ -f "$1" ] && [ ! -L "$1" ]
 }
 
+validate_protected_directory() {
+  directory_path=$1
+  [ -d "$directory_path" ] && [ ! -L "$directory_path" ] || \
+    die "protected path component is missing, not a directory, or a symlink: $directory_path"
+  directory_metadata=$(stat_metadata "$directory_path")
+  set -- $directory_metadata
+  [ "$#" -eq 2 ] || die "cannot parse directory ownership and permissions: $directory_path"
+  [ "$1" = "$trusted_owner_uid" ] || \
+    die "protected directory is not owned by trusted uid $trusted_owner_uid: $directory_path"
+  directory_write_bits=$((0$2 & 0022))
+  [ "$directory_write_bits" -eq 0 ] || \
+    die "protected directory is group/other writable: $directory_path"
+}
+
+validate_backup_parent_path() {
+  backup_parent=${backup_dir%/*}
+  [ -n "$backup_parent" ] || backup_parent=/
+
+  if [ "$trusted_root" = / ]; then
+    relative_parent=${backup_parent#/}
+    current_directory=/
+  else
+    case "$backup_dir" in
+      "$trusted_root"/*) ;;
+      *) die 'backup path must remain beneath ROUTER_GUARD_ROOT in test mode' ;;
+    esac
+    case "$backup_parent" in
+      "$trusted_root") relative_parent= ;;
+      "$trusted_root"/*) relative_parent=${backup_parent#"$trusted_root"/} ;;
+      *) die 'backup parent path escapes ROUTER_GUARD_ROOT' ;;
+    esac
+    current_directory=$trusted_root
+  fi
+
+  validate_protected_directory "$current_directory"
+  old_ifs=$IFS
+  IFS=/
+  set -- $relative_parent
+  IFS=$old_ifs
+  for directory_component do
+    [ -n "$directory_component" ] || continue
+    if [ "$current_directory" = / ]; then
+      current_directory=/$directory_component
+    else
+      current_directory=$current_directory/$directory_component
+    fi
+    validate_protected_directory "$current_directory"
+  done
+}
+
+validate_protected_backup_tree() {
+  validate_backup_parent_path
+  validate_protected_directory "$backup_dir"
+
+  for backup_entry in "$backup_dir"/* "$backup_dir"/.[!.]* "$backup_dir"/..?*; do
+    if [ ! -e "$backup_entry" ] && [ ! -L "$backup_entry" ]; then
+      continue
+    fi
+    is_regular_file "$backup_entry" || \
+      die "protected backup contains a symlink or non-regular entry: $backup_entry"
+    entry_metadata=$(stat_metadata "$backup_entry")
+    set -- $entry_metadata
+    [ "$#" -eq 2 ] || die "cannot parse backup-file ownership and permissions: $backup_entry"
+    [ "$1" = "$trusted_owner_uid" ] || \
+      die "protected backup file is not owned by trusted uid $trusted_owner_uid: $backup_entry"
+    entry_write_bits=$((0$2 & 0022))
+    [ "$entry_write_bits" -eq 0 ] || \
+      die "protected backup file is group/other writable: $backup_entry"
+    case "${backup_entry##*/}" in
+      passwall2|xray-mitmctl|xray-mitm.uc|overview.js|state.js|ui.js|ui.js.absent|SHA256SUMS|ACTIVE_STAGE) ;;
+      *) die "protected backup contains an unexpected entry: ${backup_entry##*/}" ;;
+    esac
+  done
+}
 hash_file() {
   if command -v sha256sum >/dev/null 2>&1; then
     sha256sum "$1" | awk 'NR == 1 { print $1 }'
@@ -117,7 +210,7 @@ expected_backup_names() {
 }
 
 validate_backup_manifest() {
-  [ -d "$backup_dir" ] && [ ! -L "$backup_dir" ] || die 'protected backup directory is missing or is not a real directory'
+  validate_protected_backup_tree
   is_regular_file "$backup_dir/SHA256SUMS" || die 'protected backup checksum manifest is missing or unsafe'
 
   for backup_name in passwall2 xray-mitmctl xray-mitm.uc overview.js state.js; do
@@ -175,7 +268,7 @@ make_initial_backup() {
   backup_name=${backup_dir##*/}
   [ -n "$backup_parent" ] || backup_parent=/
   [ ! -e "$backup_dir" ] && [ ! -L "$backup_dir" ] || die 'backup directory appeared during capture; refusing to overwrite it'
-  mkdir -p "$backup_parent"
+  validate_backup_parent_path
   capture_dir=$backup_parent/.${backup_name}.new.$$
   [ ! -e "$capture_dir" ] && [ ! -L "$capture_dir" ] || die 'temporary backup path already exists; refusing to overwrite it'
   umask 077
@@ -194,6 +287,7 @@ make_initial_backup() {
   done
   if is_regular_file "$source_ui"; then
     cp -p "$source_ui" "$capture_dir/ui.js"
+    chmod 0600 "$capture_dir/ui.js"
   else
     : > "$capture_dir/ui.js.absent"
     chmod 0600 "$capture_dir/ui.js.absent"

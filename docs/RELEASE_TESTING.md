@@ -54,6 +54,13 @@ Before staging, an existing backup must match all six current live files and
 the `ui.js` presence marker byte-for-byte. A stale or older backup is rejected
 without refreshing or using it; choose a new, explicit `ROUTER_BACKUP_DIR`
 only after confirming the current router files are the intended baseline.
+The backup path must be beneath existing root-owned directories that are not
+group/other writable. Existing backup directories and every contained entry
+must also be root-owned and not group/other writable; symlinked path components,
+unexpected entries, and unsafe permissions are rejected before staging or
+restore. The helper does not create missing parent directories. Keep the
+default `/root/xray-mitm-local-backup`, or prepare another protected parent as
+root before selecting a custom path.
 Before any live file is replaced, `stage` records the exact candidate hashes
 in `ACTIVE_STAGE` beside that backup. `restore` accepts only files matching
 either the saved baseline or that staged candidate, and refuses to overwrite
