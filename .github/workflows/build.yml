@@ -49,18 +49,39 @@ env:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    # The release validator includes bounded process-recovery and large-inventory
-    # fail-closed fixtures; keep a generous ceiling so slow runners do not turn
-    # a passing candidate into a cancellation.
-    timeout-minutes: 10
+    # The exact-head checker runs the repository suite and writes a bounded
+    # evidence file; leave headroom for slow hosted runners.
+    timeout-minutes: 20
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0
+          persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
-      - name: Validate release tree
-        run: sh scripts/validate-release.sh
+      - name: Run exact-candidate checks and emit evidence
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          CHECK_PR_ALLOW_MANUAL_GATES: "1"
+          PR_EVIDENCE_PATH: ${{ runner.temp }}/pr-evidence.json
+        run: |
+          set -eu
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            sh scripts/validate-release.sh
+          else
+            sh scripts/check-pr.sh "$BASE_SHA" "$CANDIDATE_SHA"
+          fi
+
+      - name: Preserve source evidence for the package build job
+        if: always() && github.event_name != 'workflow_dispatch'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pr-evidence-source-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/pr-evidence.json
+          if-no-files-found: error
+          retention-days: 1
 
   build:
     needs: validate
@@ -71,7 +92,15 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Download exact-candidate source evidence
+        if: github.event_name != 'workflow_dispatch'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: pr-evidence-source-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/pr-evidence
 
       - name: Build noarch packages with the official OpenWrt SDK
         uses: openwrt/gh-action-sdk@7fc2640243284ecc44f4a9c3f749a61746ee02cb # v11
@@ -134,10 +163,38 @@ jobs:
           cd ..
           sh scripts/verify-promotion-artifact.sh dist "$source_commit" "$OPENWRT_RELEASE" "$SDK_ARCH"
 
+      - name: Bind package checksums to the exact-candidate evidence
+        if: github.event_name != 'workflow_dispatch'
+        env:
+          CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -eu
+          python3 scripts/pr-evidence.py attach-build \
+            --repo "$GITHUB_WORKSPACE" \
+            --evidence "$RUNNER_TEMP/pr-evidence/pr-evidence.json" \
+            --artifact-dir dist \
+            --source-sha "$CANDIDATE_SHA" \
+            --format apk \
+            --release "$OPENWRT_RELEASE" \
+            --architecture "$SDK_ARCH" \
+            --workflow "$GITHUB_WORKFLOW" \
+            --run-id "$GITHUB_RUN_ID" \
+            --sdk-action "openwrt/gh-action-sdk@7fc2640243284ecc44f4a9c3f749a61746ee02cb" \
+            --checksum-command "sha256sum -c PACKAGE_SHA256SUMS && sha256sum -c SHA256SUMS"
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: xray-mitm-openwrt-${{ env.OPENWRT_RELEASE }}-${{ env.SDK_ARCH }}-${{ github.event.pull_request.head.sha || github.sha }}
           path: dist/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload exact-candidate PR evidence
+        if: github.event_name != 'workflow_dispatch'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pr-evidence-apk-${{ env.OPENWRT_RELEASE }}-${{ env.SDK_ARCH }}-${{ github.event.pull_request.head.sha || github.sha }}
+          path: ${{ runner.temp }}/pr-evidence/pr-evidence.json
           if-no-files-found: error
           retention-days: 30

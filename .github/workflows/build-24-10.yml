@@ -6,11 +6,15 @@ on:
       - ".github/workflows/build-24-10.yml"
       - "ci/**"
       - "luci-app-xray-mitm/**"
+      - "scripts/check-pr.sh"
+      - "scripts/pr-evidence.py"
       - "scripts/validate-release.sh"
       - "scripts/verify-github-remote.sh"
       - "scripts/router-dns-fallback.sh"
       - "scripts/router-dns-fallback/**"
+      - "tests/test_check_pr.py"
       - "tests/test_package_matrix.py"
+      - "tests/test_pr_evidence.py"
       - "tests/test_router_dns_fallback.py"
       - "xray-mitm/**"
   push:
@@ -20,11 +24,15 @@ on:
       - ".github/workflows/build-24-10.yml"
       - "ci/**"
       - "luci-app-xray-mitm/**"
+      - "scripts/check-pr.sh"
+      - "scripts/pr-evidence.py"
       - "scripts/validate-release.sh"
       - "scripts/verify-github-remote.sh"
       - "scripts/router-dns-fallback.sh"
       - "scripts/router-dns-fallback/**"
+      - "tests/test_check_pr.py"
       - "tests/test_package_matrix.py"
+      - "tests/test_pr_evidence.py"
       - "tests/test_router_dns_fallback.py"
       - "xray-mitm/**"
 
@@ -42,19 +50,35 @@ env:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    # The release validator includes bounded process-recovery and large-inventory
-    # fail-closed fixtures; keep a generous ceiling so slow runners do not turn
-    # a passing candidate into a cancellation.
-    timeout-minutes: 10
+    # The exact-head checker runs the repository suite and writes a bounded
+    # evidence file; leave headroom for slow hosted runners.
+    timeout-minutes: 20
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
-      - name: Validate release tree
-        run: sh scripts/validate-release.sh
+      - name: Run exact-candidate checks and emit evidence
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          CHECK_PR_ALLOW_MANUAL_GATES: "1"
+          PR_EVIDENCE_PATH: ${{ runner.temp }}/pr-evidence.json
+        run: |
+          set -eu
+          sh scripts/check-pr.sh "$BASE_SHA" "$CANDIDATE_SHA"
+
+      - name: Preserve source evidence for the package build job
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pr-evidence-source-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/pr-evidence.json
+          if-no-files-found: error
+          retention-days: 1
 
   build:
     needs: validate
@@ -65,7 +89,14 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Download exact-candidate source evidence
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: pr-evidence-source-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/pr-evidence
 
       - name: Build IPKs with the official OpenWrt SDK
         uses: openwrt/gh-action-sdk@7fc2640243284ecc44f4a9c3f749a61746ee02cb # v11
@@ -103,10 +134,36 @@ jobs:
             | sed 's#^./##' > PACKAGES
           sha256sum -c SHA256SUMS
 
+      - name: Bind package checksums to the exact-candidate evidence
+        env:
+          CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -eu
+          python3 scripts/pr-evidence.py attach-build \
+            --repo "$GITHUB_WORKSPACE" \
+            --evidence "$RUNNER_TEMP/pr-evidence/pr-evidence.json" \
+            --artifact-dir dist \
+            --source-sha "$CANDIDATE_SHA" \
+            --format ipk \
+            --release "$OPENWRT_RELEASE" \
+            --architecture "$SDK_ARCH" \
+            --workflow "$GITHUB_WORKFLOW" \
+            --run-id "$GITHUB_RUN_ID" \
+            --sdk-action "openwrt/gh-action-sdk@7fc2640243284ecc44f4a9c3f749a61746ee02cb" \
+            --checksum-command "sha256sum -c SHA256SUMS"
+
       - name: Upload unsigned IPK artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: xray-mitm-openwrt-${{ env.OPENWRT_RELEASE }}-${{ env.SDK_ARCH }}-ipk
           path: dist/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload exact-candidate PR evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pr-evidence-ipk-${{ env.OPENWRT_RELEASE }}-${{ env.SDK_ARCH }}-${{ github.event.pull_request.head.sha || github.sha }}
+          path: ${{ runner.temp }}/pr-evidence/pr-evidence.json
           if-no-files-found: error
           retention-days: 30

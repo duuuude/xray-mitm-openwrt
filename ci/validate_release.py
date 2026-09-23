@@ -56,6 +56,7 @@ REQUIRED_PATHS = (
     "CONTRIBUTING.md",
     ".github/workflows/build.yml",
     ".github/workflows/build-24-10.yml",
+    ".github/workflows/pr-evidence.yml",
     ".github/workflows/publish-feed.yml",
     ".gitignore",
     "LICENSE",
@@ -64,9 +65,11 @@ REQUIRED_PATHS = (
     "THIRD_PARTY_NOTICES.md",
     "ci/test-init-enable.sh",
     "docs/RELEASE_TESTING.md",
+    "docs/ai/PR_EVIDENCE.md",
     "docs/CONFIG_AUDIT.md",
     "docs/SIGNED_FEED.md",
     "scripts/release-preflight.sh",
+    "scripts/pr-evidence.py",
     "scripts/router-dns-fallback.sh",
     "scripts/router-dns-fallback/init.d-xray-mitm-dns",
     "scripts/router-dns-fallback/xray-config.json",
@@ -84,6 +87,7 @@ REQUIRED_PATHS = (
     "tests/test_installer.py",
     "tests/test_passwall2.py",
     "tests/test_promotion_artifact.py",
+    "tests/test_pr_evidence.py",
     "tests/test_release_preflight.py",
     "tests/test_router_dns_fallback.py",
     "tests/test_signed_feed.py",
@@ -391,6 +395,7 @@ def check_workflow(root: Path, errors: list[str]) -> None:
     for relative in (
         ".github/workflows/build.yml",
         ".github/workflows/build-24-10.yml",
+        ".github/workflows/pr-evidence.yml",
         ".github/workflows/publish-feed.yml",
     ):
         text = (root / relative).read_text(encoding="utf-8", errors="replace")
@@ -443,6 +448,45 @@ def check_workflow(root: Path, errors: list[str]) -> None:
         errors.append(f"{relative} must record the checked-out candidate HEAD")
     if 'printf \'%s\\n\' "$GITHUB_SHA" > dist/SOURCE_COMMIT' in text:
         errors.append(f"{relative} must not record the synthetic pull-request merge SHA")
+
+    relative = ".github/workflows/pr-evidence.yml"
+    text = (root / relative).read_text(encoding="utf-8", errors="replace")
+    if not re.search(r"(?ms)^  pull_request:\n    paths:\n", text):
+        errors.append(f"{relative} must path-filter its pull_request trigger")
+    for required in (
+        '      - "*.md"',
+        '      - "**/*.md"',
+        '      - "docs/**"',
+        "ref: ${{ github.event.pull_request.head.sha }}",
+        "BASE_SHA: ${{ github.event.pull_request.base.sha }}",
+        "PR_EVIDENCE_PATH:",
+        "sh scripts/check-pr.sh",
+        "retention-days: 30",
+    ):
+        if required not in text:
+            errors.append(f"{relative} is missing exact-candidate evidence setting {required}")
+    for forbidden in (
+        "openwrt/gh-action-sdk",
+        "pull_request_target:",
+        "${{ secrets.",
+    ):
+        if forbidden in text:
+            errors.append(f"{relative} must not contain {forbidden}")
+
+    for relative in (".github/workflows/build.yml", ".github/workflows/build-24-10.yml"):
+        text = (root / relative).read_text(encoding="utf-8", errors="replace")
+        for required in (
+            "CHECK_PR_ALLOW_MANUAL_GATES: \"1\"",
+            "PR_EVIDENCE_PATH:",
+            "sh scripts/check-pr.sh",
+            "pr-evidence-source-",
+            "actions/download-artifact@",
+            "scripts/pr-evidence.py attach-build",
+            "pr-evidence-",
+            "retention-days: 30",
+        ):
+            if required not in text:
+                errors.append(f"{relative} is missing candidate evidence handoff {required}")
 
     relative = ".github/workflows/build-24-10.yml"
     text = (root / relative).read_text(encoding="utf-8", errors="replace")

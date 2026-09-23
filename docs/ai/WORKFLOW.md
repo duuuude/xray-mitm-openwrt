@@ -433,7 +433,13 @@ runs focused tests
 runs full validation
 runs git diff --check
 reports whether real router/browser testing is required
+optionally writes versioned, secret-free JSON when PR_EVIDENCE_PATH is set
 ```
+
+See [PR_EVIDENCE.md](PR_EVIDENCE.md) for the schema, `BLOCKED` semantics,
+artifact retention, and how package workflows bind built checksums to the same
+candidate. Documentation-only pull requests use the evidence-only workflow and
+do not invoke an OpenWrt SDK build.
 
 ### Phase 4
 

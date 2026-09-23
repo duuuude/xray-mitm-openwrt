@@ -3,6 +3,8 @@ set -eu
 
 usage() {
 	printf '%s\n' 'Usage: scripts/check-pr.sh [base-ref] [candidate-ref]' >&2
+	printf '%s\n' 'Set PR_EVIDENCE_PATH to also write a versioned JSON evidence record.' >&2
+	printf '%s\n' 'CI may set CHECK_PR_ALLOW_MANUAL_GATES=1 to pass offline checks while recording outstanding gates as BLOCKED.' >&2
 	exit 2
 }
 
@@ -221,13 +223,64 @@ printf 'Changed file count: %s\n' "$(printf '%s\n' "$changed_files" | awk 'NF { 
 printf 'Changed files:\n%s\n' "$changed_files"
 printf 'Categories: %s\n' "$categories"
 
-[ "$unknown" -eq 0 ] || die 'At least one changed path has no validation mapping.'
-
 temporary_dir=$(mktemp -d "${TMPDIR:-/tmp}/xray-mitm-check-pr.XXXXXX") || die 'Could not create a temporary evidence directory.'
 cleanup() {
 	rm -rf "$temporary_dir"
 }
 trap cleanup EXIT HUP INT TERM
+
+evidence_events="$temporary_dir/evidence-events.jsonl"
+: >"$evidence_events"
+
+record_evidence_event() {
+	event_name=$1
+	event_command=$2
+	event_result=$3
+	event_exit_code=$4
+	event_blocking=$5
+	event_reason=$6
+	[ -n "${PR_EVIDENCE_PATH:-}" ] || return 0
+	set -- python3 "$script_dir/pr-evidence.py" record \
+		--events "$evidence_events" \
+		--name "$event_name" \
+		--command "$event_command" \
+		--result "$event_result"
+	[ -n "$event_exit_code" ] && set -- "$@" --exit-code "$event_exit_code"
+	[ -n "$event_reason" ] && set -- "$@" --reason "$event_reason"
+	[ "$event_blocking" = 1 ] && set -- "$@" --blocking
+	"$@" >/dev/null || die 'Could not record the private machine-readable evidence.'
+}
+
+finalize_evidence() {
+	evidence_result=$1
+	[ -n "${PR_EVIDENCE_PATH:-}" ] || return 0
+	python3 "$script_dir/pr-evidence.py" create \
+		--repo "$project_dir" \
+		--output "$PR_EVIDENCE_PATH" \
+		--events "$evidence_events" \
+		--base-sha "$base_sha" \
+		--candidate-sha "$candidate_sha" \
+		--categories "$categories" \
+		--result "$evidence_result" \
+		--openwrt "$openwrt_gate" \
+		--browser "$browser_gate" \
+		--release "$release_gate" \
+		--signing "$signing_gate" >/dev/null || die 'Could not finalize the exact-candidate JSON evidence.'
+}
+
+if [ "$unknown" -eq 1 ]; then
+	printf '%s\n' 'At least one changed path has no validation mapping.' >&2
+	record_evidence_event \
+		'Changed-path validation mapping' \
+		'Confirm every changed path has a known validation mapping' \
+		SKIPPED '' 1 'At least one path is unknown to the checker.'
+	openwrt_gate=not_required
+	browser_gate=not_required
+	release_gate=not_required
+	signing_gate=not_required
+	finalize_evidence BLOCKED
+	die 'At least one changed path has no validation mapping.'
+fi
 
 safe_home="$temporary_dir/home"
 safe_git_config="$temporary_dir/gitconfig"
@@ -261,9 +314,11 @@ run_check() {
 			GIT_TERMINAL_PROMPT=0 \
 			"$@" >"$last_log" 2>&1; then
 			printf '%s\n' 'Result: PASS'
+			record_evidence_event "$label" "$display_command" PASS 0 1 ''
 		else
 			run_status=$?
 			printf 'Result: FAIL (exit %s; command output suppressed)\n' "$run_status"
+			record_evidence_event "$label" "$display_command" FAIL "$run_status" 1 ''
 			test_failures=1
 		fi
 	elif env -i \
@@ -276,9 +331,11 @@ run_check() {
 		GIT_TERMINAL_PROMPT=0 \
 		"$@" >"$last_log" 2>&1; then
 		printf '%s\n' 'Result: PASS'
+		record_evidence_event "$label" "$display_command" PASS 0 1 ''
 	else
 		run_status=$?
 		printf 'Result: FAIL (exit %s; command output suppressed)\n' "$run_status"
+		record_evidence_event "$label" "$display_command" FAIL "$run_status" 1 ''
 		test_failures=1
 	fi
 }
@@ -291,6 +348,7 @@ run_shell_syntax_for_changed_files() {
 					run_check "Focused shell syntax: $changed_path" "sh -n $changed_path" sh -n "$project_dir/$changed_path"
 				else
 					printf 'Focused shell syntax: %s\nResult: SKIPPED (file is deleted in candidate)\n' "$changed_path"
+					record_evidence_event "Focused shell syntax: $changed_path" "sh -n $changed_path" SKIPPED '' 1 'File is deleted in candidate.'
 					manual_blocked=1
 				fi
 				;;
@@ -316,6 +374,7 @@ run_node_checks_for_changed_files() {
 
 	if [ -z "$node_bin" ]; then
 		printf '%s\n' 'Focused frontend checks: SKIPPED (Node.js is unavailable; set NODE_BIN to an executable).'
+		record_evidence_event 'Focused frontend checks' 'node --check <changed JavaScript files> and tests/test_frontend_state.js' SKIPPED '' 1 'Node.js is unavailable.'
 		manual_blocked=1
 		return
 	fi
@@ -324,9 +383,10 @@ run_node_checks_for_changed_files() {
 		case "$changed_path" in
 			*.js)
 				if [ -f "$project_dir/$changed_path" ]; then
-					run_check "Focused JavaScript syntax: $changed_path" "${node_bin} --check $changed_path" "$node_bin" --check "$project_dir/$changed_path"
+					run_check "Focused JavaScript syntax: $changed_path" "node --check $changed_path" "$node_bin" --check "$project_dir/$changed_path"
 				else
 					printf 'Focused JavaScript syntax: %s\nResult: SKIPPED (file is deleted in candidate)\n' "$changed_path"
+					record_evidence_event "Focused JavaScript syntax: $changed_path" "node --check $changed_path" SKIPPED '' 1 'File is deleted in candidate.'
 					manual_blocked=1
 				fi
 				;;
@@ -334,7 +394,7 @@ run_node_checks_for_changed_files() {
 	done <<EOF
 $changed_files
 EOF
-	run_check 'Focused frontend-state tests' "${node_bin} tests/test_frontend_state.js" "$node_bin" "$project_dir/tests/test_frontend_state.js"
+	run_check 'Focused frontend-state tests' 'node tests/test_frontend_state.js' "$node_bin" "$project_dir/tests/test_frontend_state.js"
 }
 
 if [ "$shell" -eq 1 ]; then
@@ -388,6 +448,7 @@ run_check 'Full repository validation' 'sh scripts/validate-release.sh' sh "$pro
 full_validation_log=$last_log
 if grep -q 'LuCI JavaScript syntax check skipped' "$full_validation_log"; then
 	printf '%s\n' 'Skipped check: full validator could not run LuCI JavaScript checks because Node.js was unavailable.'
+	record_evidence_event 'Full-validator LuCI JavaScript syntax' 'node --check <LuCI JavaScript files>' SKIPPED '' "$frontend" 'Node.js is unavailable.'
 	if [ "$frontend" -eq 1 ]; then
 		manual_blocked=1
 	fi
@@ -397,12 +458,15 @@ post_status=''
 if post_status=$(git_at status --porcelain --untracked-files=all 2>/dev/null); then
 	if [ -n "$post_status" ]; then
 		printf '%s\n' 'Post-validation working-tree check: FAIL (changes detected; details suppressed)'
+		record_evidence_event 'Post-validation working-tree check' 'git status --porcelain --untracked-files=all' FAIL 1 1 'Changes were detected; details suppressed.'
 		test_failures=1
 	else
 		printf '%s\n' 'Post-validation working-tree check: PASS'
+		record_evidence_event 'Post-validation working-tree check' 'git status --porcelain --untracked-files=all' PASS 0 1 ''
 	fi
 else
 	printf '%s\n' 'Post-validation working-tree check: FAIL (Git status could not be inspected)'
+	record_evidence_event 'Post-validation working-tree check' 'git status --porcelain --untracked-files=all' FAIL 1 1 'Git status could not be inspected.'
 	test_failures=1
 fi
 
@@ -410,21 +474,31 @@ post_head=''
 if post_head=$(git_at rev-parse --verify HEAD 2>/dev/null); then
 	if [ "$post_head" = "$candidate_sha" ]; then
 		printf '%s\n' 'Post-validation HEAD check: PASS'
+		record_evidence_event 'Post-validation HEAD check' 'git rev-parse --verify HEAD' PASS 0 1 ''
 	else
 		printf 'Post-validation HEAD check: FAIL (expected candidate %s)\n' "$candidate_sha"
+		record_evidence_event 'Post-validation HEAD check' 'git rev-parse --verify HEAD' FAIL 1 1 'HEAD changed during validation.'
 		test_failures=1
 	fi
 else
 	printf '%s\n' 'Post-validation HEAD check: FAIL (HEAD could not be inspected)'
+	record_evidence_event 'Post-validation HEAD check' 'git rev-parse --verify HEAD' FAIL 1 1 'HEAD could not be inspected.'
 	test_failures=1
 fi
 
+openwrt_gate=not_required
+browser_gate=not_required
+release_gate=not_required
+signing_gate=not_required
 printf '%s\n' 'Manual gates:'
 if [ "$frontend" -eq 1 ]; then
+	openwrt_gate=required
+	browser_gate=required
 	printf '%s\n' 'OpenWrt integration: REQUIRED (not performed by this read-only check)'
 	printf '%s\n' 'AX4200/browser validation: REQUIRED (not performed by this read-only check)'
 	manual_blocked=1
 elif [ "$passwall2" -eq 1 ] || [ "$package" -eq 1 ] || [ "$installer" -eq 1 ] || [ "$router_dns_fallback" -eq 1 ]; then
+	openwrt_gate=required
 	printf '%s\n' 'OpenWrt integration: REQUIRED (not performed by this read-only check)'
 	printf '%s\n' 'AX4200/browser validation: not required by the changed categories'
 	manual_blocked=1
@@ -433,11 +507,13 @@ else
 	printf '%s\n' 'AX4200/browser validation: not required'
 fi
 if [ "$release" -eq 1 ]; then
+	release_gate=owner_gated
 	printf '%s\n' 'Release execution: owner-gated and not performed by this check'
 else
 	printf '%s\n' 'Release execution: not required'
 fi
 if [ "$workflow_security" -eq 1 ]; then
+	signing_gate=owner_gated
 	printf '%s\n' 'Signing/security execution: review-only; no secrets or signing operation used'
 else
 	printf '%s\n' 'Signing/security execution: not required'
@@ -447,6 +523,7 @@ printf '%s\n' 'Evidence boundary:'
 printf '%s\n' '- Offline tests and static checks do not prove live router, browser, external-service, release, or signing behavior.'
 if [ "$docs" -eq 1 ]; then
 	printf '%s\n' '- Markdown rendering/link validation: SKIPPED (no dedicated repository validator).'
+	record_evidence_event 'Markdown rendering/link validation' 'repository Markdown renderer/link validator' SKIPPED '' 0 'No dedicated repository validator is configured.'
 fi
 if [ "$frontend" -eq 1 ]; then
 	printf '%s\n' '- LuCI rendering, browser console behavior, and saved router-state preservation: UNPROVEN until the required manual gate is completed.'
@@ -459,11 +536,18 @@ if [ "$router_dns_fallback" -eq 1 ]; then
 fi
 
 if [ "$test_failures" -ne 0 ]; then
+	finalize_evidence FAILED
 	printf '%s\n' 'CHECK_PR_RESULT=FAILED'
 	exit 1
 fi
 if [ "$manual_blocked" -ne 0 ]; then
+	finalize_evidence BLOCKED
 	printf '%s\n' 'CHECK_PR_RESULT=BLOCKED'
+	if [ "${CHECK_PR_ALLOW_MANUAL_GATES:-0}" = 1 ]; then
+		printf '%s\n' 'Offline checks passed; required manual gates remain explicitly BLOCKED.'
+		exit 0
+	fi
 	exit 1
 fi
+finalize_evidence READY_FOR_REVIEW
 printf '%s\n' 'CHECK_PR_RESULT=READY_FOR_REVIEW'
