@@ -141,5 +141,17 @@ class WorkHandoffContractTests(unittest.TestCase):
                 self.assertIn("Never ask the owner", normalized)
 
 
+    def test_transport_probe_cannot_self_target_or_bypass_a_rejection(self) -> None:
+        for name, document in (("AGENTS.md", AGENTS), ("WORKFLOW.md", WORKFLOW), ("PROMPTS.md", PROMPTS)):
+            normalized = " ".join(document.split()).lower()
+            with self.subTest(document=name):
+                self.assertIn("source task id", normalized)
+                self.assertIn("destination task id", normalized)
+                self.assertIn("they must differ", normalized)
+                self.assertIn("self-send", normalized)
+                self.assertIn("actual conversation content", normalized)
+                self.assertIn("wait_threads cannot wait on the calling task", normalized)
+                self.assertIn("do not retry by using shell, cli, app-server", normalized)
+
 if __name__ == "__main__":
     unittest.main()
