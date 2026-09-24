@@ -153,5 +153,26 @@ class WorkHandoffContractTests(unittest.TestCase):
                 self.assertIn("wait_threads cannot wait on the calling task", normalized)
                 self.assertIn("do not retry by using shell, cli, app-server", normalized)
 
+    def test_policy_rejection_is_terminal_and_recovery_is_strictly_scoped(self) -> None:
+        for name, document in (("AGENTS.md", AGENTS), ("WORKFLOW.md", WORKFLOW), ("PROMPTS.md", PROMPTS)):
+            normalized = " ".join(document.split()).lower()
+            with self.subTest(document=name):
+                self.assertIn("terminal for that delivery attempt", normalized)
+                self.assertIn("overrides the generic one-time recovery rule", normalized)
+                self.assertIn("do not re-request, regenerate the report, or resend it", normalized)
+                self.assertIn(
+                    "the one-time recovery path is allowed only when no safety/policy rejection occurred",
+                    normalized,
+                )
+                self.assertIn(
+                    "if that permitted recovery attempt fails or cannot be verified, stop",
+                    normalized,
+                )
+                self.assertNotIn(
+                    "use the persistent reviewer work to regenerate/deliver the report",
+                    normalized,
+                )
+                self.assertNotIn("if the retry also fails", normalized)
+
 if __name__ == "__main__":
     unittest.main()

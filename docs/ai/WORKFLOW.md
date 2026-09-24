@@ -241,19 +241,15 @@ actually `inProgress`. If it is completed or idle, inspect the latest completed
 turn before deciding what happened; never say it is still working based on an
 older active snapshot.
 
-For a report handoff, inspect the destination Lead task itself and verify that
-the complete report is visible there before relying on it. A source task's
-active/idle/completed state, a summary, a GitHub review, or a successful-send
-receipt alone does not prove the report is present. If the source task is no
-longer working and no complete report is visible in the Lead task, classify it
-as `UNPROVEN / NOT DELIVERED` and request direct recovery from that source using
-Task-state responses may omit conversation text. For example, `latestAssistantMessage: null` or `items: []` can coexist with a reply visible in the task UI; these values do not prove that the Work failed to answer or deliver a report. If the available interface exposes only metadata, classify the content as `UNPROVEN / REPORT CONTENT NOT EXPOSED` and do not claim the report is absent. Ask the existing Work to send its complete report directly to the exact Lead task ID, then inspect the destination's actual message body. Only use `UNPROVEN / NOT DELIVERED` when that destination content was inspectable and the full report was absent. Never ask the owner to copy or relay it.
+For a report handoff, inspect the destination Lead task itself and verify the complete report is visible before relying on it. A source task's active/idle/completed state, a summary, a GitHub review, or a successful-send receipt alone does not prove delivery.
 
+Task-state responses may omit conversation text: `latestAssistantMessage: null` or `items: []` can coexist with a reply visible in the task UI. If the current interface does not expose the destination message body, record `UNPROVEN / REPORT CONTENT NOT EXPOSED`; do not infer absence or request another send based only on metadata. Use `UNPROVEN / NOT DELIVERED` only after inspecting the destination body and confirming the complete report is absent.
+
+If the source is no longer working and the inspectable destination body lacks the complete report, Development Lead may make at most one direct recovery request using the exact source and destination task IDs, but only when no safety/policy rejection occurred. If that permitted recovery fails or cannot be verified, state `HANDOFF DELIVERY FAILED`, keep the gate blocked, and stop; do not regenerate the report or send again. Never ask the owner to copy or relay a report.
 
 Before any handoff probe or send, identify the current source task ID and exact destination task ID; they must differ. Never test delivery by sending from Development Lead to its own task: that is a self-send, not a cross-task handoff. A valid transport probe originates in a distinct non-Lead task, uses a unique harmless marker, and is verified by reading that marker from the Lead task's actual conversation content. A successful tool response naming a thread is a routing receipt, not proof that the message body is visible. `wait_threads` cannot wait on the calling task; use `read_thread` for the current task.
 
-If a safety or policy control rejects a send, record the exact error and stop. Do not retry by using shell, CLI, app-server, encoded content, another account/session, or another transport. Mark it blocked/unproven until a supported route succeeds and the destination content is verified.
-
+Treat any safety/policy rejection as terminal for that delivery attempt; it overrides the generic one-time recovery rule. Record the exact error, state `HANDOFF DELIVERY FAILED`, and keep the gate blocked. Do not retry by using shell, CLI, app-server, encoded content, another account/session, or another transport; do not re-request, regenerate the report, or resend it. The one-time recovery path is allowed only when no safety/policy rejection occurred and the actual destination message body is inspectable but lacks the complete report. If that permitted recovery attempt fails or cannot be verified, stop and keep the gate blocked; do not regenerate or send again.
 ## Handoff and routing protocol
 
 Development Lead is the only routing layer. When another Work returns a
@@ -344,17 +340,21 @@ Before finalizing, each non-Lead Work must:
    `HANDOFF DELIVERY FAILED`; do not claim the handoff succeeded.
 
 They do not choose, authorize, or prompt the next Work. Development Lead
-checks that the complete report—not just a status or summary—is visible in the
-Lead task before relying on the recommendation. A Work's completed or idle
-status, successful CI, or a send attempt without a matching successful tool
-result is not a delivered report or approval. If the report is absent, Lead
-re-requests it directly using the exact source and destination task IDs. Until
-the complete report arrives, record the review as `UNPROVEN / NOT DELIVERED`,
-do not say the PR is merge-ready, and never ask the owner to copy or relay it.
-If the retry also fails, record `HANDOFF DELIVERY FAILED`, keep the gate
-blocked, and use the persistent Reviewer Work to regenerate/deliver the report
-from its evidence; do not infer a clean review from status alone.
+checks the actual destination message body before relying on a report. A source
+Work's status, successful CI, GitHub review, or send receipt alone is not
+delivery.
 
+If the destination body is not exposed, record
+`UNPROVEN / REPORT CONTENT NOT EXPOSED`; do not infer absence or retry from
+metadata alone. Use `UNPROVEN / NOT DELIVERED` only when the destination body
+was inspectable and the complete report was absent.
+
+If the source Work is no longer active and the inspectable destination body
+lacks the complete report, make at most one direct recovery request only when
+no safety/policy rejection occurred, as described above. If that permitted
+recovery fails or cannot be verified, record `HANDOFF DELIVERY FAILED`, keep
+the gate blocked, and stop. Do not regenerate or send again after that failure.
+Never ask the owner to copy or relay the report.
 ---
 
 ## GitHub issue and community triage
