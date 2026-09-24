@@ -11,20 +11,42 @@ returns its report to Development Lead — Owner Console and must not select,
 authorize, or prompt the next Work.
 
 Report delivery is a hard completion gate, not a status assumption. Every
-handoff request must include the exact `Lead task thread ID`; the Lead must not
-expect another Work to resolve a title to an ID. Before stopping, a non-Lead
-Work must call `send_message_to_thread` with that exact ID and its complete
-report as the `prompt`, confirm the tool returned success for that ID, and give
-the delivery receipt in its final response. It must also include the complete
-report in its final response when the host permits it. If the tool call fails
-or the destination cannot be confirmed, state `HANDOFF DELIVERY FAILED` and do
-not claim delivery. Development Lead verifies the complete report is visible
-in its own task; status, summary, CI, or an unconfirmed send attempt never
-substitutes for the report. If the complete report is absent from an inspectable destination message body, record `UNPROVEN / NOT DELIVERED`. The Lead may ask the source Work for one direct recovery only if it is no longer working and no safety/policy rejection occurred. Task-state snapshots such as `latestAssistantMessage: null` and `items: []` do not prove that the Work failed to answer or deliver; those values can coexist with a reply visible in the task UI. If the destination body is not exposed, record `UNPROVEN / REPORT CONTENT NOT EXPOSED`; do not infer absence or request another send from metadata alone. Only use `UNPROVEN / NOT DELIVERED` after inspecting the destination body and confirming the complete report is absent. Verify the report in the destination itself. Never ask the owner to copy or relay it.
+request must include the exact `Handoff repository root`, `Source task thread
+ID`, `Lead task thread ID`, and unique `Report ID`. Before stopping, a non-Lead
+Work writes and verifies its complete report with
+`scripts/work-report-handoff.py`; that git-ignored local artifact is the
+cross-account and incomplete-history source of truth. Writing this artifact is
+the only filesystem mutation allowed to an otherwise read-only Reviewer or
+Validation Work. It does not authorize tracked-file, branch, GitHub, router,
+browser, signing, or release changes.
+
+The Work includes the artifact receipt and full report in its final response.
+It may call `send_message_to_thread` once with only the receipt as a
+best-effort notification, but native delivery is not the report's sole copy
+and must not be retried. Development Lead verifies and reads the artifact with
+the helper before relying on it. Status, summary, final response, CI, GitHub
+review, or a native send receipt never substitutes for the verified artifact.
+If artifact creation or verification fails, state `HANDOFF DELIVERY FAILED`.
+Task-state snapshots such as `latestAssistantMessage: null` and `items: []`
+may coexist with a completed response. These fields do not prove that the Work
+failed to answer or deliver. If native history is unavailable,
+state `UNPROVEN / REPORT CONTENT NOT EXPOSED` for that projection and consume
+the artifact instead. Only use `UNPROVEN / NOT DELIVERED` after inspecting the
+artifact and confirming it is absent, and request artifact creation once only
+when no prior artifact write/verification failure or safety/policy rejection
+occurred. After an artifact failure, keep the gate blocked and stop.
+Never ask the owner to copy or relay the report.
 
 Before any handoff probe or send, identify the current source task ID and exact destination task ID; they must differ. Never test delivery by sending from Development Lead to its own task: that is a self-send, not a cross-task handoff. A valid transport probe originates in a distinct non-Lead task, uses a unique harmless marker, and is verified by reading that marker from the Lead task's actual conversation content. A successful tool response naming a thread is a routing receipt, not proof that the message body is visible. `wait_threads` cannot wait on the calling task; use `read_thread` for the current task.
 
-Treat any safety/policy rejection as terminal for that delivery attempt; it overrides the generic one-time recovery rule. Record the exact error, state `HANDOFF DELIVERY FAILED`, and keep the gate blocked. Do not retry by using shell, CLI, app-server, encoded content, another account/session, or another transport; do not re-request, regenerate the report, or resend it. The one-time recovery path is allowed only when no safety/policy rejection occurred and the actual destination message body is inspectable but lacks the complete report. If that permitted recovery attempt fails or cannot be verified, stop and keep the gate blocked; do not regenerate or send again.
+Treat any safety/policy rejection as terminal for the rejected operation. The
+artifact must be written and verified before a native notification, so it is
+never a fallback or workaround after rejection. Do not retry by using shell,
+CLI, app-server, encoded content, another account/session, or another
+transport. Record
+`NATIVE HANDOFF NOTIFICATION FAILED`; Development Lead consumes the already
+verified artifact. If artifact creation or verification fails, state
+`HANDOFF DELIVERY FAILED`, keep the gate blocked, and stop.
 
 Refresh live task state before every status claim or wait/continue decision:
 call `wait_threads` with `timeoutMs: 0` for the exact task (or read that task
@@ -37,9 +59,9 @@ is not newest-first, report `UNPROVEN (status not verified)` and make no status
 claim. Say active only if the extracted latest-turn status is `inProgress`.
 Never substitute `thread.status`, an earlier heartbeat, cached thread-list
 status, title, summary, or memory. When the latest turn is idle or
-`completed`, inspect that latest completed turn and verify the full report in
-the Lead task. A missing report is `UNPROVEN / NOT DELIVERED`, not evidence
-that the Work is still running or that delivery succeeded.
+`completed`, inspect that latest completed turn and verify the durable
+artifact. A missing artifact is `UNPROVEN / NOT DELIVERED`, not evidence that
+the Work is still running or that delivery succeeded.
 
 ---
 
@@ -80,10 +102,11 @@ You must:
 11. validate, inspect the complete diff, commit, and normally fast-forward push
     the approved feature branch when routine-push conditions are satisfied
 12. produce a complete self-contained handoff to PR Reviewer that includes
-    the exact Lead task thread ID and requires a direct report message to it
+    the exact handoff repository root, source and Lead task IDs, and report ID,
+    and requires a durable report artifact
 13. refresh each Work's live status before reporting or deciding to wait;
-    inspect the latest completed turn and the Lead task for its full report
-    before claiming completion or delivery
+    inspect the latest completed turn for status/context, then verify and read
+    the exact durable artifact before claiming report delivery
 
 You may evaluate reviewer findings and implement accepted ordinary corrections,
 but you may never independently approve your own implementation. Return every
@@ -255,13 +278,14 @@ Do not rewrite the PR.
 Do not fix findings.
 If there are no findings, state what you inspected and what remains unproven.
 Do not select or prompt another Work.
-Before stopping, send this complete review explicitly to the Development Lead
-task using `send_message_to_thread` and the exact `Lead task thread ID` supplied
-in the review request. Put the entire report in that message, verify the tool
-returned success for the expected thread ID, and include the receipt plus the
-full report in your final response. If this direct send fails, state exactly
-`HANDOFF DELIVERY FAILED`; do not rely only on the Work's completed or
-final-answer status being visible.
+Before stopping, write and verify this complete review with
+`scripts/work-report-handoff.py` using the exact `Handoff repository root`,
+`Source task thread ID`, `Lead task thread ID`, and `Report ID` supplied in the
+review request. Include the artifact receipt plus the full report in your final
+response. You may send the receipt once with `send_message_to_thread` as a
+best-effort notification, but do not put the sole copy of the report in task
+transport and do not retry a failed/rejected notification. If artifact write
+or verification fails, state exactly `HANDOFF DELIVERY FAILED`.
 Return this review to: Development Lead — Owner Console
 ```
 
@@ -607,8 +631,17 @@ Read AGENTS.md first.
 Role:
 <AGENT ROLE>
 
+Handoff repository root:
+<absolute canonical repository root supplied by Development Lead>
+
+Source task thread ID:
+<exact source task/thread ID supplied by Development Lead>
+
 Lead task thread ID:
 <exact destination thread ID supplied by Development Lead; do not infer it>
+
+Report ID:
+<unique stable report ID supplied by Development Lead>
 
 Task:
 <ONE CONCRETE GOAL>
@@ -640,9 +673,12 @@ local edit only / may push branch / no merge / no release
 Stop condition:
 <EXACT POINT WHERE AGENT MUST STOP>
 
-Deliver this report with `send_message_to_thread` to the exact Lead task thread
-ID above, verify the successful tool result, then return this report to:
-Development Lead — Owner Console
+Write and verify this report with `scripts/work-report-handoff.py` using the
+exact handoff repository root, source task thread ID, Lead task thread ID, and
+report ID above. Include the receipt and full report in your final response.
+Optionally notify the exact Lead task once with `send_message_to_thread` using
+only the artifact receipt. Do not retry a failed or rejected notification.
+Return this report to: Development Lead — Owner Console
 ```
 
 The most important fields are:
