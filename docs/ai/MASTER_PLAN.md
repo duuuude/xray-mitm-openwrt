@@ -592,10 +592,10 @@ Acceptance criteria:
 ### Owner-gated release operation — protected tag/publication evidence
 
 PR #65 implemented the machine-readable candidate evidence and its package
-checksum binding. With PR #69 merged and its exact-head plus post-merge builds green, the
-remaining release question is operational: when the owner selects and approves
-one exact release commit, exercise the protected tag path and capture evidence
-for the reused build, signing, and publication outputs.
+checksum binding. With PR #69 merged and its exact-head plus post-merge builds
+green, the remaining release question is operational: when the owner selects
+and approves one exact release commit, exercise the protected tag path and
+capture evidence for the reused build, signing, and publication outputs.
 Do not create a tag, invoke signing/publication, or change release state as part
 of this roadmap reconciliation.
 
