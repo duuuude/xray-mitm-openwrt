@@ -1,6 +1,6 @@
 # Xray MITM OpenWrt — Master Plan
 
-Status: current roadmap; last audited 2026-09-23
+Status: current roadmap; last audited 2026-09-24
 
 This plan is based on the actual canonical repository, not on an earlier plan
 or historical checkout.
@@ -11,9 +11,8 @@ The authoritative source is:
 
 - Repository: `https://github.com/duuuude/xray-mitm-openwrt.git`
 - Public branch: `main`
-- Review/audit baseline: `395f1dde5caa6f82cccc7505b012ef9ffd7a7e07`, the current
-  `main` commit after PR #67 added fail-closed reviewer-report handoffs and
-  live task-state verification
+- Review/audit baseline: `6bc5b37387b0c5b02c9121f1a8d931d9717b7671`, current
+  `main` at the start of this roadmap-only reconciliation after PR #69.
 - Observed package baseline: `0.4.4-r2` in development metadata; the published
   25.12 release remains separately versioned and signed
 - Canonical clone root: `<repo-root>`
@@ -61,6 +60,23 @@ Recent merged evidence:
   fail-closed task-status checks and verified direct delivery of complete
   reviewer reports, including response-shape tests. It changed project
   workflow and documentation, not product behavior.
+
+- PR #68 merged as `24a7af1bf3ba109c470979c4ecd17af5ab73a951`; it reconciled
+  this roadmap after PR #67 and recorded PR #66/#67 evidence. Documentation
+  only.
+
+- PR #69 exact candidate `be38d183de37ec4be025912c6be5b7647f01da58` merged
+  as `6bc5b37387b0c5b02c9121f1a8d931d9717b7671`. Exact-head PR Evidence
+  run [35924725216](https://github.com/duuuude/xray-mitm-openwrt/actions/runs/35924725216),
+  APK run [35924725080](https://github.com/duuuude/xray-mitm-openwrt/actions/runs/35924725080),
+  and 24.10 IPK run
+  [35924725091](https://github.com/duuuude/xray-mitm-openwrt/actions/runs/35924725091)
+  succeeded. The owner-authorized bounded AX4200 staging/check/restore test
+  passed and verified restoration of the protected baseline by hashes; it
+  installed no package and made no persistent router-configuration change.
+  Both post-merge main package builds passed. This is bounded staging-helper
+  evidence on the tested router, not native 24.10/IPK runtime support or a
+  broader product-release claim.
 
 The current public product contract targets official OpenWrt 25.12.x with APK
 packages. The public feed and CI use the 25.12.5 `aarch64_generic` SDK baseline,
@@ -283,6 +299,9 @@ Evidence workflow uploads exact-candidate evidence, and both package workflows
 bind verified package checksums to that same record. The merged PR and its
 successful post-merge package builds qualify this tooling path only; they do
 not complete a protected release or native 24.10 runtime validation.
+PR #68 reconciled this plan after PR #67. PR #69 then hardened the router-local
+staging backup trust/restore path; its exact CI and bounded AX4200 evidence are
+listed above. Neither change completes the separate protected release gate.
 `docs/ai/AUTONOMOUS_PR.md` records the stage order, independence, cost boundary,
 and owner gates. No unattended router/release authority is approved by this
 scheduling decision.
@@ -573,9 +592,10 @@ Acceptance criteria:
 ### Owner-gated release operation — protected tag/publication evidence
 
 PR #65 implemented the machine-readable candidate evidence and its package
-checksum binding. The remaining release question is operational: when the owner
-selects and approves one exact release commit, exercise the protected tag path
-and capture evidence for the reused build, signing, and publication outputs.
+checksum binding. With PR #69 merged and its exact-head plus post-merge builds
+green, the remaining release question is operational: when the owner selects
+and approves one exact release commit, exercise the protected tag path and
+capture evidence for the reused build, signing, and publication outputs.
 Do not create a tag, invoke signing/publication, or change release state as part
 of this roadmap reconciliation.
 
