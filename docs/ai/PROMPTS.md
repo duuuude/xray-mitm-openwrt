@@ -25,6 +25,11 @@ Lead directly re-requests once using exact source/destination IDs, does not
 tell the owner to relay it, and does not declare merge readiness until the
 Important connector limitation: task-state snapshots are not necessarily message transcripts. `latestAssistantMessage: null` or `items: []` may appear even when a reply is visible in the task UI; those fields do not prove the Work failed to answer or send its report. If the current interface does not expose the report body, state `UNPROVEN / REPORT CONTENT NOT EXPOSED`, not `UNPROVEN / NOT DELIVERED`. Ask the existing Work to send the entire report directly to the exact Lead task ID and verify the content in the destination. Only use `UNPROVEN / NOT DELIVERED` after inspecting the destination's actual message content and confirming the report is absent. Never ask the owner to copy or relay it.
 
+
+Before any handoff probe or send, identify the current source task ID and exact destination task ID; they must differ. Never test delivery by sending from Development Lead to its own task: that is a self-send, not a cross-task handoff. A valid transport probe originates in a distinct non-Lead task, uses a unique harmless marker, and is verified by reading that marker from the Lead task's actual conversation content. A successful tool response naming a thread is a routing receipt, not proof that the message body is visible. `wait_threads` cannot wait on the calling task; use `read_thread` for the current task.
+
+If a safety or policy control rejects a send, record the exact error and stop. Do not retry by using shell, CLI, app-server, encoded content, another account/session, or another transport. Mark it blocked/unproven until a supported route succeeds and the destination content is verified.
+
 Refresh live task state before every status claim or wait/continue decision:
 call `wait_threads` with `timeoutMs: 0` for the exact task (or read that task
 directly with `read_thread` if unavailable). For `wait_threads`, match exactly
