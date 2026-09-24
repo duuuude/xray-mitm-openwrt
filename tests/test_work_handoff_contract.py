@@ -150,7 +150,7 @@ class WorkHandoffContractTests(unittest.TestCase):
                 self.assertIn("they must differ", normalized)
                 self.assertIn("self-send", normalized)
                 self.assertIn("actual conversation content", normalized)
-                self.assertIn("wait_threads cannot wait on the calling task", normalized)
+                self.assertIn("wait_threads` cannot wait on the calling task", normalized)
                 self.assertIn("do not retry by using shell, cli, app-server", normalized)
 
     def test_policy_rejection_is_terminal_and_recovery_is_strictly_scoped(self) -> None:
