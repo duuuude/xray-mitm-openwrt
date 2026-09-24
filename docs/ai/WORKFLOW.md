@@ -249,6 +249,11 @@ longer working and no complete report is visible in the Lead task, classify it
 as `UNPROVEN / NOT DELIVERED` and request direct recovery from that source using
 Task-state responses may omit conversation text. For example, `latestAssistantMessage: null` or `items: []` can coexist with a reply visible in the task UI; these values do not prove that the Work failed to answer or deliver a report. If the available interface exposes only metadata, classify the content as `UNPROVEN / REPORT CONTENT NOT EXPOSED` and do not claim the report is absent. Ask the existing Work to send its complete report directly to the exact Lead task ID, then inspect the destination's actual message body. Only use `UNPROVEN / NOT DELIVERED` when that destination content was inspectable and the full report was absent. Never ask the owner to copy or relay it.
 
+
+Before any handoff probe or send, identify the current source task ID and exact destination task ID; they must differ. Never test delivery by sending from Development Lead to its own task: that is a self-send, not a cross-task handoff. A valid transport probe originates in a distinct non-Lead task, uses a unique harmless marker, and is verified by reading that marker from the Lead task's actual conversation content. A successful tool response naming a thread is a routing receipt, not proof that the message body is visible. `wait_threads` cannot wait on the calling task; use `read_thread` for the current task.
+
+If a safety or policy control rejects a send, record the exact error and stop. Do not retry by using shell, CLI, app-server, encoded content, another account/session, or another transport. Mark it blocked/unproven until a supported route succeeds and the destination content is verified.
+
 ## Handoff and routing protocol
 
 Development Lead is the only routing layer. When another Work returns a
