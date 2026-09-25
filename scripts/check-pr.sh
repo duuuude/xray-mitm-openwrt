@@ -69,6 +69,7 @@ changed_files=$(git_at diff --name-only --no-renames "$base_sha" "$candidate_sha
 [ -n "$changed_files" ] || die 'The exact base/candidate diff contains no changed files.'
 
 docs=0
+repository_config=0
 shell=0
 python=0
 frontend=0
@@ -100,6 +101,12 @@ classify_path() {
 	case "$path" in
 		docs/*|*.md|*.markdown|*.txt)
 			docs=1
+			known=1
+			;;
+	esac
+	case "$path" in
+		.gitignore)
+			repository_config=1
 			known=1
 			;;
 	esac
@@ -203,6 +210,7 @@ add_category() {
 }
 
 [ "$docs" -eq 1 ] && add_category documentation
+[ "$repository_config" -eq 1 ] && add_category repository-config
 [ "$shell" -eq 1 ] && add_category shell
 [ "$python" -eq 1 ] && add_category python
 [ "$frontend" -eq 1 ] && add_category frontend

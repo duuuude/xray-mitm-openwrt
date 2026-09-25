@@ -90,6 +90,15 @@ class CheckPrTests(unittest.TestCase):
         self.assertIn("OpenWrt integration: not required", result.stdout)
         self.assertIn("CHECK_PR_RESULT=READY_FOR_REVIEW", result.stdout)
 
+    def test_gitignore_change_has_repository_config_mapping(self) -> None:
+        head = self.commit_file(".gitignore", "/.codex/handoffs/\n")
+
+        result = self.run_check(head)
+
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("Categories: repository-config", result.stdout)
+        self.assertIn("CHECK_PR_RESULT=READY_FOR_REVIEW", result.stdout)
+
     def test_machine_evidence_is_exact_deterministic_and_secret_free(self) -> None:
         head = self.commit_file("docs/guide.md", "documentation\n")
         evidence = Path(self.temp.name) / "pr-evidence.json"
