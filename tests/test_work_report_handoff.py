@@ -374,6 +374,16 @@ class WorkReportHandoffTests(unittest.TestCase):
         self.assertIn(b"one MiB size limit", result.stderr)
         self.assertFalse(self.artifact().exists())
 
+    def test_write_rejects_json_expansion_before_creating_artifact_directories(self) -> None:
+        self.report.write_bytes(b"\x00" * (1024 * 1024))
+        self.report.chmod(0o600)
+
+        result = self.write()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("serialized handoff artifact exceeds the two MiB size limit", result.stderr)
+        self.assertFalse(self.artifact().exists())
+        self.assertFalse((self.repo / ".codex").exists())
+
     def test_artifact_is_immutable(self) -> None:
         self.assertEqual(self.write().returncode, 0)
         repeated = self.write()

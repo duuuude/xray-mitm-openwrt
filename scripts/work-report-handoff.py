@@ -357,6 +357,10 @@ def write(args: argparse.Namespace) -> None:
         encoded = (
             json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
         ).encode("utf-8")
+        if len(encoded) > MAX_ARTIFACT_BYTES:
+            raise HandoffError(
+                "The serialized handoff artifact exceeds the two MiB size limit."
+            )
 
         artifact_name = f"{args.report_id}.json"
         temporary_name = f".{artifact_name}.{secrets.token_hex(12)}.tmp"
