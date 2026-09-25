@@ -406,6 +406,64 @@ def read(args: argparse.Namespace) -> None:
         sys.stdout.write("\n")
 
 
+@contextmanager
+def _session_directory(parent_fd: int, name: str) -> Iterator[int]:
+    try:
+        fd = os.open(name, DIRECTORY_FLAGS, dir_fd=parent_fd)
+    except OSError as exc:
+        raise HandoffError("The local task-session directory could not be opened safely.") from exc
+    try:
+        if not stat.S_ISDIR(os.fstat(fd).st_mode):
+            raise HandoffError("The local task-session path must contain only directories.")
+        yield fd
+    finally:
+        os.close(fd)
+
+
+def _session_children(directory_fd: int) -> list[str]:
+    try:
+        return os.listdir(directory_fd)
+    except OSError as exc:
+        raise HandoffError("The local task-session directory could not be listed.") from exc
+
+
+def _find_source_log(root_fd: int, source_task_id: str) -> tuple[str, str, str, str]:
+    matches: list[tuple[str, str, str, str]] = []
+    suffix = f"-{source_task_id}.jsonl"
+    for year in _session_children(root_fd):
+        if not re.fullmatch(r"[0-9]{4}", year):
+            continue
+        with _session_directory(root_fd, year) as year_fd:
+            for month in _session_children(year_fd):
+                if not re.fullmatch(r"[0-9]{2}", month):
+                    continue
+                with _session_directory(year_fd, month) as month_fd:
+                    for day in _session_children(month_fd):
+                        if not re.fullmatch(r"[0-9]{2}", day):
+                            continue
+                        with _session_directory(month_fd, day) as day_fd:
+                            for name in _session_children(day_fd):
+                                if name.startswith("rollout-") and name.endswith(suffix):
+                                    matches.append((year, month, day, name))
+    if len(matches) != 1:
+        raise HandoffError("Expected exactly one local log for the source task.")
+    return matches[0]
+
+
+def _assert_session_child(parent_fd: int, name: str, child_fd: int) -> None:
+    try:
+        path_metadata = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+        descriptor_metadata = os.fstat(child_fd)
+    except OSError as exc:
+        raise HandoffError("The local task-session path changed during the read.") from exc
+    if (
+        not stat.S_ISDIR(path_metadata.st_mode)
+        or path_metadata.st_dev != descriptor_metadata.st_dev
+        or path_metadata.st_ino != descriptor_metadata.st_ino
+    ):
+        raise HandoffError("The local task-session path changed during the read.")
+
+
 def _load_final(args: argparse.Namespace) -> dict[str, str]:
     """Read only the exact completed turn's final message from a local task log."""
     if not TASK_ID.fullmatch(args.source_task_id) or not TASK_ID.fullmatch(args.turn_id):
@@ -414,50 +472,61 @@ def _load_final(args: argparse.Namespace) -> dict[str, str]:
         root = args.sessions_root.resolve(strict=True)
     except OSError as exc:
         raise HandoffError("The local task-session root is unavailable.") from exc
-    if not root.is_dir():
-        raise HandoffError("The local task-session root is not a directory.")
-    matches = list(root.glob(f"*/*/*/rollout-*-{args.source_task_id}.jsonl"))
-    if len(matches) != 1:
-        raise HandoffError("Expected exactly one local log for the source task.")
-    path = matches[0]
-    if path.is_symlink() or not path.resolve().is_relative_to(root):
-        raise HandoffError("The local task log must not be a symlink.")
     try:
-        fd = os.open(path, os.O_RDONLY | NOFOLLOW | getattr(os, "O_NONBLOCK", 0))
+        root_fd = os.open(root, DIRECTORY_FLAGS)
     except OSError as exc:
-        raise HandoffError("The local task log could not be opened safely.") from exc
+        raise HandoffError("The local task-session root could not be opened safely.") from exc
     try:
-        if not stat.S_ISREG(os.fstat(fd).st_mode):
-            raise HandoffError("The local task log must be a regular file.")
-        completions: list[dict[str, str]] = []
-        with os.fdopen(fd, "r", encoding="utf-8") as stream:
-            fd = -1
-            for line in stream:
-                try:
-                    event = json.loads(line)
-                except (json.JSONDecodeError, UnicodeError) as exc:
-                    raise HandoffError("The local task log contains invalid JSON.") from exc
-                if not isinstance(event, dict):
-                    raise HandoffError("The local task log contains an invalid event.")
-                payload = event.get("payload")
-                if (
-                    event.get("type") == "event_msg"
-                    and isinstance(payload, dict)
-                    and payload.get("type") == "task_complete"
-                    and payload.get("turn_id") == args.turn_id
-                ):
-                    message = payload.get("last_agent_message")
-                    timestamp = event.get("timestamp")
-                    if not isinstance(message, str) or not message.strip() or not isinstance(timestamp, str):
-                        raise HandoffError("The completed turn has no readable final message.")
-                    if len(message.encode("utf-8")) > MAX_REPORT_BYTES:
-                        raise HandoffError("The completed turn's final message exceeds the size limit.")
-                    completions.append({"source_task_id": args.source_task_id, "turn_id": args.turn_id, "completed_at": timestamp, "final_message": message})
-    except (OSError, UnicodeError) as exc:
-        raise HandoffError("The local task log could not be read.") from exc
+        if not stat.S_ISDIR(os.fstat(root_fd).st_mode):
+            raise HandoffError("The local task-session root is not a directory.")
+        year, month, day, name = _find_source_log(root_fd, args.source_task_id)
+        with _session_directory(root_fd, year) as year_fd:
+            with _session_directory(year_fd, month) as month_fd:
+                with _session_directory(month_fd, day) as day_fd:
+                    try:
+                        fd = os.open(
+                            name, os.O_RDONLY | NOFOLLOW | getattr(os, "O_NONBLOCK", 0),
+                            dir_fd=day_fd,
+                        )
+                    except OSError as exc:
+                        raise HandoffError("The local task log could not be opened safely.") from exc
+                    try:
+                        if not stat.S_ISREG(os.fstat(fd).st_mode):
+                            raise HandoffError("The local task log must be a regular file.")
+                        completions: list[dict[str, str]] = []
+                        with os.fdopen(fd, "r", encoding="utf-8") as stream:
+                            fd = -1
+                            for line in stream:
+                                try:
+                                    event = json.loads(line)
+                                except (json.JSONDecodeError, UnicodeError) as exc:
+                                    raise HandoffError("The local task log contains invalid JSON.") from exc
+                                if not isinstance(event, dict):
+                                    raise HandoffError("The local task log contains an invalid event.")
+                                payload = event.get("payload")
+                                if (
+                                    event.get("type") == "event_msg"
+                                    and isinstance(payload, dict)
+                                    and payload.get("type") == "task_complete"
+                                    and payload.get("turn_id") == args.turn_id
+                                ):
+                                    message = payload.get("last_agent_message")
+                                    timestamp = event.get("timestamp")
+                                    if not isinstance(message, str) or not message.strip() or not isinstance(timestamp, str):
+                                        raise HandoffError("The completed turn has no readable final message.")
+                                    if len(message.encode("utf-8")) > MAX_REPORT_BYTES:
+                                        raise HandoffError("The completed turn's final message exceeds the size limit.")
+                                    completions.append({"source_task_id": args.source_task_id, "turn_id": args.turn_id, "completed_at": timestamp, "final_message": message})
+                    except (OSError, UnicodeError) as exc:
+                        raise HandoffError("The local task log could not be read.") from exc
+                    finally:
+                        if fd >= 0:
+                            os.close(fd)
+                    _assert_session_child(month_fd, day, day_fd)
+                _assert_session_child(year_fd, month, month_fd)
+            _assert_session_child(root_fd, year, year_fd)
     finally:
-        if fd >= 0:
-            os.close(fd)
+        os.close(root_fd)
     if len(completions) != 1:
         raise HandoffError("Expected exactly one final message for the completed turn.")
     return completions[0]
@@ -484,7 +553,19 @@ def _ack_context(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, st
         turn_id=args.source_turn_id,
     )
     final = _load_final(final_args)
-    if original["report"] not in final["final_message"]:
+    # Markdown hard line breaks add spaces before newlines without changing report text.
+    def without_hard_breaks(value: str) -> str:
+        return re.sub(r" {2}(?=\n)", "", value)
+
+    report = without_hard_breaks(original["report"]).rstrip("\n")
+    message = without_hard_breaks(final["final_message"])
+    offset = message.find(report)
+    while offset >= 0:
+        end = offset + len(report)
+        if (offset == 0 or message[offset - 1] == "\n") and (end == len(message) or message[end] == "\n"):
+            break
+        offset = message.find(report, offset + 1)
+    if offset < 0:
         raise HandoffError("The completed final message does not contain the verified report.")
     return original, final
 

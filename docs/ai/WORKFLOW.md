@@ -265,7 +265,10 @@ After reconciling the final message and report, Lead writes a durable ACK
 bound to the exact source turn, report hashes, task IDs, and candidate. This
 requires an explicit `--confirm-final-reconciled` assertion by Lead; the
 helper also refuses an ACK when the completed final message does not contain
-the verified report. Lead then sends only the ACK receipt and source-turn ID
+the verified report (allowing only Markdown hard-line-break spacing). An ACK
+can confirm receipt of `CHANGES REQUESTED` or `BLOCK`; it never changes the
+recommendation or clears a review gate. Lead then sends only the ACK receipt
+and source-turn ID
 to the source task. In a follow-up turn the source runs `verify-ack`; until
 that succeeds it reports `HANDOFF PENDING`, never "Lead received it." If the
 native notification fails, Lead's quiet monitor checks the deterministic ACK

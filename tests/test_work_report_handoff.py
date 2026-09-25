@@ -124,6 +124,80 @@ class WorkReportHandoffTests(unittest.TestCase):
         (log_dir / f"rollout-2026-09-25T12-00-00-{SOURCE}.jsonl").symlink_to(target)
         self.assertNotEqual(self.run_final_helper(sessions).returncode, 0)
 
+    def test_read_final_rejects_date_directory_swap_before_open(self) -> None:
+        spec = importlib.util.spec_from_file_location("work_report_handoff", HELPER)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        helper = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(helper)
+
+        sessions = Path(self.temp.name) / "sessions"
+        date_dir = sessions / "2026" / "09" / "25"
+        date_dir.mkdir(parents=True)
+        name = f"rollout-2026-09-25T12-00-00-{SOURCE}.jsonl"
+        inside = {"timestamp": "2026-09-25T08:33:14Z", "type": "event_msg",
+                  "payload": {"type": "task_complete", "turn_id": TURN,
+                              "last_agent_message": "INSIDE_ROOT"}}
+        (date_dir / name).write_text(json.dumps(inside) + "\n", encoding="utf-8")
+        external = Path(self.temp.name) / "external-date"
+        external.mkdir()
+        outside = {"timestamp": "2026-09-25T08:33:14Z", "type": "event_msg",
+                   "payload": {"type": "task_complete", "turn_id": TURN,
+                               "last_agent_message": "SYNTHETIC_OUTSIDE_ROOT"}}
+        (external / name).write_text(json.dumps(outside) + "\n", encoding="utf-8")
+        selected = helper._find_source_log
+
+        def swap_after_selection(root_fd: int, source_task_id: str) -> tuple[str, str, str, str]:
+            result = selected(root_fd, source_task_id)
+            date_dir.rename(Path(self.temp.name) / "moved-date")
+            date_dir.symlink_to(external, target_is_directory=True)
+            return result
+
+        helper._find_source_log = swap_after_selection
+        args = SimpleNamespace(sessions_root=sessions, source_task_id=SOURCE, turn_id=TURN)
+        with self.assertRaises(helper.HandoffError) as error:
+            helper._load_final(args)
+        self.assertNotIn("SYNTHETIC_OUTSIDE_ROOT", str(error.exception))
+
+    def test_read_final_rejects_date_directory_swap_after_pin(self) -> None:
+        spec = importlib.util.spec_from_file_location("work_report_handoff", HELPER)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        helper = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(helper)
+
+        sessions = Path(self.temp.name) / "sessions"
+        date_dir = sessions / "2026" / "09" / "25"
+        date_dir.mkdir(parents=True)
+        name = f"rollout-2026-09-25T12-00-00-{SOURCE}.jsonl"
+        record = {"timestamp": "2026-09-25T08:33:14Z", "type": "event_msg",
+                  "payload": {"type": "task_complete", "turn_id": TURN,
+                              "last_agent_message": "INSIDE_ROOT"}}
+        (date_dir / name).write_text(json.dumps(record) + "\n", encoding="utf-8")
+        outside = Path(self.temp.name) / "external-date"
+        outside.mkdir()
+        (outside / name).write_text(json.dumps({**record, "payload": {
+            **record["payload"], "last_agent_message": "SYNTHETIC_OUTSIDE_ROOT"}}) + "\n", encoding="utf-8")
+        original_open = helper.os.open
+        swapped = False
+
+        def swap_before_file_open(path: str | os.PathLike[str], flags: int, *args: object, **kwargs: object) -> int:
+            nonlocal swapped
+            if path == name and not swapped:
+                swapped = True
+                date_dir.rename(Path(self.temp.name) / "moved-date")
+                date_dir.symlink_to(outside, target_is_directory=True)
+            return original_open(path, flags, *args, **kwargs)
+
+        helper.os.open = swap_before_file_open
+        try:
+            args = SimpleNamespace(sessions_root=sessions, source_task_id=SOURCE, turn_id=TURN)
+            with self.assertRaisesRegex(helper.HandoffError, "path changed"):
+                helper._load_final(args)
+        finally:
+            helper.os.open = original_open
+        self.assertTrue(swapped)
+
     def test_read_final_rejects_fifo_without_blocking(self) -> None:
         sessions = Path(self.temp.name) / "sessions"
         log_dir = sessions / "2026" / "09" / "25"
@@ -170,6 +244,28 @@ class WorkReportHandoffTests(unittest.TestCase):
         result = self.run_ack_helper("ack", sessions)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("does not contain the verified report", result.stderr)
+
+    def test_acknowledgment_accepts_markdown_hard_line_breaks(self) -> None:
+        self.assertEqual(self.write().returncode, 0)
+        report = self.report.read_text(encoding="utf-8")
+        final = "Artifact receipt:\n...\n" + report.replace("\n", "  \n")
+        sessions = self.make_completed_review_log(final)
+        acknowledged = self.run_ack_helper("ack", sessions)
+        self.assertEqual(acknowledged.returncode, 0, acknowledged.stderr)
+        verified = self.run_ack_helper("verify-ack", sessions)
+        self.assertEqual(verified.returncode, 0, verified.stderr)
+
+    def test_acknowledgment_rejects_changed_report_body(self) -> None:
+        self.assertEqual(self.write().returncode, 0)
+        report = self.report.read_text(encoding="utf-8")
+        sessions = self.make_completed_review_log(report.replace("bounded", "unbounded"))
+        self.assertNotEqual(self.run_ack_helper("ack", sessions).returncode, 0)
+
+    def test_acknowledgment_does_not_ignore_other_trailing_spaces(self) -> None:
+        self.assertEqual(self.write().returncode, 0)
+        report = self.report.read_text(encoding="utf-8")
+        sessions = self.make_completed_review_log(report.replace("\n", "   \n"))
+        self.assertNotEqual(self.run_ack_helper("ack", sessions).returncode, 0)
 
     def test_acknowledgment_requires_explicit_final_reconciliation(self) -> None:
         self.assertEqual(self.write().returncode, 0)
