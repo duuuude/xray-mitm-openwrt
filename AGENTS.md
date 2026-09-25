@@ -413,6 +413,18 @@ a cached thread list, title, summary, or memory. If the task is idle or its
 latest turn is `completed`, inspect that latest completed turn before
 describing its result.
 
+If a delegated Reviewer or Router Validation turn fails because of an account
+usage limit, keep its gate `PENDING`; that failure is not a review result or a
+missing report. Record the exact task ID, turn ID, candidate, and reported reset
+time in the resume checkpoint. Arrange one bounded follow-up at or after the
+reset when scheduling is available. On that follow-up, refresh the exact task:
+do not interrupt an `inProgress` turn; inspect a completed turn and its full
+report; if it is still idle after a usage-limit failure, send one self-contained
+continuation to that same task and then verify the result. Never use a different
+account or task to bypass the limit, duplicate an active request, or ask the
+owner to relay the report. If automatic follow-up cannot be scheduled or
+verified, tell the owner that it remains pending and what action is needed.
+
 Before relying on a handoff, verify the complete report is visible in the
 Development Lead task itself. A source task's status, summary, GitHub review,
 or send receipt alone does not prove report delivery. If the source task is no longer working and the complete report is absent from an inspectable destination conversation, record `UNPROVEN / NOT DELIVERED` and, only when no safety/policy rejection occurred, make at most one direct recovery request using the exact source and destination task IDs;
