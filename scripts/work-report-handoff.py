@@ -16,7 +16,7 @@ import tempfile
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 
 
 SCHEMA = "xray-mitm-work-report/v1"
@@ -164,19 +164,52 @@ def _artifact_relative(destination: str, report_id: str) -> Path:
     return Path(".codex") / "handoffs" / destination / f"{report_id}.json"
 
 
+def _read_bounded(read: Callable[[int], bytes]) -> bytes:
+    chunks: list[bytes] = []
+    total = 0
+    while total <= MAX_REPORT_BYTES:
+        chunk = read(min(64 * 1024, MAX_REPORT_BYTES + 1 - total))
+        if not chunk:
+            break
+        chunks.append(chunk)
+        total += len(chunk)
+    if total > MAX_REPORT_BYTES:
+        raise HandoffError("The report exceeds the one MiB size limit.")
+    return b"".join(chunks)
+
+
 def _read_report(path: str) -> str:
     try:
         if path == "-":
-            report = sys.stdin.read()
+            stream = getattr(sys.stdin, "buffer", None)
+            if stream is None:
+                raise HandoffError("The report input must be a binary stream.")
+            encoded = _read_bounded(stream.read)
         else:
-            report = Path(path).read_text(encoding="utf-8")
+            nofollow = getattr(os, "O_NOFOLLOW", None)
+            nonblocking = getattr(os, "O_NONBLOCK", None)
+            if nofollow is None or nonblocking is None:
+                raise HandoffError("The platform cannot safely open report inputs.")
+            descriptor = os.open(path, os.O_RDONLY | nofollow | nonblocking)
+            try:
+                metadata = os.fstat(descriptor)
+                if not stat.S_ISREG(metadata.st_mode):
+                    raise HandoffError("The report input must be a regular file.")
+                if stat.S_IMODE(metadata.st_mode) & 0o077:
+                    raise HandoffError("The report input permissions are too broad.")
+                if metadata.st_size > MAX_REPORT_BYTES:
+                    raise HandoffError("The report exceeds the one MiB size limit.")
+                encoded = _read_bounded(lambda size: os.read(descriptor, size))
+            finally:
+                os.close(descriptor)
     except OSError as exc:
         raise HandoffError("The report input could not be read.") from exc
-    encoded = report.encode("utf-8")
+    try:
+        report = encoded.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise HandoffError("The report input must be valid UTF-8.") from exc
     if not report.strip():
         raise HandoffError("The report must not be empty.")
-    if len(encoded) > MAX_REPORT_BYTES:
-        raise HandoffError("The report exceeds the one MiB size limit.")
     return report
 
 

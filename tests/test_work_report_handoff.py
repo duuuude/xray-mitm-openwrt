@@ -4,13 +4,11 @@
 from __future__ import annotations
 
 import json
-import errno
 import importlib.util
 import os
 import stat
 import subprocess
 import tempfile
-import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -37,6 +35,7 @@ class WorkReportHandoffTests(unittest.TestCase):
         )
         self.report = Path(self.temp.name) / "report.md"
         self.report.write_text("Recommendation: APPROVE\nEvidence: bounded review\n", encoding="utf-8")
+        self.report.chmod(0o600)
 
     def run_helper(self, command: str, *extra: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
@@ -307,6 +306,74 @@ class WorkReportHandoffTests(unittest.TestCase):
         self.assertEqual(read.returncode, 0, read.stderr)
         self.assertEqual(read.stdout, self.report.read_text(encoding="utf-8"))
 
+    def test_write_rejects_symlinked_report_input_without_artifact(self) -> None:
+        external = Path(self.temp.name) / "external-report.md"
+        external.write_text("unintended external content\n", encoding="utf-8")
+        external.chmod(0o600)
+        self.report.unlink()
+        self.report.symlink_to(external)
+
+        result = self.write()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(self.artifact().exists())
+
+    def test_write_rejects_fifo_report_input_without_blocking(self) -> None:
+        self.report.unlink()
+        os.mkfifo(self.report, mode=0o600)
+
+        result = self.write()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("regular file", result.stderr)
+        self.assertFalse(self.artifact().exists())
+
+    def test_write_rejects_report_input_with_broad_permissions(self) -> None:
+        self.report.chmod(0o644)
+
+        result = self.write()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("permissions are too broad", result.stderr)
+        self.assertFalse(self.artifact().exists())
+
+    def test_write_rejects_oversized_report_file_without_artifact(self) -> None:
+        self.report.write_bytes(b"x" * (1024 * 1024 + 1))
+        self.report.chmod(0o600)
+
+        result = self.write()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("one MiB size limit", result.stderr)
+        self.assertFalse(self.artifact().exists())
+
+    def test_write_bounds_oversized_stdin_without_artifact(self) -> None:
+        result = subprocess.run(
+            [
+                "python3",
+                str(HELPER),
+                "write",
+                "--repo",
+                str(self.repo),
+                "--source-task-id",
+                SOURCE,
+                "--destination-task-id",
+                DESTINATION,
+                "--report-id",
+                "pr-72-review",
+                "--title",
+                "PR #72 review",
+                "--candidate-sha",
+                CANDIDATE,
+                "--report-file",
+                "-",
+            ],
+            check=False,
+            input=b"x" * (1024 * 1024 + 1),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=5,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(b"one MiB size limit", result.stderr)
+        self.assertFalse(self.artifact().exists())
+
     def test_artifact_is_immutable(self) -> None:
         self.assertEqual(self.write().returncode, 0)
         repeated = self.write()
@@ -406,63 +473,37 @@ class WorkReportHandoffTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("must be a regular file", result.stderr)
 
-    def test_repository_root_replacement_fails_before_artifact_creation(self) -> None:
-        report_fifo = Path(self.temp.name) / "report-fifo"
-        os.mkfifo(report_fifo, mode=0o600)
-        process = subprocess.Popen(
-            [
-                "python3",
-                str(HELPER),
-                "write",
-                "--repo",
-                str(self.repo),
-                "--source-task-id",
-                SOURCE,
-                "--destination-task-id",
-                DESTINATION,
-                "--report-id",
-                "root-race",
-                "--title",
-                "root race",
-                "--candidate-sha",
-                CANDIDATE,
-                "--report-file",
-                str(report_fifo),
-            ],
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        writer_fd: int | None = None
-        deadline = time.monotonic() + 5
-        try:
-            while writer_fd is None and time.monotonic() < deadline:
-                try:
-                    writer_fd = os.open(report_fifo, os.O_WRONLY | os.O_NONBLOCK)
-                except OSError as exc:
-                    if exc.errno != errno.ENXIO:
-                        raise
-                    if process.poll() is not None:
-                        self.fail("helper exited before opening the report FIFO")
-                    time.sleep(0.01)
-            self.assertIsNotNone(writer_fd, "helper did not reach the report FIFO")
+    def test_repository_root_replacement_during_report_read_fails_before_artifact_creation(
+        self,
+    ) -> None:
+        spec = importlib.util.spec_from_file_location("work_report_handoff", HELPER)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        helper = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(helper)
 
-            moved_repo = Path(self.temp.name) / "repo-moved"
+        moved_repo = Path(self.temp.name) / "repo-moved-before-artifact"
+        original_read_report = helper._read_report
+
+        def replace_root_after_report_read(path: str) -> str:
+            report = original_read_report(path)
             self.repo.rename(moved_repo)
             self.repo.mkdir()
-            os.write(writer_fd, b"Recommendation: APPROVE\n")
-            os.close(writer_fd)
-            writer_fd = None
-            stdout, stderr = process.communicate(timeout=5)
-        finally:
-            if writer_fd is not None:
-                os.close(writer_fd)
-            if process.poll() is None:
-                process.kill()
-                process.communicate()
+            return report
 
-        self.assertNotEqual(process.returncode, 0, stdout)
-        self.assertIn("repository path changed", stderr)
+        helper._read_report = replace_root_after_report_read
+        args = SimpleNamespace(
+            repo=self.repo,
+            source_task_id=SOURCE,
+            destination_task_id=DESTINATION,
+            report_id="root-race",
+            title="root race",
+            candidate_sha=CANDIDATE,
+            report_file=str(self.report),
+        )
+        with self.assertRaisesRegex(helper.HandoffError, "repository path changed"):
+            helper.write(args)
+
         relative = Path(".codex") / "handoffs" / DESTINATION / "root-race.json"
         self.assertFalse((moved_repo / relative).exists())
         self.assertFalse((self.repo / relative).exists())
