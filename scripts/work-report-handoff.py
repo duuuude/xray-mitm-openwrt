@@ -12,6 +12,7 @@ import secrets
 import stat
 import subprocess
 import sys
+import tempfile
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -19,6 +20,7 @@ from typing import Any, Iterator
 
 
 SCHEMA = "xray-mitm-work-report/v1"
+ACK_SCHEMA = "xray-mitm-work-report-ack/v1"
 TASK_ID = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 )
@@ -404,7 +406,7 @@ def read(args: argparse.Namespace) -> None:
         sys.stdout.write("\n")
 
 
-def read_final(args: argparse.Namespace) -> None:
+def _load_final(args: argparse.Namespace) -> dict[str, str]:
     """Read only the exact completed turn's final message from a local task log."""
     if not TASK_ID.fullmatch(args.source_task_id) or not TASK_ID.fullmatch(args.turn_id):
         raise HandoffError("Source task and turn IDs must be full lowercase UUIDs.")
@@ -421,7 +423,7 @@ def read_final(args: argparse.Namespace) -> None:
     if path.is_symlink() or not path.resolve().is_relative_to(root):
         raise HandoffError("The local task log must not be a symlink.")
     try:
-        fd = os.open(path, os.O_RDONLY | NOFOLLOW)
+        fd = os.open(path, os.O_RDONLY | NOFOLLOW | getattr(os, "O_NONBLOCK", 0))
     except OSError as exc:
         raise HandoffError("The local task log could not be opened safely.") from exc
     try:
@@ -458,7 +460,94 @@ def read_final(args: argparse.Namespace) -> None:
             os.close(fd)
     if len(completions) != 1:
         raise HandoffError("Expected exactly one final message for the completed turn.")
-    print(json.dumps(completions[0], sort_keys=True))
+    return completions[0]
+
+
+def read_final(args: argparse.Namespace) -> None:
+    print(json.dumps(_load_final(args), sort_keys=True))
+
+
+def _ack_report_id(report_id: str) -> str:
+    return "ack-" + hashlib.sha256(report_id.encode("utf-8")).hexdigest()
+
+
+def _ack_context(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, str]]:
+    with _verified_repo(args.repo) as (repo, repo_fd):
+        original = _load_verified(
+            repo_fd, args.source_task_id, args.destination_task_id,
+            args.report_id, args.candidate_sha,
+        )
+        _assert_repo_path(repo, repo_fd)
+    final_args = argparse.Namespace(
+        sessions_root=args.sessions_root,
+        source_task_id=args.source_task_id,
+        turn_id=args.source_turn_id,
+    )
+    final = _load_final(final_args)
+    if original["report"] not in final["final_message"]:
+        raise HandoffError("The completed final message does not contain the verified report.")
+    return original, final
+
+
+def _ack_fields(args: argparse.Namespace, original: dict[str, Any], final: dict[str, str]) -> dict[str, Any]:
+    return {
+        "schema": ACK_SCHEMA,
+        "original_source_task_id": args.source_task_id,
+        "original_destination_task_id": args.destination_task_id,
+        "original_report_id": args.report_id,
+        "candidate_sha": original["candidate_sha"],
+        "handoff_sha256": original["handoff_sha256"],
+        "report_sha256": original["report_sha256"],
+        "source_turn_id": args.source_turn_id,
+        "final_message_sha256": hashlib.sha256(final["final_message"].encode("utf-8")).hexdigest(),
+        "final_reconciled": True,
+    }
+
+
+def acknowledge(args: argparse.Namespace) -> None:
+    """Lead records immutable receipt after checking the source's completed final reply."""
+    if not args.confirm_final_reconciled:
+        raise HandoffError("The Lead must explicitly confirm final-message reconciliation.")
+    original, final = _ack_context(args)
+    payload = _ack_fields(args, original, final)
+    payload["acknowledged_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", prefix="work-report-ack-", suffix=".json") as report_file:
+        json.dump(payload, report_file, sort_keys=True)
+        report_file.flush()
+        write(argparse.Namespace(
+            repo=args.repo,
+            source_task_id=args.destination_task_id,
+            destination_task_id=args.source_task_id,
+            report_id=_ack_report_id(args.report_id),
+            candidate_sha=original["candidate_sha"],
+            title=f"Acknowledgment for {args.report_id}",
+            report_file=report_file.name,
+        ))
+
+
+def verify_ack(args: argparse.Namespace) -> None:
+    """Source verifies the Lead receipt is bound to its exact report and final turn."""
+    original, final = _ack_context(args)
+    with _verified_repo(args.repo) as (repo, repo_fd):
+        acknowledgment = _load_verified(
+            repo_fd, args.destination_task_id, args.source_task_id,
+            _ack_report_id(args.report_id), original["candidate_sha"],
+        )
+        _assert_repo_path(repo, repo_fd)
+    try:
+        payload = json.loads(acknowledgment["report"])
+    except json.JSONDecodeError as exc:
+        raise HandoffError("The acknowledgment report is not valid JSON.") from exc
+    if not isinstance(payload, dict):
+        raise HandoffError("The acknowledgment report has an invalid schema.")
+    expected = _ack_fields(args, original, final)
+    if set(payload) != set(expected) | {"acknowledged_at"} or any(
+        payload.get(key) != value for key, value in expected.items()
+    ):
+        raise HandoffError("The acknowledgment does not match the exact report and final turn.")
+    if not isinstance(payload.get("acknowledged_at"), str) or not payload["acknowledged_at"]:
+        raise HandoffError("The acknowledgment timestamp is invalid.")
+    print(json.dumps(_receipt(acknowledgment), sort_keys=True))
 
 
 def parser() -> argparse.ArgumentParser:
@@ -491,6 +580,15 @@ def parser() -> argparse.ArgumentParser:
     final_parser.add_argument("--source-task-id", required=True)
     final_parser.add_argument("--turn-id", required=True)
     final_parser.set_defaults(handler=read_final)
+
+    for name, handler in (("ack", acknowledge), ("verify-ack", verify_ack)):
+        ack_parser = commands.add_parser(name)
+        common(ack_parser)
+        ack_parser.add_argument("--sessions-root", required=True, type=Path)
+        ack_parser.add_argument("--source-turn-id", required=True)
+        if name == "ack":
+            ack_parser.add_argument("--confirm-final-reconciled", action="store_true")
+        ack_parser.set_defaults(handler=handler)
     return result
 
 

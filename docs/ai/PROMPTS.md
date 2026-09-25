@@ -293,7 +293,12 @@ review request. Include the artifact receipt plus the full report in your final
 response. You may send the receipt once with `send_message_to_thread` as a
 best-effort notification, but do not put the sole copy of the report in task
 transport and do not retry a failed/rejected notification. If artifact write
-or verification fails, state exactly `HANDOFF DELIVERY FAILED`.
+or verification fails, state exactly `HANDOFF DELIVERY FAILED`. The artifact
+receipt is provisional until Lead verifies your completed final reply and
+writes an ACK. In a follow-up turn, run `scripts/work-report-handoff.py
+verify-ack` for the exact report and source turn before claiming Lead received
+it. If ACK is absent or mismatched, report `HANDOFF PENDING` and keep following
+up through the quiet monitor; never ask the owner to relay it.
 Return this review to: Development Lead — Owner Console
 ```
 
@@ -416,6 +421,10 @@ and verify the complete report with `scripts/work-report-handoff.py` using the
 supplied repository root, source task ID, Lead task ID, and unique report ID.
 The final reply must faithfully repeat that report and receipt without new
 material notes; a later correction needs a new, uniquely identified report.
+In a follow-up turn, verify Lead's exact acknowledgment with
+`scripts/work-report-handoff.py verify-ack` before claiming Lead received this
+router report. Missing or mismatched ACK means `HANDOFF PENDING`; use the quiet
+monitor and do not ask the owner to relay it.
 
 Then stop.
 Return this report to: Development Lead — Owner Console

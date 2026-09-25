@@ -261,6 +261,18 @@ If it does, that correction overrides the earlier artifact and the review gate
 stays closed until a fresh, uniquely identified report resolves it. A running
 CI timer does not replace this terminal Reviewer check.
 
+After reconciling the final message and report, Lead writes a durable ACK
+bound to the exact source turn, report hashes, task IDs, and candidate. This
+requires an explicit `--confirm-final-reconciled` assertion by Lead; the
+helper also refuses an ACK when the completed final message does not contain
+the verified report. Lead then sends only the ACK receipt and source-turn ID
+to the source task. In a follow-up turn the source runs `verify-ack`; until
+that succeeds it reports `HANDOFF PENDING`, never "Lead received it." If the
+native notification fails, Lead's quiet monitor checks the deterministic ACK
+artifact and follows up with the source directly, not through the owner.
+Every PR monitor must cover both CI and the source task's terminal report/ACK
+state; do not close it when only the build checks finish.
+
 Task-state responses may omit conversation text: `latestAssistantMessage: null`
 or `items: []` can coexist with a reply visible in the task UI. These metadata
 values do not prove that the source Work failed to answer or that the report
@@ -296,6 +308,27 @@ Inspect the returned `final_message` for any retraction, task mismatch, or
 additional caveat before relying on the artifact. The helper emits only that
 turn's final message, not the whole task log. If the session log is unavailable
 or ambiguous, the final message is unproven and the review gate remains closed.
+
+After checking the full final message for contradictions and verifying the
+report, Lead acknowledges it with the exact same identities:
+
+```sh
+python3 scripts/work-report-handoff.py ack \
+  --repo "<Handoff repository root>" \
+  --source-task-id "<Source task thread ID>" \
+  --destination-task-id "<Lead task thread ID>" \
+  --report-id "<Report ID>" \
+  --candidate-sha "<full exact candidate SHA when relevant>" \
+  --sessions-root "${CODEX_HOME:-$HOME/.codex}/sessions" \
+  --source-turn-id "<exact completed turn ID>" \
+  --confirm-final-reconciled
+```
+
+The source task uses `verify-ack` with the same arguments except the
+confirmation flag. The helper checks the original report, completed final
+message, and ACK hashes; it fails closed on absence or mismatch. A successful
+ACK is a local coordination receipt, not cryptographic proof of which human or
+agent wrote it and not owner approval to merge, sign, or mutate a router.
 
 Before any handoff probe or send, identify the current source task ID and exact destination task ID; they must differ. Never test delivery by sending from Development Lead to its own task: that is a self-send, not a cross-task handoff. A valid transport probe originates in a distinct non-Lead task, uses a unique harmless marker, and is verified by reading that marker from the Lead task's actual conversation content. A successful tool response naming a thread is a routing receipt, not proof that the message body is visible. `wait_threads` cannot wait on the calling task; use `read_thread` for the current task.
 

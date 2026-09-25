@@ -432,6 +432,17 @@ final-message correction or extra caveat overrides an earlier artifact even
 when that artifact passed integrity verification. Do not claim to have read a
 final reply based on `wait_threads` status alone.
 
+Delivery is not confirmed by the source's artifact or notification. After the
+source turn completes and Lead reconciles the exact final message with the
+verified report, Lead writes an immutable acknowledgment with
+`scripts/work-report-handoff.py ack`. The acknowledgment binds the report and
+final-turn hashes, candidate, and task IDs. The source checks it with
+`verify-ack` in a follow-up turn before claiming the Lead received its report.
+No acknowledgment or a mismatch means `HANDOFF PENDING`, not approval. Lead
+must keep a quiet monitor covering both CI and source-task completion/receipt
+until the acknowledgment is verified; a CI-only timer is insufficient. Never
+ask the owner to relay either report or acknowledgment.
+
 The durable artifact is the cross-account and incomplete-history source of
 truth. Native `send_message_to_thread` is only a best-effort notification that
 carries the artifact receipt, not the report's sole copy. If native task

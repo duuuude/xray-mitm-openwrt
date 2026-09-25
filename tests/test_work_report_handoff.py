@@ -124,6 +124,71 @@ class WorkReportHandoffTests(unittest.TestCase):
         (log_dir / f"rollout-2026-09-25T12-00-00-{SOURCE}.jsonl").symlink_to(target)
         self.assertNotEqual(self.run_final_helper(sessions).returncode, 0)
 
+    def test_read_final_rejects_fifo_without_blocking(self) -> None:
+        sessions = Path(self.temp.name) / "sessions"
+        log_dir = sessions / "2026" / "09" / "25"
+        log_dir.mkdir(parents=True)
+        os.mkfifo(log_dir / f"rollout-2026-09-25T12-00-00-{SOURCE}.jsonl")
+        self.assertNotEqual(self.run_final_helper(sessions).returncode, 0)
+
+    def run_ack_helper(self, command: str, sessions: Path) -> subprocess.CompletedProcess[str]:
+        return self.run_helper(
+            command,
+            "--candidate-sha", CANDIDATE,
+            "--sessions-root", str(sessions),
+            "--source-turn-id", TURN,
+            *(("--confirm-final-reconciled",) if command == "ack" else ()),
+        )
+
+    def make_completed_review_log(self, final_message: str) -> Path:
+        sessions = Path(self.temp.name) / "sessions"
+        log_dir = sessions / "2026" / "09" / "25"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log = log_dir / f"rollout-2026-09-25T12-00-00-{SOURCE}.jsonl"
+        record = {"timestamp": "2026-09-25T08:33:14Z", "type": "event_msg",
+                  "payload": {"type": "task_complete", "turn_id": TURN,
+                              "last_agent_message": final_message}}
+        log.write_text(json.dumps(record) + "\n", encoding="utf-8")
+        return sessions
+
+    def test_acknowledgment_round_trip_binds_report_and_final_turn(self) -> None:
+        self.assertEqual(self.write().returncode, 0)
+        sessions = self.make_completed_review_log(self.report.read_text(encoding="utf-8"))
+        self.assertNotEqual(self.run_ack_helper("verify-ack", sessions).returncode, 0)
+        acknowledged = self.run_ack_helper("ack", sessions)
+        self.assertEqual(acknowledged.returncode, 0, acknowledged.stderr)
+        ack_receipt = json.loads(acknowledged.stdout)
+        self.assertEqual(ack_receipt["source_task_id"], DESTINATION)
+        self.assertEqual(ack_receipt["destination_task_id"], SOURCE)
+        self.assertEqual(ack_receipt["candidate_sha"], CANDIDATE)
+        self.assertEqual(self.run_ack_helper("verify-ack", sessions).returncode, 0)
+        self.assertNotEqual(self.run_ack_helper("ack", sessions).returncode, 0)
+
+    def test_acknowledgment_rejects_unrelated_final_message(self) -> None:
+        self.assertEqual(self.write().returncode, 0)
+        sessions = self.make_completed_review_log("Separate note: this was PR #46, not PR #73.")
+        result = self.run_ack_helper("ack", sessions)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("does not contain the verified report", result.stderr)
+
+    def test_acknowledgment_requires_explicit_final_reconciliation(self) -> None:
+        self.assertEqual(self.write().returncode, 0)
+        sessions = self.make_completed_review_log(self.report.read_text(encoding="utf-8"))
+        result = self.run_helper(
+            "ack", "--candidate-sha", CANDIDATE,
+            "--sessions-root", str(sessions), "--source-turn-id", TURN,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("explicitly confirm", result.stderr)
+
+    def test_acknowledgment_verification_rejects_changed_final_message(self) -> None:
+        self.assertEqual(self.write().returncode, 0)
+        report = self.report.read_text(encoding="utf-8")
+        sessions = self.make_completed_review_log(report)
+        self.assertEqual(self.run_ack_helper("ack", sessions).returncode, 0)
+        self.make_completed_review_log("New caveat\n" + report)
+        self.assertNotEqual(self.run_ack_helper("verify-ack", sessions).returncode, 0)
+
     def test_write_verify_and_read_round_trip(self) -> None:
         written = self.write()
         self.assertEqual(written.returncode, 0, written.stderr)

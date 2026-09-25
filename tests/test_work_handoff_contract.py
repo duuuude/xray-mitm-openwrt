@@ -145,6 +145,10 @@ class WorkHandoffContractTests(unittest.TestCase):
         self.assertIn("read-final", AGENTS)
         self.assertIn("read-final", WORKFLOW)
         self.assertIn("A running CI timer does not replace", " ".join(WORKFLOW.split()))
+        self.assertIn("verify-ack", AGENTS)
+        self.assertIn("verify-ack", WORKFLOW)
+        self.assertIn("HANDOFF PENDING", PROMPTS)
+        self.assertIn("both CI and source-task completion/receipt", AGENTS)
 
     def test_router_validation_uses_the_same_terminal_report_contract(self) -> None:
         router = PROMPTS.split("## 5. Router & Release Validation — Router test mode", 1)[1].split("## 6.", 1)[0]
@@ -152,6 +156,7 @@ class WorkHandoffContractTests(unittest.TestCase):
         self.assertIn("Context conflict: NONE / <details; BLOCK if unresolved>", router)
         self.assertIn("scripts/work-report-handoff.py", router)
         self.assertIn("final reply must faithfully repeat", router)
+        self.assertIn("verify-ack", router)
 
     def test_generic_prompt_carries_every_handoff_identity(self) -> None:
         generic = PROMPTS.split("## 11. Generic Prompt Template", 1)[1]
