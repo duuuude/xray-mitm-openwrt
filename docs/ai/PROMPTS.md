@@ -395,6 +395,8 @@ For LuCI-affecting changes:
 
 At completion report:
 
+Assignment verified: <exact router-test scope and candidate SHA, if any>
+Context conflict: NONE / <details; BLOCK if unresolved>
 Commit/candidate tested:
 Router state before:
 Exact changes made:
@@ -405,6 +407,15 @@ Certificate state after:
 PassWall2 state after:
 Rollback/recovery tested:
 Remaining risks:
+
+Before writing the report, reconfirm that this task's latest request still
+authorizes this exact scope and candidate. Include every separate correction,
+task collision, or material caveat in the durable artifact. If the assignment
+conflicts, stop and report BLOCK; do not perform more router mutation. Write
+and verify the complete report with `scripts/work-report-handoff.py` using the
+supplied repository root, source task ID, Lead task ID, and unique report ID.
+The final reply must faithfully repeat that report and receipt without new
+material notes; a later correction needs a new, uniquely identified report.
 
 Then stop.
 Return this report to: Development Lead — Owner Console
