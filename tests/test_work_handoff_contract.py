@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 AGENTS = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
 WORKFLOW = (ROOT / "docs/ai/WORKFLOW.md").read_text(encoding="utf-8")
 PROMPTS = (ROOT / "docs/ai/PROMPTS.md").read_text(encoding="utf-8")
+GITIGNORE = (ROOT / ".gitignore").read_text(encoding="utf-8")
 
 
 def wait_threads_status(snapshot: dict, task_id: str) -> str | None:
@@ -51,8 +52,9 @@ class WorkHandoffContractTests(unittest.TestCase):
                 self.assertIn("Lead task thread ID", document)
                 self.assertIn("send_message_to_thread", document)
                 self.assertIn("exact", document.lower())
+        self.assertIn('--destination-task-id "<Lead task thread ID>"', WORKFLOW)
         self.assertIn('threadId: "<exact Lead task thread ID>"', WORKFLOW)
-        self.assertIn('prompt: "<complete report>"', WORKFLOW)
+        self.assertIn('prompt: "<artifact receipt>"', WORKFLOW)
 
     def test_completion_status_cannot_stand_in_for_a_report(self) -> None:
         self.assertIn("completed or idle", WORKFLOW)
@@ -124,10 +126,71 @@ class WorkHandoffContractTests(unittest.TestCase):
 
     def test_reviewer_prompt_requires_direct_delivery_before_finalizing(self) -> None:
         reviewer = PROMPTS.split("## 3. Reviewer Agent", 1)[1].split("## 4.", 1)[0]
-        self.assertIn("send_message_to_thread", reviewer)
-        self.assertIn("exact `Lead task thread ID`", reviewer)
-        self.assertIn("entire report", reviewer)
+        self.assertIn("scripts/work-report-handoff.py", reviewer)
+        self.assertIn("`Handoff repository root`", reviewer)
+        self.assertIn("`Source task thread ID`", reviewer)
+        self.assertIn("`Lead task thread ID`", reviewer)
+        self.assertIn("`Report ID`", reviewer)
+        self.assertIn("artifact receipt plus the full report", reviewer)
         self.assertIn("HANDOFF DELIVERY FAILED", reviewer)
+
+    def test_review_gate_waits_for_terminal_turn_and_reconciles_context(self) -> None:
+        self.assertIn("artifact receipt arriving while the source task is still `inProgress` is", AGENTS)
+        self.assertIn("Wait for that exact turn to", WORKFLOW)
+        self.assertIn("Assignment verified: <PR number and full exact candidate SHA>", PROMPTS)
+        self.assertIn("Context conflict: NONE / <details; BLOCK if unresolved>", PROMPTS)
+        for document in (AGENTS, WORKFLOW, PROMPTS):
+            self.assertIn("unique report ID", document)
+            self.assertIn("final", document)
+        self.assertIn("read-final", AGENTS)
+        self.assertIn("read-final", WORKFLOW)
+        self.assertIn("A running CI timer does not replace", " ".join(WORKFLOW.split()))
+        self.assertIn("verify-ack", AGENTS)
+        self.assertIn("verify-ack", WORKFLOW)
+        self.assertIn("HANDOFF PENDING", PROMPTS)
+        self.assertIn("both CI and source-task completion/receipt", AGENTS)
+
+    def test_router_validation_uses_the_same_terminal_report_contract(self) -> None:
+        router = PROMPTS.split("## 5. Router & Release Validation — Router test mode", 1)[1].split("## 6.", 1)[0]
+        self.assertIn("Assignment verified: <exact router-test scope and candidate SHA, if any>", router)
+        self.assertIn("Context conflict: NONE / <details; BLOCK if unresolved>", router)
+        self.assertIn("scripts/work-report-handoff.py", router)
+        self.assertIn("final reply must faithfully repeat", router)
+        self.assertIn("verify-ack", router)
+
+    def test_generic_prompt_carries_every_handoff_identity(self) -> None:
+        generic = PROMPTS.split("## 11. Generic Prompt Template", 1)[1]
+        self.assertIn("Handoff repository root:", generic)
+        self.assertIn("Source task thread ID:", generic)
+        self.assertIn("Lead task thread ID:", generic)
+        self.assertIn("Report ID:", generic)
+        self.assertIn("scripts/work-report-handoff.py", generic)
+
+    def test_recovery_checks_the_artifact_not_a_native_receipt(self) -> None:
+        normalized_workflow = " ".join(WORKFLOW.split())
+        normalized_prompts = " ".join(PROMPTS.split())
+        self.assertNotIn("If no artifact receipt exists", normalized_workflow)
+        self.assertNotIn(
+            "completed without an artifact receipt",
+            normalized_workflow,
+        )
+        self.assertIn("verification confirms the artifact is absent", normalized_workflow)
+        self.assertIn("verify and read the exact durable artifact", normalized_prompts)
+        self.assertNotIn(
+            "inspect the latest completed turn and the Lead task for its full report",
+            normalized_prompts,
+        )
+
+    def test_durable_artifact_is_primary_and_git_ignored(self) -> None:
+        for name, document in (("AGENTS.md", AGENTS), ("WORKFLOW.md", WORKFLOW), ("PROMPTS.md", PROMPTS)):
+            normalized = " ".join(document.split())
+            with self.subTest(document=name):
+                self.assertIn("scripts/work-report-handoff.py", normalized)
+                self.assertIn("artifact", normalized.lower())
+                self.assertIn("before", normalized.lower())
+                self.assertIn("native", normalized.lower())
+                self.assertIn("Never ask the owner", normalized)
+        self.assertIn("/.codex/handoffs/", GITIGNORE)
 
     def test_metadata_only_snapshot_does_not_prove_report_absence(self) -> None:
         for name, document in (("AGENTS.md", AGENTS), ("WORKFLOW.md", WORKFLOW), ("PROMPTS.md", PROMPTS)):
@@ -157,15 +220,15 @@ class WorkHandoffContractTests(unittest.TestCase):
         for name, document in (("AGENTS.md", AGENTS), ("WORKFLOW.md", WORKFLOW), ("PROMPTS.md", PROMPTS)):
             normalized = " ".join(document.split()).lower()
             with self.subTest(document=name):
-                self.assertIn("terminal for that delivery attempt", normalized)
-                self.assertIn("overrides the generic one-time recovery rule", normalized)
-                self.assertIn("do not re-request, regenerate the report, or resend it", normalized)
-                self.assertIn(
-                    "the one-time recovery path is allowed only when no safety/policy rejection occurred",
-                    normalized,
-                )
-                self.assertIn(
-                    "if that permitted recovery attempt fails or cannot be verified, stop",
+                self.assertIn("terminal for the rejected operation", normalized)
+                self.assertIn("before", normalized)
+                self.assertIn("native", normalized)
+                self.assertIn("do not retry", normalized)
+                self.assertIn("another account/session", normalized)
+                self.assertIn("handoff delivery failed", normalized)
+                self.assertIn("no prior artifact write/verification failure", normalized)
+                self.assertNotIn(
+                    "verify the received content in the destination",
                     normalized,
                 )
                 self.assertNotIn(

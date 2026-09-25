@@ -22,6 +22,7 @@ __pycache__/
 /staging_dir/
 /tmp/
 /work/
+/.codex/handoffs/
 *.apk
 *.ipk
 *.adb
