@@ -421,10 +421,10 @@ matrix or clearly label manual inputs as unsupported experiments.
 ## Priority order and PR discipline
 
 No implementation PR is active. First resolve the validation-reliability
-finding above; a release must not proceed on a non-green or unproven full
-validator. After that prerequisite, the next planned state change is the
-owner-gated protected release execution below. Record completed work separately
-and do not infer release authorization from a green build.
+finding above; do not proceed with release until the full validator is green.
+After that prerequisite, the next planned state change is the owner-gated
+protected release execution below. Record completed work separately and do not
+infer release authorization from a green build.
 
 | Priority | Next action / initiative | Type | Reason |
 | --- | --- | --- | --- |
@@ -700,8 +700,10 @@ owner-controlled release sequence.
 - No merge, tag, release, force-push, or signing action merely because tests
   are green.
 
-The next state change is the owner-approved protected tag/publication evidence
-operation above; this document does not authorize executing it. Native
+Only after the validation-reliability finding is resolved and the full
+validator is green is the owner-approved protected tag/publication evidence
+operation above the next state change; this document does not authorize
+executing it. Native
 24.10/IPK runtime behavior and the full helper lifecycle remain separate
 unproven gates. Do not begin optional automatic routing or claim public 24.10
 support from package builds alone. Do not repeat the completed evidence-artifact
