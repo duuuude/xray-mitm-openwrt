@@ -1,6 +1,6 @@
 # Xray MITM OpenWrt — Master Plan
 
-Status: current roadmap; last audited 2026-09-24
+Status: current roadmap; last audited 2026-09-25
 
 This plan is based on the actual canonical repository, not on an earlier plan
 or historical checkout.
@@ -11,10 +11,10 @@ The authoritative source is:
 
 - Repository: `https://github.com/duuuude/xray-mitm-openwrt.git`
 - Public branch: `main`
-- Review/audit baseline: `6bc5b37387b0c5b02c9121f1a8d931d9717b7671`, current
-  `main` at the start of this roadmap-only reconciliation after PR #69.
-- Observed package baseline: `0.4.4-r2` in development metadata; the published
-  25.12 release remains separately versioned and signed
+- Review/audit baseline: `76398e234d3d6381c876682e2de142fa6c4e9aaa`, current
+  `main` at the start of this roadmap reconciliation after PRs #70–#74.
+- Observed package baseline: `0.4.4-r2` in development metadata; the latest
+  published release is `v0.4.4` for the 25.12/APK feed (as of 2026-09-25)
 - Canonical clone root: `<repo-root>`
 - Temporary task worktrees: `<workspace-root>/worktrees/`
 
@@ -77,6 +77,36 @@ Recent merged evidence:
   Both post-merge main package builds passed. This is bounded staging-helper
   evidence on the tested router, not native 24.10/IPK runtime support or a
   broader product-release claim.
+
+- PR #70 merged as `0b64460182d6273094cb4446552918845a1eab41`; it reconciled
+  the roadmap after PR #69 and retained the separate owner-gated protected
+  release and native 24.10/IPK runtime gates.
+
+- PR #71 merged as `935f173916b8a864614bf188193cfb3f673ab308`. It hardened
+  task-status and reviewer-report handoff rules, including preventing
+  self-targeted probes and treating safety/policy rejection as terminal. This
+  is agent-process guidance and test coverage, not product-runtime evidence.
+
+- PR #72 merged as `76398e234d3d6381c876682e2de142fa6c4e9aaa`. It added the
+  repository-scoped Codex `network_access = true` setting for GitHub CLI and
+  other authorized workspace commands. It does not add credentials or change
+  application/package behavior. Its `.codex/config.toml` path is excluded by
+  the existing package and PR Evidence workflow filters; no exact-commit
+  workflow run was present in the 2026-09-25 audit.
+
+- PR #73 merged as `1455399b7e0bd9dff19bbb98e03811b3b128c4d2`. It added
+  bounded, immutable local Work-report handoffs and exact report/receipt
+  verification. Its exact-candidate PR Evidence, APK, and 24.10 IPK checks
+  passed. It improves agent coordination but does not change Codex task-history
+  rendering or provide cross-device report synchronization.
+
+- PR #74 merged as `1747a5d6ef8d1fe8db2868b33feadcbfa13679b7`. It established
+  code-first operations and a bounded same-task continuation only after a
+  verified usage-limit failure and elapsed reset. This is guidance-only and
+  grants no additional merge, signing, release, or router authority.
+
+The PRs above reconcile workflow and workspace state; they do not complete a
+protected release or establish native 24.10/IPK runtime support.
 
 The current public product contract targets official OpenWrt 25.12.x with APK
 packages. The public feed and CI use the 25.12.5 `aarch64_generic` SDK baseline,
@@ -248,6 +278,16 @@ remains unproven, and native 24.10/IPK runtime behavior remains unproven. PR
 #65 completed the machine-readable evidence initiative below; do not treat
 that tooling completion as additional product or compatibility evidence.
 
+### Validation reliability
+
+During the 2026-09-25 audit of exact `main` at
+`76398e234d3d6381c876682e2de142fa6c4e9aaa`, the full
+`scripts/validate-release.sh` run failed in
+`test_second_hung_restart_is_not_retried_by_exit_recovery`: it expected two
+restart attempts but observed one. A targeted rerun of that test passed (1/1),
+so the cause remains unproven; the complete validator is not green until a full
+run passes. Diagnose this before release preparation.
+
 ## Workflow and tooling work
 
 ### Approved scheduling focus — staged autonomous PR workflow
@@ -380,14 +420,16 @@ matrix or clearly label manual inputs as unsupported experiments.
 
 ## Priority order and PR discipline
 
-No implementation PR is active. The next planned state change is the
-owner-gated protected release execution below, not a parallel implementation
-PR. Record completed work separately and do not infer release authorization
-from a green build.
+No implementation PR is active. First resolve the validation-reliability
+finding above; a release must not proceed on a non-green or unproven full
+validator. After that prerequisite, the next planned state change is the
+owner-gated protected release execution below. Record completed work separately
+and do not infer release authorization from a green build.
 
 | Priority | Next action / initiative | Type | Reason |
 | --- | --- | --- | --- |
-| 1 | Exercise build-once promotion for one exact, owner-approved release commit | Owner-gated release operation | Proves the protected tag workflow reuses verified main-build bytes and records publication evidence. |
+| 1 | Resolve the exact-main full-validator failure and obtain a complete green run | Validation prerequisite | The 2026-09-25 full run failed one PassWall2 restart-timeout test; an isolated rerun passed, but the cause and full-suite result remain unproven. |
+| 2 | Exercise build-once promotion for one exact, owner-approved release commit | Owner-gated release operation | Proves the protected tag workflow reuses verified main-build bytes and records publication evidence. |
 
 ## Completed Stage 3 qualification record — merged PR #41
 
@@ -592,10 +634,12 @@ Acceptance criteria:
 ### Owner-gated release operation — protected tag/publication evidence
 
 PR #65 implemented the machine-readable candidate evidence and its package
-checksum binding. With PR #69 merged and its exact-head plus post-merge builds
-green, the remaining release question is operational: when the owner selects
-and approves one exact release commit, exercise the protected tag path and
-capture evidence for the reused build, signing, and publication outputs.
+checksum binding. PR #69's exact-head and post-merge builds are green, and the
+later PRs #70–#74 are reconciled above. Once the validation-reliability
+prerequisite is resolved, the remaining release question is operational: when
+the owner selects and approves one exact release commit, exercise the protected
+tag path and capture evidence for the reused build, signing, and publication
+outputs.
 Do not create a tag, invoke signing/publication, or change release state as part
 of this roadmap reconciliation.
 
