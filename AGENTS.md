@@ -417,13 +417,18 @@ If a delegated Reviewer or Router Validation turn fails because of an account
 usage limit, keep its gate `PENDING`; that failure is not a review result or a
 missing report. Record the exact task ID, turn ID, candidate, and reported reset
 time in the resume checkpoint. Arrange one bounded follow-up at or after the
-reset when scheduling is available. On that follow-up, refresh the exact task:
-do not interrupt an `inProgress` turn; inspect a completed turn and its full
-report; if it is still idle after a usage-limit failure, send one self-contained
-continuation to that same task and then verify the result. Never use a different
-account or task to bypass the limit, duplicate an active request, or ask the
-owner to relay the report. If automatic follow-up cannot be scheduled or
-verified, tell the owner that it remains pending and what action is needed.
+reset when scheduling is available. On that follow-up, refresh the exact task
+and extract current-turn status using the tool-specific rules above. Do not
+message while the extracted status is `inProgress`. If it is `completed`, inspect
+the full final report. Send at most one self-contained continuation to the same
+task only when the extracted current-turn status is exactly `failed`, its error
+explicitly identifies the usage limit, and the reported reset time has passed.
+An `idle` thread status, any unrelated failure, or missing/ambiguous status does
+not authorize a retry; keep the gate pending and report the blocker. Never use
+`thread.status` to decide whether to retry. Never use a different account or
+task to bypass the limit, duplicate an active request, or ask the owner to relay
+the report. If automatic follow-up cannot be scheduled or verified, tell the
+owner that it remains pending and what action is needed.
 
 Before relying on a handoff, verify the complete report is visible in the
 Development Lead task itself. A source task's status, summary, GitHub review,
