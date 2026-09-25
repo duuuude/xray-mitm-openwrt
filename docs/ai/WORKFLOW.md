@@ -246,6 +246,21 @@ artifact produced by `scripts/work-report-handoff.py`. A source task's
 active/idle/completed state, a summary, a GitHub review, a final answer, or a
 successful native-send receipt alone does not prove delivery.
 
+Do not clear an independent-review gate when its artifact arrives while the
+source task's latest turn is still `inProgress`. Wait for that exact turn to
+complete, then verify and read the artifact again. Inspect the final message
+of that same turn; if the task API omits it, use `scripts/work-report-handoff.py
+read-final` with the exact source task and turn IDs against the local Codex
+session log. If the final body is unavailable through both routes, HOLD the
+review gate. Require the report to name
+the assigned PR and exact candidate and to state whether a conflicting task
+request or separate correction exists. A conflict makes the recommendation
+`BLOCK` until a new, unambiguous review is delivered under a unique report ID.
+The source's final reply must not add material notes absent from the artifact.
+If it does, that correction overrides the earlier artifact and the review gate
+stays closed until a fresh, uniquely identified report resolves it. A running
+CI timer does not replace this terminal Reviewer check.
+
 Task-state responses may omit conversation text: `latestAssistantMessage: null`
 or `items: []` can coexist with a reply visible in the task UI. These metadata
 values do not prove that the source Work failed to answer or that the report
@@ -265,6 +280,22 @@ artifact is absent may the source be asked once to create it, and only when no
 prior artifact write/verification failure or safety/policy rejection occurred.
 After an artifact failure, record `HANDOFF DELIVERY FAILED` and stop. Do not
 request another native send.
+
+To inspect a completed source turn when `read_thread` returns `items: []`,
+first obtain its exact `latestTurn.id` and `completed` status with
+`wait_threads`. Then run this read-only fallback on the same Mac:
+
+```sh
+python3 scripts/work-report-handoff.py read-final \
+  --sessions-root "${CODEX_HOME:-$HOME/.codex}/sessions" \
+  --source-task-id "<Source task thread ID>" \
+  --turn-id "<exact completed turn ID>"
+```
+
+Inspect the returned `final_message` for any retraction, task mismatch, or
+additional caveat before relying on the artifact. The helper emits only that
+turn's final message, not the whole task log. If the session log is unavailable
+or ambiguous, the final message is unproven and the review gate remains closed.
 
 Before any handoff probe or send, identify the current source task ID and exact destination task ID; they must differ. Never test delivery by sending from Development Lead to its own task: that is a self-send, not a cross-task handoff. A valid transport probe originates in a distinct non-Lead task, uses a unique harmless marker, and is verified by reading that marker from the Lead task's actual conversation content. A successful tool response naming a thread is a routing receipt, not proof that the message body is visible. `wait_threads` cannot wait on the calling task; use `read_thread` for the current task.
 
@@ -353,7 +384,10 @@ Report ID: <unique stable ID, for example pr-72-review-<candidate prefix>>
 
 Before finalizing, each non-Lead Work must:
 
-1. Save its complete report to a temporary UTF-8 file. Reports must not contain
+1. Reconfirm the latest assignment, PR, and exact candidate in its own task.
+   Put any task collision, later correction, or separate note into the report;
+   an unresolved conflict requires `BLOCK`, not `APPROVE`. Save that complete
+   report to a temporary UTF-8 file. Reports must not contain
    credentials, tokens, private keys, certificates, or router backups. Protect
    the temporary file with mode `0600` and remove it after the artifact is
    written and verified.
@@ -386,7 +420,11 @@ Before finalizing, each non-Lead Work must:
      --candidate-sha "<full exact candidate SHA when relevant>"
    ```
 
-   Include the receipt and complete report in the Work's final response.
+   Include the receipt and complete report in the Work's final response. Do
+   not add a new material caveat or finding only in the final response. If a
+   correction is discovered after artifact creation, retract the prior
+   recommendation and issue a new report with a unique report ID before
+   finalizing.
 4. Optionally call `send_message_to_thread` once with only the receipt and a
    short instruction for Development Lead to verify/read the artifact. This is
    a notification, not the authoritative report. Do not retry a rejected or

@@ -134,6 +134,18 @@ class WorkHandoffContractTests(unittest.TestCase):
         self.assertIn("artifact receipt plus the full report", reviewer)
         self.assertIn("HANDOFF DELIVERY FAILED", reviewer)
 
+    def test_review_gate_waits_for_terminal_turn_and_reconciles_context(self) -> None:
+        self.assertIn("artifact receipt arriving while the source task is still `inProgress` is", AGENTS)
+        self.assertIn("Wait for that exact turn to", WORKFLOW)
+        self.assertIn("Assignment verified: <PR number and full exact candidate SHA>", PROMPTS)
+        self.assertIn("Context conflict: NONE / <details; BLOCK if unresolved>", PROMPTS)
+        for document in (AGENTS, WORKFLOW, PROMPTS):
+            self.assertIn("unique report ID", document)
+            self.assertIn("final", document)
+        self.assertIn("read-final", AGENTS)
+        self.assertIn("read-final", WORKFLOW)
+        self.assertIn("A running CI timer does not replace", " ".join(WORKFLOW.split()))
+
     def test_generic_prompt_carries_every_handoff_identity(self) -> None:
         generic = PROMPTS.split("## 11. Generic Prompt Template", 1)[1]
         self.assertIn("Handoff repository root:", generic)

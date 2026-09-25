@@ -254,6 +254,8 @@ Look specifically for:
 
 Before the findings, report:
 
+Assignment verified: <PR number and full exact candidate SHA>
+Context conflict: NONE / <details; BLOCK if unresolved>
 Tests/evidence reviewed:
 What those tests prove:
 What remains unproven:
@@ -278,6 +280,12 @@ Do not rewrite the PR.
 Do not fix findings.
 If there are no findings, state what you inspected and what remains unproven.
 Do not select or prompt another Work.
+Immediately before writing the artifact, reconfirm the latest request in this
+task targets the same PR and exact candidate. Put every separate correction,
+task collision, and material caveat in the artifact; an unresolved conflict
+is BLOCK, not APPROVE. Do not add a new material note only in the final reply.
+If a correction arises after the artifact is written, explicitly retract it
+and deliver a new report under a unique report ID before finalizing.
 Before stopping, write and verify this complete review with
 `scripts/work-report-handoff.py` using the exact `Handoff repository root`,
 `Source task thread ID`, `Lead task thread ID`, and `Report ID` supplied in the

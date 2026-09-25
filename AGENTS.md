@@ -415,6 +415,23 @@ report ID, candidate SHA when relevant, and content hash before relying on the
 report. A task status, summary, final answer, native send receipt, or GitHub
 review alone does not prove report delivery.
 
+An artifact receipt arriving while the source task is still `inProgress` is
+provisional, not a completed review gate. Wait for that exact task's latest turn
+to complete, then verify and read the artifact again. Inspect that turn's final
+message. If `read_thread` omits it, use `scripts/work-report-handoff.py
+read-final` on the exact source task and turn in the local Codex session log;
+if neither route exposes it, HOLD the gate. The source must confirm
+the current assignment's PR and exact candidate before writing its report and
+include any task collision, correction, or separate note in that same report.
+An unresolved assignment conflict is `BLOCK`, never `APPROVE`. The final task
+reply must faithfully repeat the report and receipt, without new material
+findings or caveats. If the source discovers a correction after writing an
+artifact, it must explicitly retract the earlier recommendation and deliver a
+new, uniquely identified report; Lead holds the gate until that is done. A
+final-message correction or extra caveat overrides an earlier artifact even
+when that artifact passed integrity verification. Do not claim to have read a
+final reply based on `wait_threads` status alone.
+
 The durable artifact is the cross-account and incomplete-history source of
 truth. Native `send_message_to_thread` is only a best-effort notification that
 carries the artifact receipt, not the report's sole copy. If native task

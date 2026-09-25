@@ -21,6 +21,7 @@ HELPER = ROOT / "scripts/work-report-handoff.py"
 SOURCE = "11111111-1111-4111-8111-111111111111"
 DESTINATION = "22222222-2222-4222-8222-222222222222"
 CANDIDATE = "a" * 40
+TURN = "33333333-3333-4333-8333-333333333333"
 
 
 class WorkReportHandoffTests(unittest.TestCase):
@@ -73,6 +74,55 @@ class WorkReportHandoffTests(unittest.TestCase):
 
     def artifact(self) -> Path:
         return self.repo / ".codex" / "handoffs" / DESTINATION / "pr-72-review.json"
+
+    def run_final_helper(self, sessions: Path) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["python3", str(HELPER), "read-final", "--sessions-root", str(sessions),
+             "--source-task-id", SOURCE, "--turn-id", TURN],
+            check=False, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            timeout=5,
+        )
+
+    def test_read_exact_completed_turn_including_separate_note(self) -> None:
+        sessions = Path(self.temp.name) / "sessions"
+        log_dir = sessions / "2026" / "09" / "25"
+        log_dir.mkdir(parents=True)
+        log = log_dir / f"rollout-2026-09-25T12-00-00-{SOURCE}.jsonl"
+        records = [
+            {"type": "event_msg", "payload": {"type": "task_complete", "turn_id": DESTINATION,
+                                              "last_agent_message": "Unrelated final"}},
+            {"timestamp": "2026-09-25T08:33:14Z", "type": "event_msg",
+             "payload": {"type": "task_complete", "turn_id": TURN,
+                         "last_agent_message": "Separate note: PR #73 was unrelated.\nPR #46 review follows."}},
+        ]
+        log.write_text("".join(json.dumps(record) + "\n" for record in records), encoding="utf-8")
+        result = self.run_final_helper(sessions)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        final = json.loads(result.stdout)
+        self.assertEqual(final["turn_id"], TURN)
+        self.assertIn("Separate note", final["final_message"])
+        self.assertEqual(final["completed_at"], "2026-09-25T08:33:14Z")
+
+    def test_read_final_fails_closed_on_missing_or_duplicate_completion(self) -> None:
+        sessions = Path(self.temp.name) / "sessions"
+        log_dir = sessions / "2026" / "09" / "25"
+        log_dir.mkdir(parents=True)
+        log = log_dir / f"rollout-2026-09-25T12-00-00-{SOURCE}.jsonl"
+        self.assertNotEqual(self.run_final_helper(sessions).returncode, 0)
+        record = {"timestamp": "2026-09-25T08:33:14Z", "type": "event_msg",
+                  "payload": {"type": "task_complete", "turn_id": TURN,
+                              "last_agent_message": "Report"}}
+        log.write_text((json.dumps(record) + "\n") * 2, encoding="utf-8")
+        self.assertNotEqual(self.run_final_helper(sessions).returncode, 0)
+
+    def test_read_final_rejects_symlinked_log(self) -> None:
+        sessions = Path(self.temp.name) / "sessions"
+        log_dir = sessions / "2026" / "09" / "25"
+        log_dir.mkdir(parents=True)
+        target = Path(self.temp.name) / "elsewhere.jsonl"
+        target.write_text("", encoding="utf-8")
+        (log_dir / f"rollout-2026-09-25T12-00-00-{SOURCE}.jsonl").symlink_to(target)
+        self.assertNotEqual(self.run_final_helper(sessions).returncode, 0)
 
     def test_write_verify_and_read_round_trip(self) -> None:
         written = self.write()

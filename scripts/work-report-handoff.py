@@ -404,6 +404,63 @@ def read(args: argparse.Namespace) -> None:
         sys.stdout.write("\n")
 
 
+def read_final(args: argparse.Namespace) -> None:
+    """Read only the exact completed turn's final message from a local task log."""
+    if not TASK_ID.fullmatch(args.source_task_id) or not TASK_ID.fullmatch(args.turn_id):
+        raise HandoffError("Source task and turn IDs must be full lowercase UUIDs.")
+    try:
+        root = args.sessions_root.resolve(strict=True)
+    except OSError as exc:
+        raise HandoffError("The local task-session root is unavailable.") from exc
+    if not root.is_dir():
+        raise HandoffError("The local task-session root is not a directory.")
+    matches = list(root.glob(f"*/*/*/rollout-*-{args.source_task_id}.jsonl"))
+    if len(matches) != 1:
+        raise HandoffError("Expected exactly one local log for the source task.")
+    path = matches[0]
+    if path.is_symlink() or not path.resolve().is_relative_to(root):
+        raise HandoffError("The local task log must not be a symlink.")
+    try:
+        fd = os.open(path, os.O_RDONLY | NOFOLLOW)
+    except OSError as exc:
+        raise HandoffError("The local task log could not be opened safely.") from exc
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise HandoffError("The local task log must be a regular file.")
+        completions: list[dict[str, str]] = []
+        with os.fdopen(fd, "r", encoding="utf-8") as stream:
+            fd = -1
+            for line in stream:
+                try:
+                    event = json.loads(line)
+                except (json.JSONDecodeError, UnicodeError) as exc:
+                    raise HandoffError("The local task log contains invalid JSON.") from exc
+                if not isinstance(event, dict):
+                    raise HandoffError("The local task log contains an invalid event.")
+                payload = event.get("payload")
+                if (
+                    event.get("type") == "event_msg"
+                    and isinstance(payload, dict)
+                    and payload.get("type") == "task_complete"
+                    and payload.get("turn_id") == args.turn_id
+                ):
+                    message = payload.get("last_agent_message")
+                    timestamp = event.get("timestamp")
+                    if not isinstance(message, str) or not message.strip() or not isinstance(timestamp, str):
+                        raise HandoffError("The completed turn has no readable final message.")
+                    if len(message.encode("utf-8")) > MAX_REPORT_BYTES:
+                        raise HandoffError("The completed turn's final message exceeds the size limit.")
+                    completions.append({"source_task_id": args.source_task_id, "turn_id": args.turn_id, "completed_at": timestamp, "final_message": message})
+    except (OSError, UnicodeError) as exc:
+        raise HandoffError("The local task log could not be read.") from exc
+    finally:
+        if fd >= 0:
+            os.close(fd)
+    if len(completions) != 1:
+        raise HandoffError("Expected exactly one final message for the completed turn.")
+    print(json.dumps(completions[0], sort_keys=True))
+
+
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(description=__doc__)
     commands = result.add_subparsers(dest="command", required=True)
@@ -428,6 +485,12 @@ def parser() -> argparse.ArgumentParser:
     read_parser = commands.add_parser("read")
     common(read_parser)
     read_parser.set_defaults(handler=read)
+
+    final_parser = commands.add_parser("read-final")
+    final_parser.add_argument("--sessions-root", required=True, type=Path)
+    final_parser.add_argument("--source-task-id", required=True)
+    final_parser.add_argument("--turn-id", required=True)
+    final_parser.set_defaults(handler=read_final)
     return result
 
 
