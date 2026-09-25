@@ -17,6 +17,27 @@ CANONICAL_URL = "https://github.com/duuuude/xray-mitm-openwrt.git"
 
 
 class RoadmapStateTests(unittest.TestCase):
+    def test_protected_release_next_steps_require_a_green_full_validator(self) -> None:
+        plan = (ROOT / "docs/ai/MASTER_PLAN.md").read_text(encoding="utf-8")
+        next_state_paragraphs = []
+        for paragraph in plan.split("\n\n"):
+            normalized = " ".join(paragraph.split())
+            lowered = normalized.lower()
+            has_next_state_change = (
+                "next state change" in lowered
+                or "next planned state change" in lowered
+            )
+            if has_next_state_change and (
+                "protected release" in lowered
+                or "protected tag/publication evidence" in lowered
+            ):
+                next_state_paragraphs.append(lowered)
+
+        self.assertGreaterEqual(len(next_state_paragraphs), 2)
+        for paragraph in next_state_paragraphs:
+            with self.subTest(paragraph=paragraph):
+                self.assertIn("full validator is green", paragraph)
+
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
