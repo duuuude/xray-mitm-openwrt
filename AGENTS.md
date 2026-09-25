@@ -6,6 +6,16 @@ This file defines permanent rules for AI coding agents working on this repositor
 
 Read this file before inspecting, editing, testing, staging, or proposing changes.
 
+## 0. Code-first execution preference
+
+- For repeatable, objective work, prefer an existing tested script, CI check, API, or structured tool result over repeated agent interpretation. Turn a recurring manual check into a small, tested deterministic helper when that is simpler to maintain.
+- Batch related status reads and use actual events or required checkpoints. Where scheduling supports it, wake the agent only for changes, failures, completion, or owner action; stay quiet when state is unchanged.
+- Reserve model work for ambiguous evidence, independent review, diagnosis, design decisions, and concise communication. A script may gather or validate evidence but must not invent a recommendation or silently clear a gate.
+- Do not add code for a one-off check when a simple command is cheaper and clearer. Keep outputs bounded and preserve exact candidate, run, artifact, and task identities.
+- Speed or token savings never weaken safety checks, independent review, provenance, rollback, evidence boundaries, or explicit owner approvals. Unknown remains unproven.
+- For multi-step work, maintain a task-scoped durable resume checkpoint: objective, exact refs and task/run IDs, completed evidence, remaining gates, and next safe action. Update it before switching tasks or stopping, and after material changes. Keep secrets out and do not commit local checkpoints.
+- When a new owner or agent message arrives, classify whether it replaces, adds to, or only asks about the active task. Never silently abandon unfinished work. On resumption, read the checkpoint, refresh live state, reconcile the new message, and continue or explicitly report the blocker; a checkpoint alone never proves completion.
+
 ## 1. Project
 
 This repository implements a standalone Xray MITM Domain Fronting service for OpenWrt, with a LuCI management interface, certificate lifecycle management, optional PassWall2 routing integration, signed package distribution, conservative install/update behavior, and rollback/recovery paths for risky state changes.
@@ -402,6 +412,23 @@ verified)` and do not infer status from `thread.status`, history, a heartbeat,
 a cached thread list, title, summary, or memory. If the task is idle or its
 latest turn is `completed`, inspect that latest completed turn before
 describing its result.
+
+If a delegated Reviewer or Router Validation turn fails because of an account
+usage limit, keep its gate `PENDING`; that failure is not a review result or a
+missing report. Record the exact task ID, turn ID, candidate, and reported reset
+time in the resume checkpoint. Arrange one bounded follow-up at or after the
+reset when scheduling is available. On that follow-up, refresh the exact task
+and extract current-turn status using the tool-specific rules above. Do not
+message while the extracted status is `inProgress`. If it is `completed`, inspect
+the full final report. Send at most one self-contained continuation to the same
+task only when the extracted current-turn status is exactly `failed`, its error
+explicitly identifies the usage limit, and the reported reset time has passed.
+An `idle` thread status, any unrelated failure, or missing/ambiguous status does
+not authorize a retry; keep the gate pending and report the blocker. Never use
+`thread.status` to decide whether to retry. Never use a different account or
+task to bypass the limit, duplicate an active request, or ask the owner to relay
+the report. If automatic follow-up cannot be scheduled or verified, tell the
+owner that it remains pending and what action is needed.
 
 Before relying on a handoff, verify the complete report is visible in the
 Development Lead task itself. A source task's status, summary, GitHub review,
