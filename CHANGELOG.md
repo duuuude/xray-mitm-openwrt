@@ -7,6 +7,17 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.5] - 2026-09-26
+
+### Changed
+
+- Improve PassWall2 capability detection and make inspection of incomplete,
+  unsupported, and legacy routing rules more accurate.
+- Improve setup and dashboard readiness reporting across service, certificate,
+  and routing prerequisites.
+- Improve installer package-manager and OpenWrt release checks while keeping
+  the documented public feed target at OpenWrt 25.12/APK.
+
 ## [0.4.4] - 2026-09-13
 
 ### Changed
@@ -184,7 +195,8 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - LuCI service, certificate lifecycle, health-check, and optional PassWall2 controls.
 - English and Persian installation and operating instructions.
 
-[Unreleased]: https://github.com/duuuude/xray-mitm-openwrt/compare/v0.4.4...HEAD
+[Unreleased]: https://github.com/duuuude/xray-mitm-openwrt/compare/v0.4.5...HEAD
+[0.4.5]: https://github.com/duuuude/xray-mitm-openwrt/compare/v0.4.4...v0.4.5
 [0.4.4]: https://github.com/duuuude/xray-mitm-openwrt/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/duuuude/xray-mitm-openwrt/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/duuuude/xray-mitm-openwrt/compare/v0.4.1...v0.4.2
