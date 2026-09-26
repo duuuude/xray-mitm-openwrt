@@ -1,6 +1,6 @@
 # Xray MITM OpenWrt — Master Plan
 
-Status: current roadmap; last audited 2026-09-25
+Status: current roadmap; last audited 2026-09-26
 
 This plan is based on the actual canonical repository, not on an earlier plan
 or historical checkout.
@@ -11,10 +11,10 @@ The authoritative source is:
 
 - Repository: `https://github.com/duuuude/xray-mitm-openwrt.git`
 - Public branch: `main`
-- Review/audit baseline: `76398e234d3d6381c876682e2de142fa6c4e9aaa`, current
-  `main` at the start of this roadmap reconciliation after PRs #70–#74.
+- Review/audit baseline: `0b3dbbef5dd3e3a7c7c093866aa2495ef7d0dcb9`, current
+  `main` at this audit after PR #75.
 - Observed package baseline: `0.4.4-r2` in development metadata; the latest
-  published release is `v0.4.4` for the 25.12/APK feed (as of 2026-09-25)
+  published release is `v0.4.4` for the 25.12/APK feed (as of 2026-09-26)
 - Canonical clone root: `<repo-root>`
 - Temporary task worktrees: `<workspace-root>/worktrees/`
 
@@ -104,6 +104,18 @@ Recent merged evidence:
   code-first operations and a bounded same-task continuation only after a
   verified usage-limit failure and elapsed reset. This is guidance-only and
   grants no additional merge, signing, release, or router authority.
+
+- PR #75 merged as `0b3dbbef5dd3e3a7c7c093866aa2495ef7d0dcb9`. The complete
+  `scripts/validate-release.sh` passed locally on this exact `main` commit,
+  including the previously failing PassWall2 restart-recovery test. The
+  post-merge APK workflow run
+  [36193558094](https://github.com/duuuude/xray-mitm-openwrt/actions/runs/36193558094)
+  also succeeded for this exact commit. No IPK workflow ran for this
+  documentation-only change; these results do not prove a protected release,
+  signed artifact, native 24.10/IPK runtime, or router behavior. The earlier
+  full-validator failure's root cause remains unknown; the current exact-main
+  full run satisfies the green-validator prerequisite without explaining that
+  earlier failure.
 
 The PRs above reconcile workflow and workspace state; they do not complete a
 protected release or establish native 24.10/IPK runtime support.
@@ -280,13 +292,14 @@ that tooling completion as additional product or compatibility evidence.
 
 ### Validation reliability
 
-During the 2026-09-25 audit of exact `main` at
-`76398e234d3d6381c876682e2de142fa6c4e9aaa`, the full
-`scripts/validate-release.sh` run failed in
-`test_second_hung_restart_is_not_retried_by_exit_recovery`: it expected two
-restart attempts but observed one. A targeted rerun of that test passed (1/1),
-so the cause remains unproven; the complete validator is not green until a full
-run passes. Diagnose this before release preparation.
+The full `scripts/validate-release.sh` run on exact current `main`
+`0b3dbbef5dd3e3a7c7c093866aa2495ef7d0dcb9` passed, including
+`test_second_hung_restart_is_not_retried_by_exit_recovery`. This satisfies the
+complete-green-validator prerequisite for release readiness. An earlier full
+run on `76398e234d3d6381c876682e2de142fa6c4e9aaa` failed that test after
+observing one restart attempt instead of two; its targeted rerun passed (1/1).
+The earlier failure's cause remains unproven and must not be described as
+diagnosed, but it does not override the later complete pass on current `main`.
 
 ## Workflow and tooling work
 
@@ -420,16 +433,15 @@ matrix or clearly label manual inputs as unsupported experiments.
 
 ## Priority order and PR discipline
 
-No implementation PR is active. First resolve the validation-reliability
-finding above; do not proceed with release until the full validator is green.
-After that prerequisite, the next planned state change is the owner-gated
+No implementation PR is active. The full validator is green on the exact
+current-main audit baseline recorded above; the earlier isolated failure's
+cause remains unknown. The next planned state change is the owner-gated
 protected release execution below. Record completed work separately and do not
 infer release authorization from a green build.
 
 | Priority | Next action / initiative | Type | Reason |
 | --- | --- | --- | --- |
-| 1 | Resolve the exact-main full-validator failure and obtain a complete green run | Validation prerequisite | The 2026-09-25 full run failed one PassWall2 restart-timeout test; an isolated rerun passed, but the cause and full-suite result remain unproven. |
-| 2 | Exercise build-once promotion for one exact, owner-approved release commit | Owner-gated release operation | Proves the protected tag workflow reuses verified main-build bytes and records publication evidence. |
+| 1 | Exercise build-once promotion for one exact, owner-approved release commit | Owner-gated release operation | The full validator is green on exact main; this separate exercise will prove the protected tag workflow reuses verified main-build bytes and records publication evidence. |
 
 ## Completed Stage 3 qualification record — merged PR #41
 
@@ -635,11 +647,11 @@ Acceptance criteria:
 
 PR #65 implemented the machine-readable candidate evidence and its package
 checksum binding. PR #69's exact-head and post-merge builds are green, and the
-later PRs #70–#74 are reconciled above. Once the validation-reliability
-prerequisite is resolved, the remaining release question is operational: when
-the owner selects and approves one exact release commit, exercise the protected
-tag path and capture evidence for the reused build, signing, and publication
-outputs.
+later PRs #70–#75 are reconciled above. The full validator is green on the
+exact current-main audit baseline. The remaining release question is
+operational: when the owner selects and approves one exact release commit,
+exercise the protected tag path and capture evidence for the reused build,
+signing, and publication outputs.
 Do not create a tag, invoke signing/publication, or change release state as part
 of this roadmap reconciliation.
 
@@ -700,10 +712,9 @@ owner-controlled release sequence.
 - No merge, tag, release, force-push, or signing action merely because tests
   are green.
 
-Only after the validation-reliability finding is resolved and the full
-validator is green is the owner-approved protected tag/publication evidence
-operation above the next state change; this document does not authorize
-executing it. Native
+The full validator is green on the exact audit baseline, so the owner-approved
+protected tag/publication evidence operation above is the next planned state
+change; this document does not authorize executing it. Native
 24.10/IPK runtime behavior and the full helper lifecycle remain separate
 unproven gates. Do not begin optional automatic routing or claim public 24.10
 support from package builds alone. Do not repeat the completed evidence-artifact
