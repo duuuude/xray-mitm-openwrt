@@ -723,14 +723,14 @@ Out of scope:
 
 Acceptance criteria:
 
-- The workflow fails closed unless the supplied run is a successful `push`
-  build on `main` for the exact supplied source SHA and the artifact matches
-  the expected release, architecture, packages, and checksums.
+- The local helper fails closed unless its pinned run is a successful `push`
+  build on `main` for the exact source SHA and the artifact matches the
+  expected release, architecture, packages, and checksums.
 - No package rebuild occurs; the package bytes match the recorded main-build
   checksums, and only the index is signed and independently verified.
-- The signed result is accessible only through the private destination, has
-  short retention, and creates no public tag, Release, Pages deployment, or
-  feed publication.
+- Keep the signed result in the private local temporary session. The 24-hour
+  cleanup target is manual, not automatic; do not upload it or create a public
+  tag, Release, Pages deployment, or feed publication.
 - No router mutation or installation occurs. Any later transfer, installation,
   rollback, and visual check remains separately owner-approved and evidenced.
 

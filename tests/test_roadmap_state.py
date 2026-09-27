@@ -17,6 +17,20 @@ CANONICAL_URL = "https://github.com/duuuude/xray-mitm-openwrt.git"
 
 
 class RoadmapStateTests(unittest.TestCase):
+    def test_local_lab_sign_acceptance_matches_local_only_helper(self) -> None:
+        plan = (ROOT / "docs/ai/MASTER_PLAN.md").read_text(encoding="utf-8")
+        section = plan.split(
+            "### Local-only lab-sign path for the exact v0.4.5 main artifact", 1
+        )[1].split("## Validation and release gates for future work", 1)[0]
+        acceptance = section.split("Acceptance criteria:", 1)[1].lower()
+
+        self.assertIn("local helper fails closed", acceptance)
+        self.assertIn("private local temporary session", acceptance)
+        self.assertIn("cleanup target is manual", acceptance)
+        self.assertIn("do not upload", acceptance)
+        self.assertNotIn("private destination", acceptance)
+        self.assertNotIn("short retention", acceptance)
+
     def test_protected_release_next_steps_require_a_green_full_validator(self) -> None:
         plan = (ROOT / "docs/ai/MASTER_PLAN.md").read_text(encoding="utf-8")
         next_state_paragraphs = []

@@ -209,6 +209,52 @@ class LabSignV045Tests(unittest.TestCase):
             with self.assertRaisesRegex(lab.LabSignError, "digest"):
                 lab._read_archive(self.archive + b"tampered")
 
+    def test_binary_api_download_is_streamed_with_a_hard_size_limit(self) -> None:
+        class OversizedStream:
+            def __init__(self) -> None:
+                self.remaining = lab.MAX_ARCHIVE_BYTES + 4096
+                self.bytes_read = 0
+                self.read_sizes: list[int] = []
+
+            def read(self, size: int) -> bytes:
+                self.read_sizes.append(size)
+                count = min(size, self.remaining)
+                self.remaining -= count
+                self.bytes_read += count
+                return b"x" * count
+
+            def close(self) -> None:
+                pass
+
+        class FakeProcess:
+            def __init__(self) -> None:
+                self.stdout = OversizedStream()
+                self.killed = False
+                self.returncode: int | None = None
+
+            def kill(self) -> None:
+                self.killed = True
+
+            def poll(self) -> int | None:
+                return self.returncode
+
+            def wait(self) -> int:
+                self.returncode = -9 if self.killed else 0
+                return self.returncode
+
+        process = FakeProcess()
+        with mock.patch.object(lab.subprocess, "Popen", return_value=process) as popen:
+            with self.assertRaisesRegex(lab.LabSignError, "exceeds the safe archive size limit"):
+                lab._gh_api("repos/example/artifact.zip", binary=True)
+        self.assertTrue(process.killed)
+        self.assertEqual(process.stdout.bytes_read, lab.MAX_ARCHIVE_BYTES + 1)
+        self.assertLessEqual(max(process.stdout.read_sizes), lab.MAX_API_READ_CHUNK)
+        popen.assert_called_once_with(
+            ["gh", "api", "repos/example/artifact.zip"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
+
     def test_rejects_wrong_source_metadata_unknown_entries_and_duplicates(self) -> None:
         wrong_source = make_archive(source_commit="f" * 40)
         unknown = make_archive(extra={"surprise.txt": b"unexpected"})
@@ -248,7 +294,9 @@ class LabSignV045Tests(unittest.TestCase):
             )
 
     def make_key(self, parent: Path) -> Path:
-        key = parent / "synthetic-key.pem"
+        key_directory = tempfile.TemporaryDirectory(prefix="lab-sign-key-test-")
+        self.addCleanup(key_directory.cleanup)
+        key = Path(key_directory.name) / f"{parent.name}-synthetic-key.pem"
         key.write_bytes(b"synthetic test key; not used for cryptography\n")
         os.chmod(key, 0o600)
         return key
@@ -340,6 +388,29 @@ class LabSignV045Tests(unittest.TestCase):
         finally:
             self.cleanup_session(root)
 
+    def test_signing_key_inside_session_is_rejected_and_cleanup_preserves_it(self) -> None:
+        root = self.make_session()
+        key = root / "unsigned" / "user-key.pem"
+        key.write_bytes(b"synthetic user key; never read by test\n")
+        os.chmod(key, 0o600)
+        try:
+            with self.assertRaisesRegex(lab.LabSignError, "outside the temporary lab-sign session"):
+                lab.sign_session(
+                    root,
+                    key,
+                    confirmation=lab.CONFIRM_PHRASE,
+                    json_reader=self.json_reader,
+                    docker_runner=lambda *_: self.fail("signer must not start"),
+                    tool_source_verifier=lambda: "c" * 40,
+                )
+            with self.pinned_digest(), self.assertRaisesRegex(lab.LabSignError, "Unexpected file in unsigned"):
+                lab.cleanup_session(root, confirmation=f"DELETE {root.resolve()}")
+            self.assertTrue(key.is_file())
+            self.assertTrue(root.is_dir())
+        finally:
+            key.unlink(missing_ok=True)
+            self.cleanup_session(root)
+
     def test_rejects_symlink_or_wrong_mode_signing_key(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             parent = Path(directory)
@@ -358,15 +429,67 @@ class LabSignV045Tests(unittest.TestCase):
             key = root / "key.pem"
             key.write_bytes(b"synthetic key")
             with mock.patch.object(lab.shutil, "which", return_value="/usr/bin/docker"):
-                with mock.patch.object(lab.subprocess, "run", return_value=mock.Mock(returncode=0)) as run:
+                endpoint = json.dumps(
+                    [{"Name": "desktop", "Endpoints": {"docker": {"Host": "unix:///tmp/docker.sock"}}}]
+                )
+                with mock.patch.object(
+                    lab.subprocess,
+                    "run",
+                    side_effect=[
+                        mock.Mock(returncode=0, stdout="desktop\n"),
+                        mock.Mock(returncode=0, stdout=endpoint),
+                        mock.Mock(returncode=0),
+                    ],
+                ) as run:
                     lab._run_sdk_sign(root / "bundle", key)
             command = run.call_args.args[0]
+            self.assertEqual(command[1:4], ["--context", "desktop", "run"])
             self.assertIn("--network=none", command)
             self.assertIn("--read-only", command)
             self.assertIn(lab.SDK_IMAGE, command)
             self.assertIn(f"{key}:/signing-key.pem:ro", command)
             self.assertIn(f"{lab.PUBLIC_KEY_PATH}:/keys/{lab.PUBLIC_KEY_NAME}:ro", command)
             self.assertNotIn(f"{ROOT / 'keys'}:/keys:ro", command)
+
+    def test_remote_docker_context_is_refused_before_signing_container(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            key = root / "key.pem"
+            key.write_bytes(b"synthetic key")
+            endpoint = json.dumps(
+                [{"Name": "remote", "Endpoints": {"docker": {"Host": "ssh://builder.example"}}}]
+            )
+            with mock.patch.object(lab.shutil, "which", return_value="/usr/bin/docker"):
+                with mock.patch.object(
+                    lab.subprocess,
+                    "run",
+                    side_effect=[
+                        mock.Mock(returncode=0, stdout="remote\n"),
+                        mock.Mock(returncode=0, stdout=endpoint),
+                    ],
+                ) as run:
+                    with self.assertRaisesRegex(lab.LabSignError, "remote Docker daemons are refused"):
+                        lab._run_sdk_sign(root / "bundle", key)
+            self.assertEqual(run.call_count, 2)
+
+    def test_docker_environment_overrides_are_refused_before_context_inspection(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            key = root / "key.pem"
+            key.write_bytes(b"synthetic key")
+            with mock.patch.object(lab.shutil, "which", return_value="/usr/bin/docker"):
+                for variable, value in (
+                    ("DOCKER_HOST", "tcp://builder.example:2376"),
+                    ("DOCKER_CONTEXT", "remote"),
+                ):
+                    with self.subTest(variable=variable):
+                        with mock.patch.dict(os.environ, {variable: value}):
+                            with mock.patch.object(lab.subprocess, "run") as run:
+                                with self.assertRaisesRegex(
+                                    lab.LabSignError, "overrides are not allowed"
+                                ):
+                                    lab._run_sdk_sign(root / "bundle", key)
+                        run.assert_not_called()
 
 
 if __name__ == "__main__":

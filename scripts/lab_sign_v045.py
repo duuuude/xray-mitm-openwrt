@@ -21,6 +21,7 @@ import tempfile
 import zipfile
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable
+from urllib.parse import urlsplit
 
 
 REPOSITORY = "duuuude/xray-mitm-openwrt"
@@ -47,6 +48,7 @@ SESSION_PREFIX = "xray-mitm-lab-sign-v045-"
 SESSION_VERSION = 1
 MAX_ARCHIVE_BYTES = 8 * 1024 * 1024
 MAX_UNPACKED_BYTES = 8 * 1024 * 1024
+MAX_API_READ_CHUNK = 64 * 1024
 CONFIRM_PHRASE = "SIGN ONLY packages.adb"
 
 PACKAGE_NAMES = (
@@ -74,6 +76,14 @@ KNOWN_UNSTAGED_FILES = frozenset(
     {"LICENSE", "README.fa.md", "README.md", "THIRD_PARTY_NOTICES.md", "install.sh"}
 )
 EXPECTED_ARCHIVE_FILES = REQUIRED_ARTIFACT_FILES | KNOWN_UNSTAGED_FILES
+SESSION_ROOT_FILES = frozenset({"session.json", "source-artifact.zip"})
+SESSION_ROOT_DIRS = frozenset({"unsigned", "signed-bundle"})
+UNSIGNED_SESSION_FILES = REQUIRED_ARTIFACT_FILES | {"SOURCE_ARTIFACT.json"}
+SIGNED_SESSION_FILES = REQUIRED_ARTIFACT_FILES | {
+    "BUILD_SHA256SUMS",
+    "LAB_SIGNING.json",
+    PUBLIC_KEY_NAME,
+}
 
 ROOT = Path(__file__).resolve().parents[1]
 VERIFY_SCRIPT = ROOT / "scripts/verify-promotion-artifact.sh"
@@ -106,9 +116,52 @@ def _sha256(data: bytes) -> str:
 
 
 def _gh_api(path: str, *, binary: bool = False) -> bytes:
+    command = ["gh", "api", path]
+    if binary:
+        try:
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+            )
+        except FileNotFoundError as exc:
+            raise LabSignError("GitHub CLI (gh) is required for source verification.") from exc
+        if process.stdout is None:
+            process.kill()
+            process.wait()
+            raise LabSignError("Could not stream the pinned source artifact safely.")
+        output = bytearray()
+        try:
+            while len(output) <= MAX_ARCHIVE_BYTES:
+                remaining = MAX_ARCHIVE_BYTES + 1 - len(output)
+                chunk = process.stdout.read(min(MAX_API_READ_CHUNK, remaining))
+                if not chunk:
+                    break
+                output.extend(chunk)
+                if len(output) > MAX_ARCHIVE_BYTES:
+                    process.kill()
+                    process.wait()
+                    raise LabSignError(
+                        "Downloaded source artifact exceeds the safe archive size limit."
+                    )
+            returncode = process.wait()
+        except OSError as exc:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
+            raise LabSignError("Could not read the pinned source artifact safely.") from exc
+        finally:
+            process.stdout.close()
+        if returncode != 0:
+            raise LabSignError(
+                f"GitHub API request failed for the pinned source endpoint (exit "
+                f"{returncode}); no signing was attempted."
+            )
+        return bytes(output)
+
     try:
         result = subprocess.run(
-            ["gh", "api", path],
+            command,
             capture_output=True,
             check=False,
         )
@@ -459,9 +512,65 @@ def prepare_session(
             _write_private_file(unsigned / name, data)
         _verify_promotion_artifact(unsigned)
     except Exception:
-        shutil.rmtree(root, ignore_errors=True)
+        _remove_generated_session_tree(root)
         raise
     return root
+
+
+def _validate_session_tree(root: Path, *, require_complete: bool) -> None:
+    allowed_root = SESSION_ROOT_FILES | SESSION_ROOT_DIRS
+    required_root = SESSION_ROOT_FILES | {"unsigned"}
+    try:
+        root_entries = {entry.name: entry for entry in root.iterdir()}
+    except OSError as exc:
+        raise LabSignError("Could not safely inspect the lab-sign session contents.") from exc
+    unexpected = set(root_entries) - allowed_root
+    if unexpected:
+        raise LabSignError(
+            "Unexpected session entry; refusing to remove or overwrite user data."
+        )
+    if require_complete and not required_root.issubset(root_entries):
+        raise LabSignError("Lab-sign session is incomplete; cleanup is blocked.")
+    for name in SESSION_ROOT_FILES & set(root_entries):
+        item = root_entries[name].lstat()
+        if stat.S_ISLNK(item.st_mode) or not stat.S_ISREG(item.st_mode):
+            raise LabSignError(f"Session entry is not a regular file: {name}.")
+
+    for directory_name, allowed_files, required_files in (
+        ("unsigned", UNSIGNED_SESSION_FILES, UNSIGNED_SESSION_FILES),
+        ("signed-bundle", SIGNED_SESSION_FILES, frozenset()),
+    ):
+        entry = root_entries.get(directory_name)
+        if entry is None:
+            if require_complete and directory_name == "unsigned":
+                raise LabSignError("Lab-sign session is missing its unsigned bundle.")
+            continue
+        directory_stat = entry.lstat()
+        if stat.S_ISLNK(directory_stat.st_mode) or not stat.S_ISDIR(directory_stat.st_mode):
+            raise LabSignError(f"Session entry is not a real directory: {directory_name}.")
+        if stat.S_IMODE(directory_stat.st_mode) & 0o077:
+            raise LabSignError(f"Session directory is not private: {directory_name}.")
+        try:
+            entries = {child.name: child for child in entry.iterdir()}
+        except OSError as exc:
+            raise LabSignError(f"Could not safely inspect {directory_name}.") from exc
+        if set(entries) - allowed_files:
+            raise LabSignError(
+                f"Unexpected file in {directory_name}; refusing to remove or overwrite user data."
+            )
+        if require_complete and not required_files.issubset(entries):
+            raise LabSignError(f"Lab-sign session {directory_name} is incomplete.")
+        for filename, child in entries.items():
+            item = child.lstat()
+            if stat.S_ISLNK(item.st_mode) or not stat.S_ISREG(item.st_mode):
+                raise LabSignError(
+                    f"Session entry is not a regular file: {directory_name}/{filename}."
+                )
+
+
+def _remove_generated_session_tree(root: Path) -> None:
+    _validate_session_tree(root, require_complete=False)
+    shutil.rmtree(root)
 
 
 def _session_root(path: Path) -> tuple[Path, dict[str, Any]]:
@@ -477,6 +586,7 @@ def _session_root(path: Path) -> tuple[Path, dict[str, Any]]:
         raise LabSignError("Lab-sign session must remain in its private temporary directory.")
     if stat.S_IMODE(root.stat().st_mode) & 0o077:
         raise LabSignError("Lab-sign session directory is not private (expected mode 0700).")
+    _validate_session_tree(root, require_complete=False)
     try:
         session = json.loads((root / "session.json").read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -504,6 +614,7 @@ def _session_root(path: Path) -> tuple[Path, dict[str, Any]]:
     for field, value in expected.items():
         if source.get(field) != value:
             raise LabSignError(f"Lab-sign session identity mismatch: {field}.")
+    _validate_session_tree(root, require_complete=True)
     return root, session
 
 
@@ -550,8 +661,51 @@ def _run_sdk_sign(bundle: Path, key_path: Path) -> None:
     docker = shutil.which("docker")
     if docker is None:
         raise LabSignError("Docker is required to use the pinned OpenWrt signing tools.")
+    if "DOCKER_HOST" in os.environ or "DOCKER_CONTEXT" in os.environ:
+        raise LabSignError(
+            "Docker host/context overrides are not allowed; unset DOCKER_HOST and DOCKER_CONTEXT."
+        )
+    try:
+        context = subprocess.run(
+            [docker, "context", "show"], capture_output=True, text=True, check=False
+        )
+        if context.returncode != 0 or not context.stdout.strip():
+            raise LabSignError("Could not verify the selected Docker context; signing is blocked.")
+        inspected = subprocess.run(
+            [docker, "context", "inspect", context.stdout.strip()],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as exc:
+        raise LabSignError("Could not inspect the Docker endpoint; signing is blocked.") from exc
+    if inspected.returncode != 0:
+        raise LabSignError("Could not inspect the selected Docker endpoint; signing is blocked.")
+    try:
+        contexts = json.loads(inspected.stdout)
+        endpoint = contexts[0]["Endpoints"]["docker"]["Host"]
+        inspected_name = contexts[0]["Name"]
+    except (IndexError, KeyError, TypeError, json.JSONDecodeError) as exc:
+        raise LabSignError("Docker returned an invalid context endpoint; signing is blocked.") from exc
+    try:
+        parsed_endpoint = urlsplit(endpoint) if isinstance(endpoint, str) else None
+    except ValueError as exc:
+        raise LabSignError("Docker returned an invalid context endpoint; signing is blocked.") from exc
+    if (
+        len(contexts) != 1
+        or inspected_name != context.stdout.strip()
+        or parsed_endpoint is None
+        or parsed_endpoint.scheme != "unix"
+        or parsed_endpoint.netloc
+        or not parsed_endpoint.path.startswith("/")
+    ):
+        raise LabSignError(
+            "Signing requires a local Unix-socket Docker endpoint; remote Docker daemons are refused."
+        )
     command = [
         docker,
+        "--context",
+        context.stdout.strip(),
         "run",
         "--rm",
         "--network=none",
@@ -594,6 +748,10 @@ def sign_session(
     docker_runner: Callable[[Path, Path], None] = _run_sdk_sign,
     tool_source_verifier: Callable[[], str] | None = None,
 ) -> Path:
+    key = _validate_private_key(key_path)
+    candidate_root = session_path.resolve()
+    if key == candidate_root or candidate_root in key.parents:
+        raise LabSignError("Signing key must be outside the temporary lab-sign session.")
     root, session = _session_root(session_path)
     verify_live_source(json_reader)
     archive_path = root / "source-artifact.zip"
@@ -604,7 +762,6 @@ def sign_session(
     if "sha256:" + _sha256(archive_bytes) != SOURCE_ARTIFACT_DIGEST:
         raise LabSignError("Saved source archive digest changed; signing is blocked.")
     source_files = _read_archive(archive_bytes)
-    key = _validate_private_key(key_path)
     if tool_source_verifier is None:
         tool_source_verifier = lambda: verify_tool_source(json_reader)
     tool_commit = tool_source_verifier()
@@ -685,7 +842,12 @@ def sign_session(
             os.chmod(entry, 0o600)
         os.chmod(signed, 0o700)
     except Exception:
-        shutil.rmtree(signed, ignore_errors=True)
+        try:
+            _remove_known_directory(signed, SIGNED_SESSION_FILES)
+        except LabSignError as cleanup_error:
+            raise LabSignError(
+                "Signing failed and unexpected files were found; the signed bundle was left untouched."
+            ) from cleanup_error
         raise
     return signed
 
@@ -719,7 +881,27 @@ def cleanup_session(
         confirmation = input(f"Type {exact_confirmation} to delete it: ")
     if confirmation != exact_confirmation:
         raise LabSignError("Confirmation did not match; local files were left untouched.")
+    _validate_session_tree(root, require_complete=True)
     shutil.rmtree(root)
+
+
+def _remove_known_directory(directory: Path, allowed_files: frozenset[str]) -> None:
+    try:
+        item = directory.lstat()
+        entries = {entry.name: entry for entry in directory.iterdir()}
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        raise LabSignError("Could not safely inspect generated signing output.") from exc
+    if stat.S_ISLNK(item.st_mode) or not stat.S_ISDIR(item.st_mode):
+        raise LabSignError("Generated signing output is not a real directory.")
+    if set(entries) - allowed_files:
+        raise LabSignError("Unexpected files in generated signing output.")
+    for name, entry in entries.items():
+        child = entry.lstat()
+        if stat.S_ISLNK(child.st_mode) or not stat.S_ISREG(child.st_mode):
+            raise LabSignError(f"Unexpected non-file in generated signing output: {name}.")
+    shutil.rmtree(directory)
 
 
 def _parser() -> argparse.ArgumentParser:

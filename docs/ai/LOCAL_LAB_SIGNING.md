@@ -31,12 +31,16 @@ from these pins. It does not silently choose a newer build.
 - macOS or another host with Python 3, authenticated `gh`, Docker, and the
   repository's public feed-verification key.
 - A local copy of the matching signing private key is required only for the
-  `sign` step. Keep it outside the repository, do not paste or upload it, and
-  set its permissions to owner-only (`0600`). If the owner does not already
-  have the private key locally, stop; this helper cannot retrieve a GitHub
-  Actions secret.
+  `sign` step. Keep it outside both the repository and the temporary session,
+  do not paste or upload it, and set its permissions to owner-only (`0600`).
+  The helper refuses a key path inside the session, and cleanup refuses to
+  remove unexpected files. If the owner does not already have the private key
+  locally, stop; this helper cannot retrieve a GitHub Actions secret.
 - The Docker image is pinned by digest and runs without network access. The
   private key is mounted read-only and is never copied to the output bundle.
+  Before starting it, the helper rejects `DOCKER_HOST`/`DOCKER_CONTEXT`
+  overrides and requires the selected Docker context to use a local Unix
+  socket; remote daemons are not supported.
 - The command asks for the exact confirmation `SIGN ONLY packages.adb`.
   Only `packages.adb` may change; APK bytes and other input files are checked
   unchanged, and the signed index is verified with the repository public key.
@@ -67,7 +71,8 @@ python3 scripts/lab_sign_v045.py sign \
   --key /exact/path/to/your/local/private-signing-key.pem
 ```
 
-The key must be a regular file owned by the current user with mode `0600`.
+The key must be a regular file owned by the current user with mode `0600`,
+stored outside the repository and the printed temporary session directory.
 The helper rechecks the live pinned GitHub run and artifact before signing.
 It also requires this repository to be clean, checked out on `main`, and at
 the exact commit currently named by GitHub's live `main` ref; it checks this
