@@ -1,6 +1,6 @@
 # Xray MITM OpenWrt — Master Plan
 
-Status: current roadmap; last audited 2026-09-26
+Status: current roadmap; last audited 2026-09-27
 
 This plan is based on the actual canonical repository, not on an earlier plan
 or historical checkout.
@@ -11,10 +11,10 @@ The authoritative source is:
 
 - Repository: `https://github.com/duuuude/xray-mitm-openwrt.git`
 - Public branch: `main`
-- Review/audit baseline: `0b3dbbef5dd3e3a7c7c093866aa2495ef7d0dcb9`, current
-  `main` at this audit after PR #75.
-- Observed package baseline: `0.4.4-r2` in development metadata; the latest
-  published release is `v0.4.4` for the 25.12/APK feed (as of 2026-09-26)
+- Review/audit baseline: `a3bf576c5a52682e6844fe0f9d14767665dfa112`, current
+  `main` at this audit after PR #77.
+- Observed package baseline: `0.4.5-r1` in development metadata; the latest
+  published release remains `v0.4.4` for the 25.12/APK feed (as of 2026-09-27)
 - Canonical clone root: `<repo-root>`
 - Temporary task worktrees: `<workspace-root>/worktrees/`
 
@@ -116,6 +116,30 @@ Recent merged evidence:
   full-validator failure's root cause remains unknown; the current exact-main
   full run satisfies the green-validator prerequisite without explaining that
   earlier failure.
+
+- PR #76 merged as `e15966435975f5509ab19d6c93d84a00af039bd2`; it reconciled
+  this roadmap after the validator pass recorded for PR #75. Documentation
+  only; it added no package, router, or release evidence.
+
+- PR #77's exact reviewed candidate `ecd32edf3e3808cc91debb3eb3b5784d0ec8d941`
+  was squash-merged as `a3bf576c5a52682e6844fe0f9d14767665dfa112`. It prepares
+  v0.4.5 metadata and user-facing version labels. Exact-candidate PR Evidence
+  run [36269627949](https://github.com/duuuude/xray-mitm-openwrt/actions/runs/36269627949),
+  APK run [36269627890](https://github.com/duuuude/xray-mitm-openwrt/actions/runs/36269627890),
+  and 24.10 IPK run
+  [36269627892](https://github.com/duuuude/xray-mitm-openwrt/actions/runs/36269627892)
+  all succeeded. The candidate's source tree is identical to the merged main
+  tree. Post-merge APK run
+  [36273118365](https://github.com/duuuude/xray-mitm-openwrt/actions/runs/36273118365)
+  and 24.10 IPK run
+  [36273118289](https://github.com/duuuude/xray-mitm-openwrt/actions/runs/36273118289)
+  also succeeded for exact main `a3bf576c5a52682e6844fe0f9d14767665dfa112`.
+  The main APK artifact digest is
+  `sha256:727cacc6b2876d233f12aad6915d90cf5390d04836c99f5dc490d826daf28117`;
+  its local promotion-artifact verification passed. No `v0.4.5` tag or
+  published release exists as of this audit; these results are build and
+  source-validation evidence, not protected signing, installation, or release
+  evidence.
 
 The PRs above reconcile workflow and workspace state; they do not complete a
 protected release or establish native 24.10/IPK runtime support.
@@ -292,14 +316,14 @@ that tooling completion as additional product or compatibility evidence.
 
 ### Validation reliability
 
-The full `scripts/validate-release.sh` run on exact current `main`
-`0b3dbbef5dd3e3a7c7c093866aa2495ef7d0dcb9` passed, including
-`test_second_hung_restart_is_not_retried_by_exit_recovery`. This satisfies the
-complete-green-validator prerequisite for release readiness. An earlier full
-run on `76398e234d3d6381c876682e2de142fa6c4e9aaa` failed that test after
-observing one restart attempt instead of two; its targeted rerun passed (1/1).
-The earlier failure's cause remains unproven and must not be described as
-diagnosed, but it does not override the later complete pass on current `main`.
+The full `scripts/validate-release.sh` passed on PR #77 candidate
+`ecd32edf3e3808cc91debb3eb3b5784d0ec8d941`; GitHub confirms its source tree is
+identical to current `main` `a3bf576c5a52682e6844fe0f9d14767665dfa112`.
+This satisfies the complete-green-validator prerequisite for that source tree.
+An earlier full run on `76398e234d3d6381c876682e2de142fa6c4e9aaa` failed
+`test_second_hung_restart_is_not_retried_by_exit_recovery` after observing one
+restart attempt instead of two; its targeted rerun passed (1/1). The earlier
+failure's cause remains unproven and must not be described as diagnosed.
 
 ## Workflow and tooling work
 
@@ -433,15 +457,20 @@ matrix or clearly label manual inputs as unsupported experiments.
 
 ## Priority order and PR discipline
 
-No implementation PR is active. The full validator is green on the exact
-current-main audit baseline recorded above; the earlier isolated failure's
-cause remains unknown. The next planned state change is the owner-gated
-protected release execution below. Record completed work separately and do not
-infer release authorization from a green build.
+No implementation PR is active. The v0.4.5 source tree passed full local
+validation and exact-head CI, and post-merge APK/IPK builds passed. Signing,
+package installation, visual approval, and release publication remain
+separate gates. Do not infer any of them from green source or build checks.
+
+The protected release's next state change remains separate and owner-gated.
+The full validator is green on the exact v0.4.5 source tree, but it must be
+rechecked on the final release candidate; this evidence does not authorize a
+tag, signing, or publication.
 
 | Priority | Next action / initiative | Type | Reason |
 | --- | --- | --- | --- |
-| 1 | Exercise build-once promotion for one exact, owner-approved release commit | Owner-gated release operation | The full validator is green on exact main; this separate exercise will prove the protected tag workflow reuses verified main-build bytes and records publication evidence. |
+| 1 | Add a manually dispatched private lab-sign path for the exact successful v0.4.5 main APK artifact | Workflow change | The current candidate signer requires an open PR and rebuilds packages; the tag publisher signs exact bytes but also publishes a public Release and Pages feed. A separate private path is needed for controlled lab installation without rebuilding or public publication. |
+| 2 | Exercise build-once promotion for one exact, owner-approved release commit | Owner-gated release operation | This later gate proves the protected tag workflow reuses verified main-build bytes and records public release/Pages evidence; it must remain separate from lab validation. |
 
 ## Completed Stage 3 qualification record — merged PR #41
 
@@ -643,45 +672,49 @@ Acceptance criteria:
 
 ## Recommended next state change
 
-### Owner-gated release operation — protected tag/publication evidence
+### Private lab-sign path for the exact v0.4.5 main artifact
 
-PR #65 implemented the machine-readable candidate evidence and its package
-checksum binding. PR #69's exact-head and post-merge builds are green, and the
-later PRs #70–#75 are reconciled above. The full validator is green on the
-exact current-main audit baseline. The remaining release question is
-operational: when the owner selects and approves one exact release commit,
-exercise the protected tag path and capture evidence for the reused build,
-signing, and publication outputs.
-Do not create a tag, invoke signing/publication, or change release state as part
-of this roadmap reconciliation.
+The owner approved a narrow workflow change to obtain a trusted v0.4.5 bundle
+for lab validation before public release. Current main is
+`a3bf576c5a52682e6844fe0f9d14767665dfa112`; its successful 25.12.5/aarch64_generic
+APK artifact is identified above. Reuse those exact package bytes. The existing
+open-PR candidate signer is unsuitable because it requires an open PR and
+rebuilds packages; the tag publisher is unsuitable for lab-only validation
+because it creates public Release assets and deploys GitHub Pages.
 
 Scope:
 
-- Resolve the protected tag workflow to one owner-approved, reviewed, merged
-  commit and its successful main-build artifact.
-- Verify package bytes, metadata, and recorded checksums are reused unchanged;
-  fail closed on missing or mismatched inputs.
-- Record the exact tag, source commit, workflow run, signed-feed artifact, and
-  publication/Pages result without exposing secrets.
-- Keep independent review, signing approval, release ownership, and router or
-  browser gates separate.
+- Provide an owner-triggered workflow that accepts an exact successful main
+  APK build run ID and source SHA, then verifies their relationship and the
+  artifact's provenance and checksums before signing.
+- Sign only `packages.adb`; do not rebuild or rewrite either APK.
+- Store the signed bundle in a private destination with short retention and
+  verify the exact source, package checksums, index signature, and key
+  fingerprint.
+- Keep this workflow separate from public tags, GitHub Releases, Pages, and
+  the public feed. Do not expose private signing material.
 
 Out of scope:
 
-- Any tag, signing, or publication without separate explicit owner approval.
-- Public 24.10 support or native 24.10/IPK runtime claims; those remain
-  unproven and require a compatible physical target.
-- Router mutation, certificate changes, or automatic signing/release/merge
-  authority.
+- Dispatching the workflow or using the signing secret without a separate
+  explicit owner action.
+- Public release, tag creation, Pages deployment, router package transfer or
+  installation, rollback mutation, or visual approval.
+- Package rebuilds, changes to the APK bytes, key rotation, or public 24.10
+  support claims.
 
 Acceptance criteria:
 
-- The owner explicitly approves the exact release commit and tag before the
-  protected workflow is dispatched.
-- The signed and published package bytes match the successful main-build
-  artifact checksums; no package rebuild is introduced.
-- The exact release, Pages, and signed-feed outcomes are recorded and verified;
-  no broader 24.10 support claim is inferred.
+- The workflow fails closed unless the supplied run is a successful `push`
+  build on `main` for the exact supplied source SHA and the artifact matches
+  the expected release, architecture, packages, and checksums.
+- No package rebuild occurs; the package bytes match the recorded main-build
+  checksums, and only the index is signed and independently verified.
+- The signed result is accessible only through the private destination, has
+  short retention, and creates no public tag, Release, Pages deployment, or
+  feed publication.
+- No router mutation or installation occurs. Any later transfer, installation,
+  rollback, and visual check remains separately owner-approved and evidenced.
 
 ## Validation and release gates for future work
 
@@ -712,9 +745,11 @@ owner-controlled release sequence.
 - No merge, tag, release, force-push, or signing action merely because tests
   are green.
 
-The full validator is green on the exact audit baseline, so the owner-approved
-protected tag/publication evidence operation above is the next planned state
-change; this document does not authorize executing it. Native
+The owner-approved private lab-sign workflow above is the immediate next
+planned state change. The full validator is green on the exact v0.4.5 source
+tree. After the lab path and separately approved installation/rollback checks,
+the protected release becomes the next planned state change; this roadmap
+update does not authorize dispatching signing or publication. Native
 24.10/IPK runtime behavior and the full helper lifecycle remain separate
 unproven gates. Do not begin optional automatic routing or claim public 24.10
 support from package builds alone. Do not repeat the completed evidence-artifact
