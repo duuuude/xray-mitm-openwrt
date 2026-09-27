@@ -411,6 +411,33 @@ class LabSignV045Tests(unittest.TestCase):
             key.unlink(missing_ok=True)
             self.cleanup_session(root)
 
+    def test_signing_key_inside_repository_is_rejected_before_source_check(self) -> None:
+        root = self.make_session()
+        with tempfile.TemporaryDirectory(prefix="lab-sign-repository-key-test-") as directory:
+            repository_root = Path(directory)
+            ignored_directory = repository_root / ".local-ignored"
+            ignored_directory.mkdir()
+            key = ignored_directory / "ignored-private-key.pem"
+            key.write_bytes(b"synthetic test key; not used for cryptography\n")
+            os.chmod(key, 0o600)
+            try:
+                with (
+                    mock.patch.object(lab, "ROOT", repository_root),
+                    mock.patch.object(lab, "verify_live_source") as verify_source,
+                    self.assertRaisesRegex(lab.LabSignError, "outside the repository"),
+                ):
+                    lab.sign_session(
+                        root,
+                        key,
+                        confirmation=lab.CONFIRM_PHRASE,
+                        json_reader=self.json_reader,
+                        docker_runner=lambda *_: self.fail("signer must not start"),
+                        tool_source_verifier=lambda: self.fail("tool verifier must not run"),
+                    )
+                verify_source.assert_not_called()
+            finally:
+                self.cleanup_session(root)
+
     def test_rejects_symlink_or_wrong_mode_signing_key(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             parent = Path(directory)

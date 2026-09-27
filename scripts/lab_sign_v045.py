@@ -752,6 +752,9 @@ def sign_session(
     candidate_root = session_path.resolve()
     if key == candidate_root or candidate_root in key.parents:
         raise LabSignError("Signing key must be outside the temporary lab-sign session.")
+    repository_root = ROOT.resolve()
+    if key == repository_root or repository_root in key.parents:
+        raise LabSignError("Signing key must be outside the repository.")
     root, session = _session_root(session_path)
     verify_live_source(json_reader)
     archive_path = root / "source-artifact.zip"
