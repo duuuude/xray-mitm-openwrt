@@ -1,0 +1,89 @@
+# Local v0.4.5 lab signing
+
+This is a private, local-only procedure for the exact already-built v0.4.5
+APK artifact. It does not build packages, upload files, create a GitHub
+release/tag, publish the feed, or install anything on a router.
+
+The source repository is public. GitHub Free supports required-reviewer
+environments on public repositories, but a signed Actions artifact in this
+repository would be available to repository readers. The signed lab bundle
+therefore stays on the local machine instead of being uploaded. See GitHub's
+[environment plan limits](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments)
+and [artifact download access](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/download-workflow-artifacts).
+
+## Pinned source
+
+- Repository: `duuuude/xray-mitm-openwrt`
+- Workflow: `Build OpenWrt APKs` (`351137159`)
+- Successful run: `36273118365`, attempt `1`, event `push`, branch `main`
+- Source commit: `a3bf576c5a52682e6844fe0f9d14767665dfa112`
+- Artifact: `10917585075`
+- Artifact digest: `sha256:727cacc6b2876d233f12aad6915d90cf5390d04836c99f5dc490d826daf28117`
+- Release / architecture: `25.12.5` / `aarch64_generic`
+- Trusted feed public-key SHA-256: `3e0dc07ffef69d1512500b6add486381d8c261a8ec3fcce54fa403b35320df8a`
+
+The artifact expires on 2026-10-26. The helper fails if GitHub says it is
+expired or if the run, artifact identity, bundle contents, or checksums differ
+from these pins. It does not silently choose a newer build.
+
+## Requirements and boundaries
+
+- macOS or another host with Python 3, authenticated `gh`, Docker, and the
+  repository's public feed-verification key.
+- A local copy of the matching signing private key is required only for the
+  `sign` step. Keep it outside the repository, do not paste or upload it, and
+  set its permissions to owner-only (`0600`). If the owner does not already
+  have the private key locally, stop; this helper cannot retrieve a GitHub
+  Actions secret.
+- The Docker image is pinned by digest and runs without network access. The
+  private key is mounted read-only and is never copied to the output bundle.
+- The command asks for the exact confirmation `SIGN ONLY packages.adb`.
+  Only `packages.adb` may change; APK bytes and other input files are checked
+  unchanged, and the signed index is verified with the repository public key.
+- Staging and output are under a mode-`0700` temporary session directory;
+  files are mode `0600`. A 24-hour cleanup target is a manual policy, not an
+  automatic expiry. Use the exact-session cleanup command below when finished.
+- Tests use synthetic bundles and a fake signer; they do not use a real key or
+  prove a real signature. This guide and a passing test suite do not authorize
+  signing, router transfer/install, release, or publication.
+
+## Prepare and inspect the exact unsigned bundle
+
+From the repository root:
+
+```sh
+python3 scripts/lab_sign_v045.py prepare
+```
+
+The helper prints the private temporary session path and the `unsigned`
+subdirectory. Inspect the printed provenance and files locally. Do not copy
+the bundle into the repository or a public location.
+
+## Sign locally, only after separately deciding to do so
+
+```sh
+python3 scripts/lab_sign_v045.py sign \
+  --session-dir /exact/path/printed/by/prepare \
+  --key /exact/path/to/your/local/private-signing-key.pem
+```
+
+The key must be a regular file owned by the current user with mode `0600`.
+The helper rechecks the live pinned GitHub run and artifact before signing.
+It also requires this repository to be clean, checked out on `main`, and at
+the exact commit currently named by GitHub's live `main` ref; it checks this
+again after the signing container exits and records the tool commit.
+The signed output is `signed-bundle` inside the same session directory. It
+contains a provenance record, original-build checksums, updated bundle
+checksums, the public verification key, and the signed `packages.adb`; it does
+not contain the private key.
+
+## Remove the local session
+
+```sh
+python3 scripts/lab_sign_v045.py cleanup \
+  --session-dir /exact/path/printed/by/prepare
+```
+
+The helper displays the exact deletion phrase before removing only that
+verified session directory. This cleanup is intentionally explicit and is not
+performed by CI.

@@ -99,6 +99,24 @@ class CheckPrTests(unittest.TestCase):
         self.assertIn("Categories: repository-config", result.stdout)
         self.assertIn("CHECK_PR_RESULT=READY_FOR_REVIEW", result.stdout)
 
+    def test_local_lab_sign_helper_runs_its_focused_suite_and_stays_owner_gated(self) -> None:
+        (self.project / "tests").mkdir(parents=True, exist_ok=True)
+        (self.project / "tests/test_lab_sign_v045.py").write_text(
+            "print('synthetic lab-sign focused test')\n", encoding="utf-8"
+        )
+        head = self.commit_file(
+            "scripts/lab_sign_v045.py", "# synthetic local signer helper\n"
+        )
+
+        result = self.run_check(head)
+
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("Categories: python,release,workflow-security", result.stdout)
+        self.assertIn("Focused local lab-sign safety tests", result.stdout)
+        self.assertIn("Result: PASS", result.stdout)
+        self.assertIn("Signing/security execution: review-only; no secrets or signing operation used", result.stdout)
+        self.assertIn("CHECK_PR_RESULT=READY_FOR_REVIEW", result.stdout)
+
     def test_machine_evidence_is_exact_deterministic_and_secret_free(self) -> None:
         head = self.commit_file("docs/guide.md", "documentation\n")
         evidence = Path(self.temp.name) / "pr-evidence.json"
