@@ -23,6 +23,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_router_dns_fallback.p
 PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_router_backup_guard.py"
 PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_work_handoff_contract.py"
 PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_work_report_handoff.py"
+PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_lab_sign_v045.py"
 
 for relative in \
 	xray-mitm/files/etc/init.d/xray-mitm \

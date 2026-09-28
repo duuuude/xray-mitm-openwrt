@@ -11,8 +11,8 @@ The authoritative source is:
 
 - Repository: `https://github.com/duuuude/xray-mitm-openwrt.git`
 - Public branch: `main`
-- Review/audit baseline: `a3bf576c5a52682e6844fe0f9d14767665dfa112`, current
-  `main` at this audit after PR #77.
+- Review/audit baseline: `5b2924ebd0b36a812fbf79c3b93f4f07ba6b902d`, current
+  `main` at this audit after PR #78.
 - Observed package baseline: `0.4.5-r1` in development metadata; the latest
   published release remains `v0.4.4` for the 25.12/APK feed (as of 2026-09-27)
 - Canonical clone root: `<repo-root>`
@@ -140,6 +140,10 @@ Recent merged evidence:
   published release exists as of this audit; these results are build and
   source-validation evidence, not protected signing, installation, or release
   evidence.
+
+- PR #78 merged as `5b2924ebd0b36a812fbf79c3b93f4f07ba6b902d`; it reconciled
+  the v0.4.5 roadmap after PR #77. Documentation only. It did not create a
+  signing workflow or perform signing, installation, or publication.
 
 The PRs above reconcile workflow and workspace state; they do not complete a
 protected release or establish native 24.10/IPK runtime support.
@@ -469,7 +473,7 @@ tag, signing, or publication.
 
 | Priority | Next action / initiative | Type | Reason |
 | --- | --- | --- | --- |
-| 1 | Add a manually dispatched private lab-sign path for the exact successful v0.4.5 main APK artifact | Workflow change | The current candidate signer requires an open PR and rebuilds packages; the tag publisher signs exact bytes but also publishes a public Release and Pages feed. A separate private path is needed for controlled lab installation without rebuilding or public publication. |
+| 1 | Add a local-only, fail-closed signer for the exact successful v0.4.5 main APK artifact | Local developer tooling | GitHub Free can gate environments on the public source repo, but signed Actions artifacts there are downloadable by repository readers. A private repository environment requires a paid plan. Reuse the already-built artifact and keep signed output local; do not rebuild or publish. |
 | 2 | Exercise build-once promotion for one exact, owner-approved release commit | Owner-gated release operation | This later gate proves the protected tag workflow reuses verified main-build bytes and records public release/Pages evidence; it must remain separate from lab validation. |
 
 ## Completed Stage 3 qualification record — merged PR #41
@@ -672,32 +676,46 @@ Acceptance criteria:
 
 ## Recommended next state change
 
-### Private lab-sign path for the exact v0.4.5 main artifact
+### Local-only lab-sign path for the exact v0.4.5 main artifact
 
-The owner approved a narrow workflow change to obtain a trusted v0.4.5 bundle
-for lab validation before public release. Current main is
-`a3bf576c5a52682e6844fe0f9d14767665dfa112`; its successful 25.12.5/aarch64_generic
-APK artifact is identified above. Reuse those exact package bytes. The existing
-open-PR candidate signer is unsuitable because it requires an open PR and
-rebuilds packages; the tag publisher is unsuitable for lab-only validation
-because it creates public Release assets and deploys GitHub Pages.
+The owner approved a local-only helper to obtain a trusted v0.4.5 bundle for
+lab validation before public release. GitHub Free supports required-reviewer
+environments on this public repository, but signed Actions artifacts here are
+readable by repository readers; a private repository environment requires a
+paid plan. Keeping the signed output local avoids both a public signed artifact
+and a new paid private destination. The exact successful main APK artifact is from source
+`a3bf576c5a52682e6844fe0f9d14767665dfa112`, OpenWrt `25.12.5`,
+`aarch64_generic`, and is identified above. Reuse those exact package bytes.
+The existing open-PR candidate signer is unsuitable because it requires an
+open PR and rebuilds packages; the tag publisher is unsuitable for lab-only
+validation because it creates public Release assets and deploys GitHub Pages.
+The local helper stages the verified unsigned bundle in a private temporary
+directory and uses a pinned, network-isolated SDK container to sign only
+`packages.adb`. The signing key is supplied locally and is never copied into
+the repository or output bundle. No signing operation is implied by these
+implementation or validation changes.
 
 Scope:
 
-- Provide an owner-triggered workflow that accepts an exact successful main
-  APK build run ID and source SHA, then verifies their relationship and the
-  artifact's provenance and checksums before signing.
+- Verify the exact successful main APK run, artifact ID/name/digest, source
+  SHA, branch, event, workflow, attempt, release, architecture, package list,
+  and checksums; fail closed on any mismatch or expiration.
 - Sign only `packages.adb`; do not rebuild or rewrite either APK.
-- Store the signed bundle in a private destination with short retention and
-  verify the exact source, package checksums, index signature, and key
-  fingerprint.
-- Keep this workflow separate from public tags, GitHub Releases, Pages, and
-  the public feed. Do not expose private signing material.
+- Keep staging and signed output under the user's private local temporary
+  directory with restrictive permissions. Target cleanup within 24 hours by
+  running the helper's exact-session cleanup command; this is a manual
+  retention target, not an automatic expiry guarantee.
+- Verify that package bytes remain identical, only `packages.adb` changes,
+  the index signature verifies with the repository public key, and the output
+  provenance/checksum manifest is complete. Never include or expose the
+  signing key.
+- Do not upload the output. Keep local signing separate from public tags,
+  GitHub Releases, Pages, and the public feed.
 
 Out of scope:
 
-- Dispatching the workflow or using the signing secret without a separate
-  explicit owner action.
+- Running the sign command is a separate, explicit local confirmation; this
+  implementation PR and its CI do not sign anything.
 - Public release, tag creation, Pages deployment, router package transfer or
   installation, rollback mutation, or visual approval.
 - Package rebuilds, changes to the APK bytes, key rotation, or public 24.10
@@ -705,14 +723,14 @@ Out of scope:
 
 Acceptance criteria:
 
-- The workflow fails closed unless the supplied run is a successful `push`
-  build on `main` for the exact supplied source SHA and the artifact matches
-  the expected release, architecture, packages, and checksums.
+- The local helper fails closed unless its pinned run is a successful `push`
+  build on `main` for the exact source SHA and the artifact matches the
+  expected release, architecture, packages, and checksums.
 - No package rebuild occurs; the package bytes match the recorded main-build
   checksums, and only the index is signed and independently verified.
-- The signed result is accessible only through the private destination, has
-  short retention, and creates no public tag, Release, Pages deployment, or
-  feed publication.
+- Keep the signed result in the private local temporary session. The 24-hour
+  cleanup target is manual, not automatic; do not upload it or create a public
+  tag, Release, Pages deployment, or feed publication.
 - No router mutation or installation occurs. Any later transfer, installation,
   rollback, and visual check remains separately owner-approved and evidenced.
 
@@ -745,7 +763,7 @@ owner-controlled release sequence.
 - No merge, tag, release, force-push, or signing action merely because tests
   are green.
 
-The owner-approved private lab-sign workflow above is the immediate next
+The owner-approved local-only lab-sign helper above is the immediate next
 planned state change. The full validator is green on the exact v0.4.5 source
 tree. After the lab path and separately approved installation/rollback checks,
 the protected release becomes the next planned state change; this roadmap
