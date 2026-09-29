@@ -477,8 +477,47 @@ class LabSignV045Tests(unittest.TestCase):
             self.assertIn(f"{key}:/signing-key.pem:ro", command)
             self.assertIn(f"{lab.PUBLIC_KEY_PATH}:/keys/{lab.PUBLIC_KEY_NAME}:ro", command)
             self.assertNotIn(f"{ROOT / 'keys'}:/keys:ro", command)
-            self.assertIn("APK_BIN=/builder/staging_dir/host/bin/apk", command[-1])
+            self.assertIn("cd /promotion\nsha256sum -c /promotion/PACKAGE_SHA256SUMS", command[-1])
+            self.assertEqual(command[-1].count("sha256sum -c /promotion/PACKAGE_SHA256SUMS"), 2)
+            self.assertIn("APK_SIGN_ALLOW_UNTRUSTED=1 APK_BIN=/builder/staging_dir/host/bin/apk", command[-1])
             self.assertIn("/builder/staging_dir/host/bin/apk --keys-dir /keys verify", command[-1])
+
+    def test_sign_script_requires_explicit_untrusted_input_opt_in(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            index = root / "packages.adb"
+            index.write_bytes(b"synthetic index")
+            key = root / "synthetic-key.pem"
+            key.write_bytes(b"synthetic key")
+            key.chmod(0o600)
+            apk = root / "apk"
+            apk.write_text('#!/bin/sh\nprintf "%s\\n" "$@"\n', encoding="utf-8")
+            apk.chmod(0o700)
+            env = dict(os.environ, APK_BIN=str(apk))
+            env.pop("APK_SIGN_ALLOW_UNTRUSTED", None)
+            command = ["sh", str(ROOT / "scripts/sign-apk-index.sh"), str(index), str(key)]
+            default = subprocess.run(command, env=env, capture_output=True, text=True)
+            self.assertEqual(default.returncode, 0, default.stderr)
+            self.assertEqual(default.stdout.splitlines()[:2], ["adbsign", "--sign-key"])
+            enabled = subprocess.run(
+                command,
+                env=dict(env, APK_SIGN_ALLOW_UNTRUSTED="1"),
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(enabled.returncode, 0, enabled.stderr)
+            self.assertEqual(
+                enabled.stdout.splitlines()[:3],
+                ["adbsign", "--allow-untrusted", "--sign-key"],
+            )
+            invalid = subprocess.run(
+                command,
+                env=dict(env, APK_SIGN_ALLOW_UNTRUSTED="yes"),
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(invalid.returncode, 0)
+            self.assertIn("Invalid APK_SIGN_ALLOW_UNTRUSTED", invalid.stderr)
 
     def test_remote_docker_context_is_refused_before_signing_container(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

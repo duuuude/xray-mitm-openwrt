@@ -96,8 +96,9 @@ openssl pkey -in /signing-key.pem -pubout -out /tmp/derived-public.pem
 openssl pkey -pubin -in /keys/xray-mitm-feed-v1.pem -outform DER -out /tmp/expected.der
 openssl pkey -pubin -in /tmp/derived-public.pem -outform DER -out /tmp/derived.der
 cmp -s /tmp/expected.der /tmp/derived.der
+cd /promotion
 sha256sum -c /promotion/PACKAGE_SHA256SUMS
-APK_BIN=/builder/staging_dir/host/bin/apk sh /sign-apk-index.sh /promotion/packages.adb /signing-key.pem
+APK_SIGN_ALLOW_UNTRUSTED=1 APK_BIN=/builder/staging_dir/host/bin/apk sh /sign-apk-index.sh /promotion/packages.adb /signing-key.pem
 /builder/staging_dir/host/bin/apk --keys-dir /keys verify /promotion/packages.adb
 sha256sum -c /promotion/PACKAGE_SHA256SUMS
 """
