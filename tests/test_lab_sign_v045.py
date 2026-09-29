@@ -477,6 +477,8 @@ class LabSignV045Tests(unittest.TestCase):
             self.assertIn(f"{key}:/signing-key.pem:ro", command)
             self.assertIn(f"{lab.PUBLIC_KEY_PATH}:/keys/{lab.PUBLIC_KEY_NAME}:ro", command)
             self.assertNotIn(f"{ROOT / 'keys'}:/keys:ro", command)
+            self.assertIn("APK_BIN=/builder/staging_dir/host/bin/apk", command[-1])
+            self.assertIn("/builder/staging_dir/host/bin/apk --keys-dir /keys verify", command[-1])
 
     def test_remote_docker_context_is_refused_before_signing_container(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
