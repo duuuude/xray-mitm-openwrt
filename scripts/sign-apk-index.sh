@@ -21,5 +21,11 @@ if ! command -v "$apk_bin" >/dev/null 2>&1 && [ ! -x "$apk_bin" ]; then
 	die "apk executable is unavailable: $apk_bin"
 fi
 
-"$apk_bin" adbsign --sign-key "$key_file" "$index_file"
+case ${APK_SIGN_ALLOW_UNTRUSTED:-0} in
+	0) set -- ;;
+	1) set -- --allow-untrusted ;;
+	*) die 'Invalid APK_SIGN_ALLOW_UNTRUSTED value.' ;;
+esac
+
+"$apk_bin" adbsign "$@" --sign-key "$key_file" "$index_file"
 printf '%s\n' 'APK index signed.'
