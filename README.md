@@ -15,7 +15,7 @@ For most users:
 
 ## Dashboard
 
-![MITM Domain Fronting dashboard overview](docs/images/dashboard-overview-v0.4.4-public.png)
+![MITM Domain Fronting dashboard overview](docs/images/dashboard-overview.jpg)
 
 > [!CAUTION]
 > MITM software can decrypt HTTPS traffic from devices that trust its certificate. Use it only on networks and devices you own or are authorized to manage. Install only `mycert.crt` on clients. Keep `mycert.key` on the router and in protected backups.
