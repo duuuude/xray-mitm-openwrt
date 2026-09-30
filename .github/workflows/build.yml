@@ -7,6 +7,7 @@ on:
     paths:
       - ".github/workflows/build.yml"
       - "ci/**"
+      - "docs/ai/MASTER_PLAN.md"
       - "install.sh"
       - "luci-app-xray-mitm/**"
       - "scripts/**"
@@ -16,6 +17,7 @@ on:
     paths:
       - ".github/workflows/build.yml"
       - "ci/**"
+      - "docs/ai/MASTER_PLAN.md"
       - "install.sh"
       - "luci-app-xray-mitm/**"
       - "scripts/**"
