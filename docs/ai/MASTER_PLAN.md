@@ -366,10 +366,11 @@ The latest successful `push` APK run is `36631809160` for parent commit
 `f7fb4d5f4396562d096490e2190b8e8f90ec4352`; there is no APK workflow run
 for the exact current `main` SHA. Do not treat that parent artifact as an
 exact-current-main artifact or as eligible for the pinned signer/publisher.
-An earlier full run on `76398e234d0b36a812fbf79c3b93f4f07ba6b902d` failed
+An earlier full validator attempt was reported to fail
 `test_second_hung_restart_is_not_retried_by_exit_recovery` after observing one
-restart attempt instead of two; its targeted rerun passed (1/1). The earlier
-failure's cause remains unproven and must not be described as diagnosed.
+restart attempt instead of two; a targeted rerun later passed (1/1). The exact
+candidate SHA for that earlier failure could not be verified, and its cause
+remains unknown; do not describe the failure as diagnosed.
 
 ## Workflow and tooling work
 
