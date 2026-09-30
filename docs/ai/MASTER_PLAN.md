@@ -793,14 +793,22 @@ the trigger to all documentation or weaken the publisher's successful
 `push`/`main`/exact-SHA checks. After that workflow PR is reviewed and merged,
 reconcile this plan again; the later plan-only merge will trigger an APK
 `push` run for its exact merge SHA. Verify run event, branch, SHA, artifact
-identity, and checksums before using that artifact in the local signer or
-protected publisher.
+identity, and checksums before using that artifact in any consumer. The
+existing local lab signer remains pinned to its historical source commit, run,
+and artifact ID; it rejects artifacts outside that provenance. A newly
+generated current-main artifact cannot be consumed by the current local signer
+unless a separate, reviewed change updates those pins. Keep this local signer
+path distinct from the protected publisher's exact-SHA flow and provenance
+checks.
 
 Run the authorized read-only router health check when the Chrome/router
-connection is available. Remove only the known temporary public package feed
-after authenticating to the router; the earlier SSH cleanup attempt was
-denied. Preserve the rollback snapshot and generated `.apk-new` configuration
-file.
+connection is available. The known temporary public package feed remains
+pending cleanup. Router authentication grants access, not authorization: do
+not remove the feed unless the owner separately approves the exact cleanup
+after the target and proposed command are inspected and a rollback/state-
+preservation plan is recorded. The earlier SSH cleanup attempt was denied.
+Until separately approved, preserve the rollback snapshot and generated
+`.apk-new` configuration file.
 
 The full validator is green on the reviewed PR #81 candidate only; it has not
 been rerun on current `main`. The next planned state change for protected
