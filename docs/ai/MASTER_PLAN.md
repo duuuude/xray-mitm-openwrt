@@ -1,6 +1,6 @@
 # Xray MITM OpenWrt — Master Plan
 
-Status: current roadmap; last audited 2026-09-27
+Status: current roadmap; last audited 2026-09-30
 
 This plan is based on the actual canonical repository, not on an earlier plan
 or historical checkout.
@@ -11,10 +11,10 @@ The authoritative source is:
 
 - Repository: `https://github.com/duuuude/xray-mitm-openwrt.git`
 - Public branch: `main`
-- Review/audit baseline: `5b2924ebd0b36a812fbf79c3b93f4f07ba6b902d`, current
-  `main` at this audit after PR #78.
+- Review/audit baseline: `8e8c6c550f0436fc4cfb51a0ce2659b7646e2ad9`, current
+  `main` at this audit after PR #82.
 - Observed package baseline: `0.4.5-r1` in development metadata; the latest
-  published release remains `v0.4.4` for the 25.12/APK feed (as of 2026-09-27)
+  published release remains `v0.4.4` for the 25.12/APK feed (as of 2026-09-30)
 - Canonical clone root: `<repo-root>`
 - Temporary task worktrees: `<workspace-root>/worktrees/`
 
@@ -145,8 +145,46 @@ Recent merged evidence:
   the v0.4.5 roadmap after PR #77. Documentation only. It did not create a
   signing workflow or perform signing, installation, or publication.
 
-The PRs above reconcile workflow and workspace state; they do not complete a
-protected release or establish native 24.10/IPK runtime support.
+- PR #79 merged as `9f13a53823988b221bbe6f607d93966c15304a54`. It added the
+  local-only, fail-closed v0.4.5 lab signer, pinned to a previously successful
+  main APK artifact and limited to signing `packages.adb`; it does not rebuild
+  or publish packages. Exact-candidate PR Evidence, APK, and 24.10 IPK runs
+  `36324776417`, `36324776457`, and `36324776476` succeeded. The merge added
+  tooling only; it did not itself perform signing or installation.
+
+- PR #80 merged as `e3cf035b671682051ec1a71f35598d3dd3275519`. It corrected
+  the local signer to invoke the APK tool at its actual path in the pinned
+  SDK image. Exact-head APK run `36615662307` succeeded. It did not itself
+  perform signing, installation, or publication.
+
+- PR #81 merged as `f7fb4d5f4396562d096490e2190b8e8f90ec4352`. It runs the
+  signer checksum check from the correct directory and scopes the
+  untrusted-input option to the local signing flow while retaining strict
+  post-sign verification. Exact-head APK run `36626686675` succeeded. Its
+  changes did not sign or publish a package.
+
+- PR #82 merged as `8e8c6c550f0436fc4cfb51a0ce2659b7646e2ad9`. It replaced
+  the stale version-labeled dashboard image with a genuine current capture
+  framed to omit version-specific UI, and updated both README languages to
+  reference the same version-neutral image. Exact-candidate PR Evidence
+  succeeded; package builds were not applicable to the docs/media-only diff
+  under the existing path filters.
+
+- After PR #81, the owner-authorized private lab flow signed only
+  `packages.adb` for the previously built v0.4.5 package artifact. Strict
+  signature verification passed and both APKs remained byte-identical. With
+  separate owner authorization, only the two v0.4.5 packages were installed
+  offline on the AX4200; configuration, service, certificate, and routing
+  checks passed, and the LuCI page rendered v0.4.5 in Chrome with no captured
+  error-level console entries. This is private lab evidence tied to the older
+  source artifact, not a public release or current-main build. A router health
+  check was not run, a generated `.apk-new` file and the rollback snapshot
+  were intentionally left untouched, and cleanup of the temporary public
+  package feed remains pending. No tag, release, or public feed publication
+  occurred.
+
+The merged PRs and private lab checks above do not complete a protected
+release or establish native 24.10/IPK runtime support.
 
 The current public product contract targets official OpenWrt 25.12.x with APK
 packages. The public feed and CI use the 25.12.5 `aarch64_generic` SDK baseline,
@@ -320,11 +358,15 @@ that tooling completion as additional product or compatibility evidence.
 
 ### Validation reliability
 
-The full `scripts/validate-release.sh` passed on PR #77 candidate
-`ecd32edf3e3808cc91debb3eb3b5784d0ec8d941`; GitHub confirms its source tree is
-identical to current `main` `a3bf576c5a52682e6844fe0f9d14767665dfa112`.
-This satisfies the complete-green-validator prerequisite for that source tree.
-An earlier full run on `76398e234d3d6381c876682e2de142fa6c4e9aaa` failed
+The configured-Node full `scripts/validate-release.sh` passed on the exact
+PR #81 candidate `742e8adec95da64b5018c0919dcdd3c8bfaedb48`; its exact-head
+APK workflow also succeeded. Current `main` is
+`8e8c6c550f0436fc4cfb51a0ce2659b7646e2ad9`, after the docs/media-only PR #82.
+The latest successful `push` APK run is `36631809160` for parent commit
+`f7fb4d5f4396562d096490e2190b8e8f90ec4352`; there is no APK workflow run
+for the exact current `main` SHA. Do not treat that parent artifact as an
+exact-current-main artifact or as eligible for the pinned signer/publisher.
+An earlier full run on `76398e234d0b36a812fbf79c3b93f4f07ba6b902d` failed
 `test_second_hung_restart_is_not_retried_by_exit_recovery` after observing one
 restart attempt instead of two; its targeted rerun passed (1/1). The earlier
 failure's cause remains unproven and must not be described as diagnosed.
@@ -461,19 +503,24 @@ matrix or clearly label manual inputs as unsupported experiments.
 
 ## Priority order and PR discipline
 
-No implementation PR is active. The v0.4.5 source tree passed full local
-validation and exact-head CI, and post-merge APK/IPK builds passed. Signing,
-package installation, visual approval, and release publication remain
-separate gates. Do not infer any of them from green source or build checks.
+No implementation PR is active. The lab signer and local install have been
+exercised, but used the successful main APK artifact from
+`a3bf576c5a52682e6844fe0f9d14767665dfa112`; the current exact main commit has
+no APK artifact. Do not reuse the successful build for
+`f7fb4d5f4396562d096490e2190b8e8f90ec4352` as though it were built from
+current `main`. Router health-check status and temporary-feed cleanup are also
+outstanding. No v0.4.5 tag or public release exists; lab validation is not
+release publication.
 
-The protected release's next state change remains separate and owner-gated.
-The full validator is green on the exact v0.4.5 source tree, but it must be
-rechecked on the final release candidate; this evidence does not authorize a
-tag, signing, or publication.
+The full validator is green on exact PR #81 candidate
+`742e8adec95da64b5018c0919dcdd3c8bfaedb48`, not on current documentation-
+updated `main`. The protected release's next state change remains separately
+owner-gated and requires a fresh full-validator pass on its exact final
+candidate, alongside current-main artifact and other release evidence.
 
 | Priority | Next action / initiative | Type | Reason |
 | --- | --- | --- | --- |
-| 1 | Add a local-only, fail-closed signer for the exact successful v0.4.5 main APK artifact | Local developer tooling | GitHub Free can gate environments on the public source repo, but signed Actions artifacts there are downloadable by repository readers. A private repository environment requires a paid plan. Reuse the already-built artifact and keep signed output local; do not rebuild or publish. |
+| 1 | Include only `docs/ai/MASTER_PLAN.md` in the APK workflow's existing push-to-main and pull-request path filters | CI/tooling PR | The screenshot-only PR #82 did not trigger a main APK build. A narrow path entry will make roadmap-only main commits produce the exact-SHA APK artifact without broad `docs/**` builds or weakening publisher provenance checks. |
 | 2 | Exercise build-once promotion for one exact, owner-approved release commit | Owner-gated release operation | This later gate proves the protected tag workflow reuses verified main-build bytes and records public release/Pages evidence; it must remain separate from lab validation. |
 
 ## Completed Stage 3 qualification record — merged PR #41
@@ -674,65 +721,32 @@ Acceptance criteria:
 - Existing 25.12/APK behavior, the dual-backend installer boundaries, and the
   compatibility fallback remain unchanged.
 
-## Recommended next state change
+## Completed v0.4.5 private lab-sign path
 
 ### Local-only lab-sign path for the exact v0.4.5 main artifact
 
-The owner approved a local-only helper to obtain a trusted v0.4.5 bundle for
-lab validation before public release. GitHub Free supports required-reviewer
-environments on this public repository, but signed Actions artifacts here are
-readable by repository readers; a private repository environment requires a
-paid plan. Keeping the signed output local avoids both a public signed artifact
-and a new paid private destination. The exact successful main APK artifact is from source
-`a3bf576c5a52682e6844fe0f9d14767665dfa112`, OpenWrt `25.12.5`,
-`aarch64_generic`, and is identified above. Reuse those exact package bytes.
-The existing open-PR candidate signer is unsuitable because it requires an
-open PR and rebuilds packages; the tag publisher is unsuitable for lab-only
-validation because it creates public Release assets and deploys GitHub Pages.
-The local helper stages the verified unsigned bundle in a private temporary
-directory and uses a pinned, network-isolated SDK container to sign only
-`packages.adb`. The signing key is supplied locally and is never copied into
-the repository or output bundle. No signing operation is implied by these
-implementation or validation changes.
-
-Scope:
-
-- Verify the exact successful main APK run, artifact ID/name/digest, source
-  SHA, branch, event, workflow, attempt, release, architecture, package list,
-  and checksums; fail closed on any mismatch or expiration.
-- Sign only `packages.adb`; do not rebuild or rewrite either APK.
-- Keep staging and signed output under the user's private local temporary
-  directory with restrictive permissions. Target cleanup within 24 hours by
-  running the helper's exact-session cleanup command; this is a manual
-  retention target, not an automatic expiry guarantee.
-- Verify that package bytes remain identical, only `packages.adb` changes,
-  the index signature verifies with the repository public key, and the output
-  provenance/checksum manifest is complete. Never include or expose the
-  signing key.
-- Do not upload the output. Keep local signing separate from public tags,
-  GitHub Releases, Pages, and the public feed.
-
-Out of scope:
-
-- Running the sign command is a separate, explicit local confirmation; this
-  implementation PR and its CI do not sign anything.
-- Public release, tag creation, Pages deployment, router package transfer or
-  installation, rollback mutation, or visual approval.
-- Package rebuilds, changes to the APK bytes, key rotation, or public 24.10
-  support claims.
+The owner-approved helper reused the successful APK artifact for source
+`a3bf576c5a52682e6844fe0f9d14767665dfa112`; it did not rebuild packages.
+Signing completed for `packages.adb` only, strict verification passed, and
+both APK files remained byte-identical. The resulting bundle stayed in a
+private local temporary session and was not uploaded. With separate owner
+authorization, the two packages were installed offline on the AX4200; the
+configuration, service, certificate, routing, and Chrome page checks recorded
+above passed. This completed only a private lab validation, not a public
+release or a current-main build.
 
 Acceptance criteria:
 
-- The local helper fails closed unless its pinned run is a successful `push`
-  build on `main` for the exact source SHA and the artifact matches the
-  expected release, architecture, packages, and checksums.
-- No package rebuild occurs; the package bytes match the recorded main-build
-  checksums, and only the index is signed and independently verified.
-- Keep the signed result in the private local temporary session. The 24-hour
-  cleanup target is manual, not automatic; do not upload it or create a public
-  tag, Release, Pages deployment, or feed publication.
-- No router mutation or installation occurs. Any later transfer, installation,
-  rollback, and visual check remains separately owner-approved and evidenced.
+- The local helper fails closed on source-run, SHA, artifact, and checksum
+  mismatches.
+- Sign only `packages.adb`; do not rebuild or rewrite either APK.
+- The output stays in the private local temporary session; the cleanup target is manual,
+  and do not upload the bundle.
+- Preserve release separation: no public tag, Release, Pages deployment, or
+  feed publication is part of this completed lab task.
+
+The exact current `main` artifact gap, router health check, and temporary-feed
+cleanup are separate remaining work below.
 
 ## Validation and release gates for future work
 
@@ -763,16 +777,39 @@ owner-controlled release sequence.
 - No merge, tag, release, force-push, or signing action merely because tests
   are green.
 
-The owner-approved local-only lab-sign helper above is the immediate next
-planned state change. The full validator is green on the exact v0.4.5 source
-tree. After the lab path and separately approved installation/rollback checks,
-the protected release becomes the next planned state change; this roadmap
-update does not authorize dispatching signing or publication. Native
-24.10/IPK runtime behavior and the full helper lifecycle remain separate
-unproven gates. Do not begin optional automatic routing or claim public 24.10
-support from package builds alone. Do not repeat the completed evidence-artifact
-initiative, build-once implementation, or compatibility Stage 4
-capability/fallback work.
+## Recommended next state change
+
+### Produce an exact-current-main APK artifact
+
+The successful main APK run currently available is for
+`f7fb4d5f4396562d096490e2190b8e8f90ec4352`, the parent of current `main`
+`8e8c6c550f0436fc4cfb51a0ce2659b7646e2ad9`. The screenshot-only PR #82 did
+not trigger the package workflow, so its artifact is not exact-current-main
+evidence.
+
+The next source PR should add only `docs/ai/MASTER_PLAN.md` to the `push` and
+`pull_request` path filters in `.github/workflows/build.yml`. Do not broaden
+the trigger to all documentation or weaken the publisher's successful
+`push`/`main`/exact-SHA checks. After that workflow PR is reviewed and merged,
+reconcile this plan again; the later plan-only merge will trigger an APK
+`push` run for its exact merge SHA. Verify run event, branch, SHA, artifact
+identity, and checksums before using that artifact in the local signer or
+protected publisher.
+
+Run the authorized read-only router health check when the Chrome/router
+connection is available. Remove only the known temporary public package feed
+after authenticating to the router; the earlier SSH cleanup attempt was
+denied. Preserve the rollback snapshot and generated `.apk-new` configuration
+file.
+
+The full validator is green on the reviewed PR #81 candidate only; it has not
+been rerun on current `main`. The next planned state change for protected
+tag/publication evidence is the exact-current-main APK artifact and a fresh
+full validator/preflight. Public release remains owner-gated, and native
+24.10/IPK runtime behavior remains unproven. Do not begin optional automatic
+routing or claim public 24.10 support from package builds alone. Do not repeat
+the completed evidence-artifact initiative, build-once implementation, or
+compatibility Stage 4 capability/fallback work.
 Revalidate this plan after the qualification and after every later
 owner-approved stage merge. Do not repeat the completed autonomous-PR Stage 4
 work or select a later compatibility stage without current-main verification.
