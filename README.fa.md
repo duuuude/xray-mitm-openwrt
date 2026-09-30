@@ -15,7 +15,7 @@
 
 ## نمای کلی داشبورد
 
-![نمای کلی داشبورد MITM Domain Fronting](docs/images/dashboard-overview-v0.4.4-public.png)
+![نمای کلی داشبورد MITM Domain Fronting](docs/images/dashboard-overview.jpg)
 
 > [!CAUTION]
 > نرم‌افزار MITM می‌تواند ترافیک HTTPS دستگاه‌هایی را که به گواهی آن اعتماد دارند رمزگشایی کند. فقط در شبکه و دستگاه‌هایی استفاده کنید که مالک آن‌ها هستید یا اجازه مدیریتشان را دارید. فقط `mycert.crt` را روی کلاینت نصب کنید. `mycert.key` باید روی روتر و در نسخه‌های پشتیبان محافظت‌شده باقی بماند.
