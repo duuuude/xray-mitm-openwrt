@@ -25,16 +25,16 @@ from urllib.parse import urlsplit
 
 
 REPOSITORY = "duuuude/xray-mitm-openwrt"
-SOURCE_RUN_ID = 36273118365
+SOURCE_RUN_ID = 36783895086
 SOURCE_WORKFLOW_ID = 351137159
-SOURCE_COMMIT = "a3bf576c5a52682e6844fe0f9d14767665dfa112"
-SOURCE_ARTIFACT_ID = 10917585075
+SOURCE_COMMIT = "c5fb835e2b6b862f6a1667441b3fcb8d1f51b0a7"
+SOURCE_ARTIFACT_ID = 11130096816
 SOURCE_ARTIFACT_NAME = (
     "xray-mitm-openwrt-25.12.5-aarch64_generic-"
-    "a3bf576c5a52682e6844fe0f9d14767665dfa112"
+    "c5fb835e2b6b862f6a1667441b3fcb8d1f51b0a7"
 )
 SOURCE_ARTIFACT_DIGEST = (
-    "sha256:727cacc6b2876d233f12aad6915d90cf5390d04836c99f5dc490d826daf28117"
+    "sha256:faaef49365a1715cc7393025c108cde471d3d96d5603f3ffb0d253423c983c4c"
 )
 OPENWRT_RELEASE = "25.12.5"
 SDK_ARCH = "aarch64_generic"
@@ -54,6 +54,12 @@ CONFIRM_PHRASE = "SIGN ONLY packages.adb"
 PACKAGE_NAMES = (
     "luci-app-xray-mitm-26.269.77380~a3bf576.apk",
     "xray-mitm-0.4.5-r1.apk",
+)
+SOURCE_PACKAGE_SHA256SUMS = (
+    b"f23b7c176deba7fad69d38f5cdd2f1ee31fe0071ddeb81897d65503503726f4a  "
+    b"luci-app-xray-mitm-26.269.77380~a3bf576.apk\n"
+    b"a03f2758867ddc38eb6ace592b57bea300b4f58913f0dfb19497296a7de71f8d  "
+    b"xray-mitm-0.4.5-r1.apk\n"
 )
 REQUIRED_ARTIFACT_FILES = frozenset(
     {
@@ -421,6 +427,8 @@ def _verify_source_payload(files: dict[str, bytes]) -> None:
     package_list = _text(files, "PACKAGES").splitlines()
     if len(package_list) != len(PACKAGE_NAMES) or set(package_list) != set(PACKAGE_NAMES):
         raise LabSignError("Source artifact package list does not match the exact candidate.")
+    if files.get("PACKAGE_SHA256SUMS") != SOURCE_PACKAGE_SHA256SUMS:
+        raise LabSignError("Source artifact package checksums do not match the exact candidate.")
 
 
 def _write_private_file(path: Path, data: bytes) -> None:

@@ -30,7 +30,12 @@ def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def make_archive(*, source_commit: str | None = None, extra: dict[str, bytes] | None = None) -> bytes:
+def make_archive(
+    *,
+    source_commit: str | None = None,
+    extra: dict[str, bytes] | None = None,
+    package_checksum_override: bytes | None = None,
+) -> bytes:
     core, luci = lab.PACKAGE_NAMES
     files = {
         "ARTIFACT_PURPOSE": b"promotable unsigned APK bundle\n",
@@ -55,6 +60,8 @@ def make_archive(*, source_commit: str | None = None, extra: dict[str, bytes] | 
     files["PACKAGE_SHA256SUMS"] = "".join(
         f"{sha256(files[name])}  {name}\n" for name in sorted((core, luci))
     ).encode("ascii")
+    if package_checksum_override is not None:
+        files["PACKAGE_SHA256SUMS"] = package_checksum_override
     files["SHA256SUMS"] = "".join(
         f"{sha256(files[name])}  {name}\n"
         for name in sorted((core, luci, "packages.adb"))
@@ -97,6 +104,19 @@ def source_artifact(archive: bytes) -> dict[str, object]:
 
 class LabSignV045Tests(unittest.TestCase):
     def setUp(self) -> None:
+        self.verified_source_package_sha256s = lab.SOURCE_PACKAGE_SHA256SUMS
+        synthetic_hashes = {
+            lab.PACKAGE_NAMES[0]: sha256(b"synthetic core APK\n"),
+            lab.PACKAGE_NAMES[1]: sha256(b"synthetic LuCI APK\n"),
+        }
+        synthetic_manifest = "".join(
+            f"{synthetic_hashes[name]}  {name}\n" for name in sorted(synthetic_hashes)
+        ).encode("ascii")
+        package_manifest_patch = mock.patch.object(
+            lab, "SOURCE_PACKAGE_SHA256SUMS", synthetic_manifest
+        )
+        package_manifest_patch.start()
+        self.addCleanup(package_manifest_patch.stop)
         self.archive = make_archive()
         self.digest = "sha256:" + sha256(self.archive)
         self.run = source_run()
@@ -115,6 +135,35 @@ class LabSignV045Tests(unittest.TestCase):
             run, artifact = lab.verify_live_source(self.json_reader)
             self.assertEqual(run["head_sha"], lab.SOURCE_COMMIT)
             self.assertEqual(artifact["id"], lab.SOURCE_ARTIFACT_ID)
+
+    def test_pins_the_verified_current_main_build_and_package_manifest(self) -> None:
+        self.assertEqual(lab.SOURCE_RUN_ID, 36783895086)
+        self.assertEqual(lab.SOURCE_WORKFLOW_ID, 351137159)
+        self.assertEqual(lab.SOURCE_COMMIT, "c5fb835e2b6b862f6a1667441b3fcb8d1f51b0a7")
+        self.assertEqual(lab.SOURCE_ARTIFACT_ID, 11130096816)
+        self.assertEqual(
+            lab.SOURCE_ARTIFACT_NAME,
+            "xray-mitm-openwrt-25.12.5-aarch64_generic-"
+            "c5fb835e2b6b862f6a1667441b3fcb8d1f51b0a7",
+        )
+        self.assertEqual(
+            lab.SOURCE_ARTIFACT_DIGEST,
+            "sha256:faaef49365a1715cc7393025c108cde471d3d96d5603f3ffb0d253423c983c4c",
+        )
+        self.assertEqual(
+            lab.PACKAGE_NAMES,
+            (
+                "luci-app-xray-mitm-26.269.77380~a3bf576.apk",
+                "xray-mitm-0.4.5-r1.apk",
+            ),
+        )
+        self.assertEqual(
+            self.verified_source_package_sha256s,
+            b"f23b7c176deba7fad69d38f5cdd2f1ee31fe0071ddeb81897d65503503726f4a  "
+            b"luci-app-xray-mitm-26.269.77380~a3bf576.apk\n"
+            b"a03f2758867ddc38eb6ace592b57bea300b4f58913f0dfb19497296a7de71f8d  "
+            b"xray-mitm-0.4.5-r1.apk\n",
+        )
 
     def test_rejects_each_wrong_run_gate(self) -> None:
         mutations = {
@@ -270,6 +319,16 @@ class LabSignV045Tests(unittest.TestCase):
                     with mock.patch.object(lab, "SOURCE_ARTIFACT_DIGEST", "sha256:" + sha256(payload)):
                         with self.assertRaises(lab.LabSignError):
                             lab._read_archive(payload)
+
+    def test_rejects_a_different_package_checksum_manifest(self) -> None:
+        bad_archive = make_archive(
+            package_checksum_override=(
+                b"0" * 64 + b"  " + lab.PACKAGE_NAMES[0].encode("ascii") + b"\n"
+            )
+        )
+        with mock.patch.object(lab, "SOURCE_ARTIFACT_DIGEST", "sha256:" + sha256(bad_archive)):
+            with self.assertRaisesRegex(lab.LabSignError, "package checksums"):
+                lab._read_archive(bad_archive)
 
     def test_prepare_creates_private_verified_session(self) -> None:
         with self.pinned_digest():
