@@ -84,6 +84,11 @@ class SignedFeedTests(unittest.TestCase):
             "      - name: Sign the exact package index without rebuilding packages\n", 1
         )[1].split("      - name: Remove temporary private signing material\n", 1)[0]
         self.assertIn("--network none", signing)
+        self.assertIn("--user 0:0", signing)
+        self.assertIn('chmod 0600 "$RUNNER_TEMP/xray-mitm-feed-private.pem"', signing)
+        self.assertIn('-v "$RUNNER_TEMP/xray-mitm-feed-private.pem:/signing-key.pem:ro"', signing)
+        self.assertNotIn("chmod 0644", signing)
+        self.assertNotIn("chmod 0666", signing)
         self.assertIn("cd /promotion", signing)
         self.assertEqual(signing.count("sha256sum -c PACKAGE_SHA256SUMS"), 2)
         self.assertIn("APK_SIGN_ALLOW_UNTRUSTED=1 APK_BIN=/builder/staging_dir/host/bin/apk", signing)
