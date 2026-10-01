@@ -169,19 +169,32 @@ jobs:
           printf '%s\n' "$APK_PRIVATE_KEY" > "$RUNNER_TEMP/xray-mitm-feed-private.pem"
           chmod 0600 "$RUNNER_TEMP/xray-mitm-feed-private.pem"
           docker run --rm \
+            --network none \
             --entrypoint /bin/sh \
             -v "$GITHUB_WORKSPACE/promotion:/promotion" \
             -v "$GITHUB_WORKSPACE/keys:/keys:ro" \
             -v "$GITHUB_WORKSPACE/scripts/sign-apk-index.sh:/sign-apk-index.sh:ro" \
             -v "$RUNNER_TEMP/xray-mitm-feed-private.pem:/signing-key.pem:ro" \
             "$SDK_IMAGE" \
-            -c 'APK_BIN=/staging_dir/host/bin/apk sh /sign-apk-index.sh /promotion/packages.adb /signing-key.pem'
-          docker run --rm \
-            --entrypoint /staging_dir/host/bin/apk \
-            -v "$GITHUB_WORKSPACE/promotion:/promotion" \
-            -v "$GITHUB_WORKSPACE/keys:/keys:ro" \
-            "$SDK_IMAGE" \
-            --keys-dir /keys verify /promotion/packages.adb
+            -c '
+              set -eu
+              cd /promotion
+              sha256sum -c PACKAGE_SHA256SUMS
+              # Only the verified unsigned input may bypass an existing signature.
+              APK_SIGN_ALLOW_UNTRUSTED=1 APK_BIN=/builder/staging_dir/host/bin/apk \
+                sh /sign-apk-index.sh /promotion/packages.adb /signing-key.pem
+              /builder/staging_dir/host/bin/apk --keys-dir /keys verify /promotion/packages.adb
+              sha256sum -c PACKAGE_SHA256SUMS
+            '
+
+      - name: Remove temporary private signing material
+        if: always()
+        shell: bash
+        run: |
+          rm -f -- "$RUNNER_TEMP/xray-mitm-feed-private.pem" \
+            "$RUNNER_TEMP/xray-mitm-feed-derived.pem" \
+            "$RUNNER_TEMP/xray-mitm-feed-derived.der" \
+            "$RUNNER_TEMP/xray-mitm-feed-committed.der"
 
       - name: Assemble the signed feed from exact package bytes
         shell: bash

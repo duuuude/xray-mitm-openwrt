@@ -78,6 +78,24 @@ class SignedFeedTests(unittest.TestCase):
         self.assertIn("Sign the exact package index without rebuilding packages", text)
         self.assertNotIn("Build packages and signed OpenWrt index", text)
 
+    def test_publisher_signs_unsigned_input_then_strictly_verifies_offline(self) -> None:
+        text = WORKFLOW.read_text(encoding="utf-8")
+        signing = text.split(
+            "      - name: Sign the exact package index without rebuilding packages\n", 1
+        )[1].split("      - name: Remove temporary private signing material\n", 1)[0]
+        self.assertIn("--network none", signing)
+        self.assertIn("cd /promotion", signing)
+        self.assertEqual(signing.count("sha256sum -c PACKAGE_SHA256SUMS"), 2)
+        self.assertIn("APK_SIGN_ALLOW_UNTRUSTED=1 APK_BIN=/builder/staging_dir/host/bin/apk", signing)
+        self.assertIn("/builder/staging_dir/host/bin/apk --keys-dir /keys verify /promotion/packages.adb", signing)
+        self.assertNotIn("APK_BIN=/staging_dir/host/bin/apk", signing)
+        self.assertLess(signing.index("cd /promotion"), signing.index("APK_SIGN_ALLOW_UNTRUSTED=1"))
+        self.assertLess(signing.index("APK_SIGN_ALLOW_UNTRUSTED=1"), signing.index("--keys-dir /keys verify"))
+        self.assertNotIn("--allow-untrusted", signing)
+        cleanup = text.split("      - name: Remove temporary private signing material\n", 1)[1]
+        self.assertTrue(cleanup.startswith("        if: always()\n"))
+        self.assertIn('"$RUNNER_TEMP/xray-mitm-feed-private.pem"', cleanup)
+
     def test_candidate_workflow_is_manual_exact_head_and_nonpublishing(self) -> None:
         text = CANDIDATE_WORKFLOW.read_text(encoding="utf-8")
 
