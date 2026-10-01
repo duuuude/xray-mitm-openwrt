@@ -11,8 +11,8 @@ The authoritative source is:
 
 - Repository: `https://github.com/duuuude/xray-mitm-openwrt.git`
 - Public branch: `main`
-- Review/audit baseline: `955f1a9d536b7641047659653bc6a034cd2de760`, current
-  `main` at this audit after PR #84.
+- Review/audit baseline: `f1f8e380ebf56dee01546da15206796077a36d97`, current
+  `main` at this audit after PR #86.
 - Observed package baseline: `0.4.5-r1` in development metadata; the latest
   published release remains `v0.4.4` for the 25.12/APK feed (as of 2026-10-01)
 - Canonical clone root: `<repo-root>`
@@ -136,8 +136,8 @@ Recent merged evidence:
   also succeeded for exact main `a3bf576c5a52682e6844fe0f9d14767665dfa112`.
   The main APK artifact digest is
   `sha256:727cacc6b2876d233f12aad6915d90cf5390d04836c99f5dc490d826daf28117`;
-  its local promotion-artifact verification passed. No `v0.4.5` tag or
-  published release exists as of this audit; these results are build and
+  its local promotion-artifact verification passed. At the 2026-09-27 audit,
+  no `v0.4.5` tag or published release existed; these results are build and
   source-validation evidence, not protected signing, installation, or release
   evidence.
 
@@ -185,6 +185,43 @@ Recent merged evidence:
   `sha256:8362ee5558655375531f886cc5f4d6d0db5332899128858d38a88e6164fc4c25`;
   it expires `2026-10-30T18:58:15Z`. This is an unsigned CI artifact, not a
   signed package or release.
+
+- PR #85 merged as `c5fb835e2b6b862f6a1667441b3fcb8d1f51b0a7` from exact
+  candidate `d512dd395188410b5d87119f6b7f0b3000cf099a` and base
+  `955f1a9d536b7641047659653bc6a034cd2de760`. It reconciled this plan after
+  PR #84 and changed documentation only. Exact-head PR Evidence run
+  `36779671990` and Build OpenWrt APKs run `36779671918` both succeeded. The
+  PR description records 14/14 roadmap-state tests and `scripts/check-pr.sh`
+  passing; Markdown link/render validation was unavailable. No signing,
+  router/browser mutation, tag, or publication occurred.
+
+- PR #86 merged as `f1f8e380ebf56dee01546da15206796077a36d97` from exact
+  candidate `5179e3bf68f5baf13e85ff8f3cc8bf47a698e528` and base
+  `c5fb835e2b6b862f6a1667441b3fcb8d1f51b0a7`. It updated the local-only lab
+  signer and its documentation/tests to pin artifact `11130096816` from
+  successful main APK run `36783895086`, source commit
+  `c5fb835e2b6b862f6a1667441b3fcb8d1f51b0a7`, artifact name
+  `xray-mitm-openwrt-25.12.5-aarch64_generic-c5fb835e2b6b862f6a1667441b3fcb8d1f51b0a7`,
+  GitHub digest
+  `sha256:faaef49365a1715cc7393025c108cde471d3d96d5603f3ffb0d253423c983c4c`,
+  and exact package checksums. Exact-head PR Evidence run `36788002962` and
+  Build OpenWrt APKs run `36788002984` succeeded. The independent exact-head
+  source review was APPROVE with no findings; its immutable report and receipt
+  ACK were verified. The PR records that no private key was accessed, no
+  signature was produced, and nothing was uploaded, installed, tagged,
+  released, or published. GitHub branch-protection requirements were not
+  readable to the integration (HTTP 403), so whether a formal GitHub review
+  approval was required was not established.
+
+- The post-merge `push` APK run `36846968317` succeeded for exact current
+  `main` `f1f8e380ebf56dee01546da15206796077a36d97`; both `validate` and
+  `build` jobs succeeded. It produced unsigned APK artifact `11155320761`,
+  named
+  `xray-mitm-openwrt-25.12.5-aarch64_generic-f1f8e380ebf56dee01546da15206796077a36d97`,
+  with GitHub digest
+  `sha256:4319108e23e9bbb99181c4fc12e342245c7ee62fde4c11d4596742aaaf7782a6`;
+  it expires `2026-10-31T10:34:35Z`. This is exact-main build evidence, not
+  signed-feed publication or router validation.
 
 - After PR #81, the owner-authorized private lab flow signed only
   `packages.adb` for the previously built v0.4.5 package artifact. Strict
@@ -388,14 +425,17 @@ restart attempt instead of two; a targeted rerun later passed (1/1). The exact
 candidate SHA for that earlier failure could not be verified, and its cause
 remains unknown; do not describe the failure as diagnosed.
 
-Since PR #84, the configured-Node full validator passed on exact current
-`main` `955f1a9d536b7641047659653bc6a034cd2de760`. The first full attempt on
-that SHA failed an assertion in
+At the 2026-09-30 audit after PR #84, the configured-Node full validator
+passed on exact `main` `955f1a9d536b7641047659653bc6a034cd2de760`. The first
+full attempt on that SHA failed an assertion in
 `test_hung_candidate_restart_is_bounded_and_restores_previous_config` (one
 restart attempt observed where two were expected); the isolated test
 passed (1/1), and a subsequent full run passed. The failure did not reproduce,
 but its cause remains unknown. The exact-main APK `push` run and artifact are
-recorded above. Later exact release candidates still require fresh validation.
+recorded above. The post-PR-86 `push` run `36846968317` then completed both
+the `validate` and `build` jobs successfully for exact `main`
+`f1f8e380ebf56dee01546da15206796077a36d97`; its artifact is recorded above.
+Later exact release candidates still require fresh validation and preflight.
 
 ## Workflow and tooling work
 
@@ -529,32 +569,31 @@ matrix or clearly label manual inputs as unsupported experiments.
 
 ## Priority order and PR discipline
 
-No implementation PR is open as of this audit. Exact-current-main APK
-build/artifact evidence and a configured-Node full-validator pass now exist
-for `955f1a9d536b7641047659653bc6a034cd2de760`. The lab signer and local
-installation were previously exercised using the older artifact from
-`a3bf576c5a52682e6844fe0f9d14767665dfa112`; its provenance pin has not been
-updated to the new artifact. Router health-check status and temporary-feed
-cleanup are still outstanding. GitHub's latest release is `v0.4.4`; no
-remote `v0.4.5` tag was present at this audit. Lab validation is not release
+No implementation PR is open as of this audit. Current `main` is
+`f1f8e380ebf56dee01546da15206796077a36d97`; its exact post-merge APK run and
+artifact are recorded above. PR #86 completed the local signer's provenance
+update to the `c5fb835…` artifact, but that helper is intentionally pinned to
+that immutable input and has not signed it. The new `f1f8e38…` artifact is
+also unsigned. Router health-check status and temporary-feed cleanup remain
+outstanding. GitHub's latest published release is `v0.4.4`; the `v0.4.5`
+tag is absent. Lab signing and successful CI builds are not public release
 publication.
 
-The protected release remains separately owner-gated and requires fresh
-validation and preflight on its exact release candidate, plus verified
-artifact provenance and protected signing/publication evidence. Details of
-the initial current-main validator failure and successful reruns are recorded
-under Validation reliability above.
-
-The protected release's next state change remains an exact-candidate
-preflight after the signer-provenance update, subject to separate owner
-authorization. The full validator is green on current `main`
-`955f1a9d536b7641047659653bc6a034cd2de760`; any later release candidate still
-needs fresh validation on its own exact SHA.
+The protected release's next state change is a fresh exact-main preflight
+after this roadmap reconciliation merges. The full validator is green on
+current `main` `f1f8e380ebf56dee01546da15206796077a36d97`, but this docs-only
+PR will create a newer commit that needs its own validation and artifact.
+Every release candidate must also use its exact successful main-build
+artifact and package checksums, satisfy required router/browser evidence, and
+verify protected `signed-feed` and GitHub Pages configuration before the
+owner decides whether to create the tag. No tag, protected signing run, or
+publication is authorized by these roadmap or lab-sign changes.
 
 | Priority | Next action / initiative | Type | Reason |
 | --- | --- | --- | --- |
-| 1 | Update the local lab signer's pinned provenance and package metadata to the exact-main artifact from run `36758484527` | Local tooling PR | The signer intentionally fails closed on artifacts outside its `a3bf576...` pin. Update the source run/SHA/artifact/digest and matching package expectations together; do not sign in that implementation PR. |
-| 2 | Re-run release preflight for a separately selected exact release candidate | Owner-gated release operation | A current-main build and validator pass are necessary evidence, not authorization to sign, tag, or publish. Keep protected build-once promotion and public release as separate explicit gates. |
+| 1 | After this roadmap-only PR merges, run release preflight on the clean, synchronized exact `main`; record the resulting SHA, `0.4.5-r1` metadata, changelog, absent tag, full validator, and matching post-merge APK run/artifact. | Local release validation | The successful `f1f8e38…` build is exact-main evidence, but this documentation reconciliation will create a newer commit and therefore needs its own exact-main build and preflight. |
+| 2 | Complete the exact-candidate router/health evidence and inspect `signed-feed` environment protection and Pages configuration; retain the approved preservation/cleanup plan for the temporary lab feed. | Owner-controlled validation/configuration | Current router health, exact release-candidate installation/runtime, and protected publication configuration are not established by CI or the older lab test. |
+| 3 | Only after all gates are evidenced, ask the owner for explicit approval to push the exact `v0.4.5` tag and run the protected build-once publisher. | Explicit owner release gate | A version value, local signer, independent source review, or green CI does not authorize public signing or publication. |
 
 ## Completed Stage 3 qualification record — merged PR #41
 
@@ -778,11 +817,13 @@ Acceptance criteria:
 - Preserve release separation: no public tag, Release, Pages deployment, or
   feed publication is part of this completed lab task.
 
-The exact-current-main APK artifact gap is now closed by PR #84 and recorded
-below. The local signer remains pinned to the older `a3bf576...` artifact and
-will reject the new artifact until its provenance and package expectations
-are separately updated and reviewed. The router health check and temporary-
-feed cleanup remain separate work; feed cleanup still requires a separate
+PR #86 updated the local-only signer to pin the verified `c5fb835…` main APK
+artifact and exact package checksums. After that PR merged, main advanced to
+`f1f8e380ebf56dee01546da15206796077a36d97` and a new exact-main APK artifact
+was built; the lab signer deliberately remains pinned to the immutable
+`c5fb835…` artifact and does not silently follow `main`. This tooling pin is
+not the protected public-release signing path. The router health check and
+temporary-feed cleanup remain separate work; feed cleanup requires a separate
 owner-approved target and state-preservation plan.
 
 ## Validation and release gates for future work
@@ -816,50 +857,47 @@ owner-controlled release sequence.
 
 ## Recommended next state change
 
-### Rebind the local lab signer to the exact-current-main artifact
+### Prepare the exact v0.4.5 release candidate; stop before the tag
 
-The exact-current-main APK artifact is from successful `push` run
-`36758484527` for `955f1a9d536b7641047659653bc6a034cd2de760`, artifact
-`11119476594`, OpenWrt `25.12.5`, architecture `aarch64_generic`. Its GitHub
-artifact digest and expiration are recorded above. The local helper still
-pins source `a3bf576c5a52682e6844fe0f9d14767665dfa112`; it must continue to
-reject any artifact that does not match its exact pins.
+PR #86 completed the separate local lab-signer provenance update. Its helper
+now pins the successful `c5fb835…` main artifact documented above; it does
+not follow `main` automatically and was not used to produce a signature for
+that artifact. The exact post-merge main APK artifact for `f1f8e380…` is also
+verified above, but it is a different unsigned artifact. Do not silently
+retarget the lab helper: the public release workflow instead promotes the
+successful package artifact for the exact tagged release commit and signs
+only its package index.
 
-The next implementation PR should update the helper's exact source run, SHA,
-artifact ID/name/digest, package filenames, and checksums from the verified
-current-main artifact. Preserve fail-closed provenance and signature checks;
-do not relax validation to make an artifact fit. Run focused signer tests,
-the configured-Node full validator, and exact-head APK CI, then obtain fresh
-independent review and a verified report/ACK handoff. The implementation PR
-must not read the real key, sign, upload, transfer, or install packages. Any
-later real-key signing is a separate local operation with explicit owner
-instruction, signs only `packages.adb`, keeps output private, and does not
-publish.
+After this roadmap-only reconciliation merges, the next local step is to run
+`sh scripts/release-preflight.sh` on the clean, synchronized exact `main` and
+record the final commit, `0.4.5-r1` metadata, changelog section, tag absence,
+full validator result, and the matching post-merge APK run/artifact and
+package checksums. The reconciliation itself changes the commit, so the
+`f1f8e38…` artifact is not a substitute for the later exact-main artifact.
 
-Run the authorized read-only router health check when the Chrome/router
-connection is available. The known temporary public package feed remains
-pending cleanup. Router authentication grants access, not authorization: do
-not remove the feed unless the owner separately approves the exact cleanup
-after the target and proposed command are inspected and a rollback/state-
-preservation plan is recorded. The earlier SSH cleanup attempt was denied.
-Until separately approved, preserve the rollback snapshot and generated
-`.apk-new` configuration file.
+Before any owner decision to tag, complete the required exact-candidate
+router/health validation and verify the protected `signed-feed` environment,
+required reviewers, and GitHub Pages configuration. Router health remains
+unverified, and temporary lab-feed cleanup remains pending. Preserve the
+rollback snapshot and generated `.apk-new` file; do not remove the temporary
+feed without separate approval for an inspected target and a state-preserving
+rollback plan. Native 24.10/IPK runtime remains unproven. Do not begin
+optional automatic routing or claim public 24.10 support from package builds
+alone.
 
-The configured-Node full validator and exact-current-main APK artifact are now
-confirmed for `955f1a9d536b7641047659653bc6a034cd2de760`, as recorded above.
-The next implementation step is the separate local-signer provenance update.
-Public release remains owner-gated, and native 24.10/IPK runtime behavior
-remains unproven. Do not begin optional automatic routing or claim public
-24.10 support from package builds alone. Do not repeat the completed
-evidence-artifact initiative, build-once implementation, or compatibility
-Stage 4 capability/fallback work.
-
-The next planned state change for protected tag/publication evidence remains
-a fresh exact-candidate preflight after the signer update, not an automatic
-release. The full validator is green on current `main`
-`955f1a9d536b7641047659653bc6a034cd2de760`, but that does not replace
-validation of a future release candidate or grant signing/publication
+The next planned state change for protected tag/publication evidence is a
+fresh exact-candidate preflight after this reconciliation is merged. The full
+validator is green on current `main`
+`f1f8e380ebf56dee01546da15206796077a36d97`, but this does not replace fresh
+validation of the resulting release candidate or grant signing/publication
 authority.
+
+Only after every release gate is evidenced should the exact tag be presented
+for explicit owner approval. A local lab signature, version metadata,
+independent source review, or green CI is not authorization to sign a public
+release, push a tag, approve a protected environment, or publish. Do not
+repeat the completed evidence-artifact initiative, build-once implementation,
+or compatibility Stage 4 capability/fallback work.
 Revalidate this plan after the qualification and after every later
 owner-approved stage merge. Do not repeat the completed autonomous-PR Stage 4
 work or select a later compatibility stage without current-main verification.
