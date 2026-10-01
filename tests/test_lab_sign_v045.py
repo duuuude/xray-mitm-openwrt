@@ -137,18 +137,18 @@ class LabSignV045Tests(unittest.TestCase):
             self.assertEqual(artifact["id"], lab.SOURCE_ARTIFACT_ID)
 
     def test_pins_the_verified_current_main_build_and_package_manifest(self) -> None:
-        self.assertEqual(lab.SOURCE_RUN_ID, 36783895086)
+        self.assertEqual(lab.SOURCE_RUN_ID, 36903522011)
         self.assertEqual(lab.SOURCE_WORKFLOW_ID, 351137159)
-        self.assertEqual(lab.SOURCE_COMMIT, "c5fb835e2b6b862f6a1667441b3fcb8d1f51b0a7")
-        self.assertEqual(lab.SOURCE_ARTIFACT_ID, 11130096816)
+        self.assertEqual(lab.SOURCE_COMMIT, "135bae3e54adb7d9181f79e08bd863bbf778fc8f")
+        self.assertEqual(lab.SOURCE_ARTIFACT_ID, 11185431993)
         self.assertEqual(
             lab.SOURCE_ARTIFACT_NAME,
             "xray-mitm-openwrt-25.12.5-aarch64_generic-"
-            "c5fb835e2b6b862f6a1667441b3fcb8d1f51b0a7",
+            "135bae3e54adb7d9181f79e08bd863bbf778fc8f",
         )
         self.assertEqual(
             lab.SOURCE_ARTIFACT_DIGEST,
-            "sha256:faaef49365a1715cc7393025c108cde471d3d96d5603f3ffb0d253423c983c4c",
+            "sha256:902fcd2166b06bb695a01040415ef5632102b64d42f5a002cea87e9831152d9d",
         )
         self.assertEqual(
             lab.PACKAGE_NAMES,
@@ -159,7 +159,7 @@ class LabSignV045Tests(unittest.TestCase):
         )
         self.assertEqual(
             self.verified_source_package_sha256s,
-            b"f23b7c176deba7fad69d38f5cdd2f1ee31fe0071ddeb81897d65503503726f4a  "
+            b"2ee473c8db32c62083c9945f2bb57aa1c93773833bcb2860e98153daff47bcdc  "
             b"luci-app-xray-mitm-26.269.77380~a3bf576.apk\n"
             b"a03f2758867ddc38eb6ace592b57bea300b4f58913f0dfb19497296a7de71f8d  "
             b"xray-mitm-0.4.5-r1.apk\n",
