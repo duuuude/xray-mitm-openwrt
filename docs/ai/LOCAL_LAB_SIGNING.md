@@ -15,16 +15,22 @@ and [artifact download access](https://docs.github.com/en/actions/how-tos/manage
 
 - Repository: `duuuude/xray-mitm-openwrt`
 - Workflow: `Build OpenWrt APKs` (`351137159`)
-- Successful run: `36273118365`, attempt `1`, event `push`, branch `main`
-- Source commit: `a3bf576c5a52682e6844fe0f9d14767665dfa112`
-- Artifact: `10917585075`
-- Artifact digest: `sha256:727cacc6b2876d233f12aad6915d90cf5390d04836c99f5dc490d826daf28117`
+- Successful run: `36783895086`, attempt `1`, event `push`, branch `main`
+- Source commit: `c5fb835e2b6b862f6a1667441b3fcb8d1f51b0a7`
+- Artifact: `11130096816`
+- Artifact name: `xray-mitm-openwrt-25.12.5-aarch64_generic-c5fb835e2b6b862f6a1667441b3fcb8d1f51b0a7`
+- Artifact digest: `sha256:faaef49365a1715cc7393025c108cde471d3d96d5603f3ffb0d253423c983c4c`
 - Release / architecture: `25.12.5` / `aarch64_generic`
+- APKs and verified `PACKAGE_SHA256SUMS`:
+  - `luci-app-xray-mitm-26.269.77380~a3bf576.apk` — `f23b7c176deba7fad69d38f5cdd2f1ee31fe0071ddeb81897d65503503726f4a`
+  - `xray-mitm-0.4.5-r1.apk` — `a03f2758867ddc38eb6ace592b57bea300b4f58913f0dfb19497296a7de71f8d`
 - Trusted feed public-key SHA-256: `3e0dc07ffef69d1512500b6add486381d8c261a8ec3fcce54fa403b35320df8a`
 
-The artifact expires on 2026-10-26. The helper fails if GitHub says it is
+The artifact expires on 2026-10-30. The helper fails if GitHub says it is
 expired or if the run, artifact identity, bundle contents, or checksums differ
-from these pins. It does not silently choose a newer build.
+from these pins. The LuCI APK's `a3bf576` filename suffix is its package source
+revision; the enclosing artifact is bound to main commit `c5fb835…`. It does
+not silently choose a newer build.
 
 ## Requirements and boundaries
 
