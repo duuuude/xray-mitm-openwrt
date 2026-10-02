@@ -15,6 +15,7 @@ Read this file before inspecting, editing, testing, staging, or proposing change
 - Speed or token savings never weaken safety checks, independent review, provenance, rollback, evidence boundaries, or explicit owner approvals. Unknown remains unproven.
 - For multi-step work, maintain a task-scoped durable resume checkpoint: objective, exact refs and task/run IDs, completed evidence, remaining gates, and next safe action. Update it before switching tasks or stopping, and after material changes. Keep secrets out and do not commit local checkpoints.
 - When a new owner or agent message arrives, classify whether it replaces, adds to, or only asks about the active task. Never silently abandon unfinished work. On resumption, read the checkpoint, refresh live state, reconcile the new message, and continue or explicitly report the blocker; a checkpoint alone never proves completion.
+- Follow `docs/ai/COORDINATION.md` for the single Current state checkpoint and terminal/superseded monitor disposition. End owner updates with current result, next recommendation and owner action (or NONE). Stop obsolete monitors explicitly; a successful CI check never clears review or protected-operation gates.
 
 ## 1. Project
 
@@ -526,9 +527,13 @@ verified remote through the canonical workflow and run
 `sh scripts/verify-roadmap-state.sh` before choosing the next roadmap item.
 The guard verifies Git's effective fetch and push URLs after URL rewrites, then
 fetches current `main` before comparing the recorded roadmap baseline.
-Treat `ROADMAP_STATE=STALE` or `BLOCKED` as a stop condition: inspect the
-reported first-parent history, reconcile `MASTER_PLAN.md`, and only then start
-new work.
+An existing ancestor baseline stays valid across proven roadmap-only
+bookkeeping chains. Other paths, including policy/security docs, remain
+conservative. Treat `ROADMAP_STATE=STALE` or `BLOCKED` as a stop condition for
+selecting new roadmap work: inspect the reported history and reconcile relevant
+changes under `docs/ai/COORDINATION.md`. Do not create another plan-only PR just
+because main has a new SHA. Directly assigned coordination repairs follow the
+narrow exception in that contract; no release/review gate is waived.
 
 ```text
 read current main

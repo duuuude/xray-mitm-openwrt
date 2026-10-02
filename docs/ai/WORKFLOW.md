@@ -594,7 +594,11 @@ scripts/verify-roadmap-state.sh
 It resolves Git URL rewrites, prints the fetched first-parent `main` history,
 and blocks when the remote is not canonical, the roadmap baseline is stale, or
 the canonical checkout is not clean. Duplicate Works or prior chat context
-never override that repository evidence.
+never override that repository evidence. See `docs/ai/COORDINATION.md` for the
+normative ancestor/bookkeeping classification, single Current state resume
+checkpoint and explicit monitor stop outcomes. Roadmap-only chains do not
+require another baseline PR; relevant or unknown changes still require
+reconciliation. Neither planning freshness nor terminal CI grants approval.
 
 The helper can safely:
 

@@ -89,8 +89,10 @@ review.
 
 You must:
 1. confirm repository, branch, commit, remotes, upstream, status, and current main
-2. stop if roadmap-state verification is `STALE` or `BLOCKED`; reconcile the
-   roadmap against the reported merged history first
+2. stop selection of new roadmap work if verification is `STALE` or `BLOCKED`;
+   reconcile relevant history under docs/ai/COORDINATION.md, without a mandatory
+   plan-only PR for bookkeeping drift; use its narrow coordination-repair
+   exception only for a directly assigned repair
 3. verify whether the roadmap item is already implemented or obsolete
 4. define one coherent problem only
 5. state exact in-scope and out-of-scope files and behavior
@@ -107,6 +109,9 @@ You must:
 13. refresh each Work's live status before reporting or deciding to wait;
     inspect the latest completed turn for status/context, then verify and read
     the exact durable artifact before claiming report delivery
+14. maintain one Current state checkpoint under docs/ai/COORDINATION.md; stop
+    terminal/superseded monitor assignments explicitly and end owner updates
+    with current result, next recommendation and owner action (or NONE)
 
 You may evaluate reviewer findings and implement accepted ordinary corrections,
 but you may never independently approve your own implementation. Return every
