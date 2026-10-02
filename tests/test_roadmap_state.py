@@ -81,11 +81,19 @@ real_git=${ROADMAP_TEST_REAL_GIT:?}
 saw_remote=0
 saw_get_url=0
 saw_push=0
+saw_rev_list=0
 for arg in "$@"; do
 	[ "$arg" = remote ] && saw_remote=1
 	[ "$arg" = get-url ] && saw_get_url=1
 	[ "$arg" = --push ] && saw_push=1
+	[ "$arg" = rev-list ] && saw_rev_list=1
 done
+if [ "$saw_rev_list" -eq 1 ]; then
+	case "${ROADMAP_TEST_MUTATION:-}" in
+		dirty) printf 'concurrent edit\\n' >> "$ROADMAP_TEST_PROJECT/README.md" ;;
+		head) "$real_git" -C "$ROADMAP_TEST_PROJECT" commit --allow-empty -m concurrent >/dev/null ;;
+	esac
+fi
 if [ "$saw_remote" -eq 1 ] && [ "$saw_get_url" -eq 1 ]; then
 	if [ "$saw_push" -eq 1 ] && [ -n "${ROADMAP_TEST_EFFECTIVE_PUSH_URL:-}" ]; then
 		printf '%s\\n' "$ROADMAP_TEST_EFFECTIVE_PUSH_URL"
@@ -156,10 +164,13 @@ exec "$real_git" "$@"
         mock_fetch_url: bool = True,
         mock_push_url: bool = True,
         plan_path: str = "docs/ai/MASTER_PLAN.md",
+        mutation: str = "",
     ) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
         env["PATH"] = f"{self.fake_bin}{os.pathsep}{env['PATH']}"
         env["ROADMAP_TEST_REAL_GIT"] = self.real_git or "git"
+        env["ROADMAP_TEST_MUTATION"] = mutation
+        env["ROADMAP_TEST_PROJECT"] = str(self.project)
         if mock_fetch_url:
             env["ROADMAP_TEST_EFFECTIVE_FETCH_URL"] = CANONICAL_URL
         else:
@@ -207,6 +218,89 @@ exec "$real_git" "$@"
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("main checkout is not clean", result.stderr)
+
+    def commit_file(self, path: str, content: str) -> None:
+        target = self.project / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+        self.git("add", path)
+        self.git("commit", "-m", f"change {path}")
+
+    def test_accepts_chain_of_roadmap_only_commits(self) -> None:
+        plan = (self.project / "docs/ai/MASTER_PLAN.md").read_text()
+        for n in range(3):
+            self.commit_file("docs/ai/MASTER_PLAN.md", plan + f"\nBookkeeping {n}\n")
+        self.git("push", "origin", "main")
+        result = self.run_verify()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Audit relation: bookkeeping-only-drift", result.stdout)
+
+    def assert_relevant_path_is_stale(self, path: str) -> None:
+        self.commit_file(path, "not bookkeeping\n")
+        self.git("push", "origin", "main")
+        result = self.run_verify()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("ROADMAP_STATE=STALE", result.stderr)
+
+    def test_product_path_is_stale(self) -> None:
+        self.assert_relevant_path_is_stale("xray-mitm/Makefile")
+
+    def test_security_policy_path_is_stale(self) -> None:
+        self.assert_relevant_path_is_stale("AGENTS.md")
+
+    def test_build_path_is_stale(self) -> None:
+        self.assert_relevant_path_is_stale(".github/workflows/build.yml")
+
+    def test_unknown_doc_path_is_stale(self) -> None:
+        self.assert_relevant_path_is_stale("docs/unknown.md")
+
+    def test_product_change_then_revert_remains_stale(self) -> None:
+        self.commit_file("README.md", "temporary relevant change\n")
+        self.git("revert", "--no-edit", "HEAD")
+        self.git("push", "origin", "main")
+        result = self.run_verify()
+        self.assertIn("ROADMAP_STATE=STALE", result.stderr)
+
+    def test_merge_side_branch_change_and_revert_remains_stale(self) -> None:
+        self.git("checkout", "-b", "side")
+        self.commit_file("README.md", "side product change\n")
+        self.git("revert", "--no-edit", "HEAD")
+        self.git("checkout", "main")
+        self.git("merge", "--no-ff", "side", "-m", "merge reverted product branch")
+        self.git("push", "origin", "main")
+        result = self.run_verify()
+        self.assertIn("ROADMAP_STATE=STALE", result.stderr)
+
+    def test_roadmap_mode_change_is_not_bookkeeping(self) -> None:
+        self.git("update-index", "--chmod=+x", "docs/ai/MASTER_PLAN.md")
+        (self.project / "docs/ai/MASTER_PLAN.md").chmod(0o755)
+        self.git("commit", "-m", "executable plan")
+        self.git("push", "origin", "main")
+        self.assertIn("ROADMAP_STATE=STALE", self.run_verify().stderr)
+
+    def test_missing_unrelated_and_duplicate_baselines_block(self) -> None:
+        self.git("checkout", "--orphan", "unrelated")
+        self.git("commit", "--allow-empty", "-m", "unrelated root")
+        unrelated = self.git("rev-parse", "HEAD")
+        self.git("checkout", "main")
+        for content in (f"- Review/audit baseline: `{'0' * 40}`\n",
+                        f"- Review/audit baseline: `{unrelated}`\n",
+                        f"- Review/audit baseline: `{self.git('rev-parse', 'HEAD')}`\n" * 2):
+            self.commit_file("docs/ai/MASTER_PLAN.md", content)
+            self.git("push", "origin", "main")
+            result = self.run_verify()
+            self.assertIn("ROADMAP_STATE=BLOCKED", result.stderr)
+            self.assertNotIn("ROADMAP_STATE=READY", result.stdout)
+
+    def test_concurrent_head_and_dirty_changes_block(self) -> None:
+        for mutation in ("dirty", "head"):
+            with self.subTest(mutation=mutation):
+                # Restore this disposable fixture's known tracked content.
+                if mutation == "head":
+                    (self.project / "README.md").write_text("roadmap fixture\n")
+                result = self.run_verify(mutation=mutation)
+                self.assertIn("ROADMAP_STATE=BLOCKED", result.stderr)
+                self.assertNotIn("ROADMAP_STATE=READY", result.stdout)
 
     def test_rejects_leading_parent_path_components(self) -> None:
         for plan_path in ("../outside-plan.md", "..//outside-plan.md", "docs/../outside-plan.md"):

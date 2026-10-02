@@ -15,6 +15,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_signed_feed.py"
 PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_release_preflight.py"
 PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_start_pr.py"
 PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_roadmap_state.py"
+PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_coordination_state.py"
 PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_pr_evidence.py"
 PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_check_pr.py"
 PYTHONDONTWRITEBYTECODE=1 python3 "$project_dir/tests/test_startup.py"
@@ -39,6 +40,7 @@ for relative in \
 	scripts/start-pr.sh \
 	scripts/check-pr.sh \
 	scripts/verify-github-remote.sh \
+	scripts/verify-roadmap-state.sh \
 	scripts/router-local-test.sh \
 	scripts/router-backup-guard.sh \
 	scripts/check-release-version.sh \
