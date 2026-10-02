@@ -111,6 +111,14 @@ immutable and binds the assignment digest and source review turn. Verification
 prints full structured evidence and leaves completion `UNPROVEN`. Delete only
 the source's disposable input after successful read-back; preserve the records.
 
+The private JSON input is bounded to one MiB. Analysis is additionally limited
+to 1,032,192 UTF-8 bytes (one MiB minus 16 KiB), checked before reserving or
+writing the report. This reserves space for both generated receipts within
+the unchanged v1 one-MiB terminal-reader limit. Rendering also checks the
+actual generated final size before emitting any output. Formatting/citation
+metadata must keep the final within that reader limit; input bytes, UTF-8
+analysis bytes and final bytes are separate budgets, not character counts.
+
 For the real dual-path pilot, the source also writes a v1 report with the same
 report ID/tasks/head, whose complete body equals v2 `analysis` exactly. Its
 generated final is the output of `render-review COMMON --include-analysis
@@ -123,8 +131,12 @@ V2-only synthetic fixtures may omit `--legacy-v1` and the optional analysis
 prefix. Markdown code fences, JSON indentation, Markdown hard breaks in the
 identical analysis prefix and trailing well-formed memory-citation metadata
 are presentation only. They do not require re-review or rewriting the report.
-Arbitrary surrounding notes, a changed receipt, duplicate marker, invalid JSON,
-or extra correction text fail closed. Citation metadata is not review evidence.
+The marker may occur in the authoritative analysis, including quoted or
+standalone examples. The last line-start marker introduces the terminal
+receipt; the preceding text must be the identical analysis prefix or empty.
+Arbitrary surrounding notes, a changed receipt, a second actual terminal
+receipt, invalid JSON, or extra correction text fail closed. Citation metadata
+is not review evidence.
 
 ## Terminal completion and one deterministic receipt
 
@@ -135,6 +147,10 @@ requires exactly one matching local terminal event and generated receipt.
 Missing/ambiguous/interrupted/future completion remains pending; a source-written
 report or notification alone never completes review. Extra final corrections
 block completion rather than being accepted by a containment test.
+Conflicting exact-turn `turn_aborted`, `task_failed` or `turn_failed` events
+block v2 completion regardless of their order relative to `task_complete`.
+Unrelated-turn events do not conflict. This stricter v2 check does not change
+the generic v1 session-reader behavior.
 
 Only after that succeeds, Lead runs `receipt-review COMMON` and immediately
 `verify-review-receipt COMMON`. The receipt binds the assignment, report,
@@ -160,8 +176,9 @@ the pilot and must also pass its existing reconciliation/ACK gates.
   writing or notification then fails. It must not be deferred until a new
   report is ready. New report `supersedes` names the old ID; the exact retraction
   binds old digest and the sole permitted replacement ID. A new terminal turn
-  and completion are required. Up to64 reports in one checked lineage are
-  supported; excessive or cyclic lineage is HOLD, not endless recovery.
+  and completion are required; both writing and lineage verification reject
+  reuse of any earlier source-turn UUID in that lineage. Up to64 reports in one
+  checked lineage are supported; excessive or cyclic lineage is HOLD, not endless recovery.
 - A changed PR/base/head/diff requires a **new assignment**, not a changed hash
   in the old assignment. Lead marks the old assignment superseded in Current
   state and does not reuse its receipt. The helper cannot silently authorize

@@ -28,6 +28,9 @@ TASK_ID = re.compile(
 REPORT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 MAX_REPORT_BYTES = 1024 * 1024
+# Keep v1's one-MiB final-reader limit. Reserve ample space for v2 and legacy
+# receipts (bounded IDs/digests), instead of sealing an undeliverable report.
+MAX_V2_ANALYSIS_BYTES = MAX_REPORT_BYTES - 16 * 1024
 MAX_ARTIFACT_BYTES = 2 * 1024 * 1024
 DIRECTORY_FLAGS = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
 NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
@@ -503,7 +506,7 @@ def _assert_session_child(parent_fd: int, name: str, child_fd: int) -> None:
         raise HandoffError("The local task-session path changed during the read.")
 
 
-def _load_final(args: argparse.Namespace) -> dict[str, str]:
+def _load_final(args: argparse.Namespace, *, strict_terminal: bool = False) -> dict[str, str]:
     """Read only the exact completed turn's final message from a local task log."""
     if not TASK_ID.fullmatch(args.source_task_id) or not TASK_ID.fullmatch(args.turn_id):
         raise HandoffError("Source task and turn IDs must be full lowercase UUIDs.")
@@ -543,6 +546,11 @@ def _load_final(args: argparse.Namespace) -> dict[str, str]:
                                 if not isinstance(event, dict):
                                     raise HandoffError("The local task log contains an invalid event.")
                                 payload = event.get("payload")
+                                if (strict_terminal and event.get("type") == "event_msg"
+                                        and isinstance(payload, dict)
+                                        and payload.get("turn_id") == args.turn_id
+                                        and payload.get("type") in ("turn_aborted", "task_failed", "turn_failed")):
+                                    raise HandoffError("Conflicting interrupted/failed terminal evidence for the exact turn.")
                                 if (
                                     event.get("type") == "event_msg"
                                     and isinstance(payload, dict)
@@ -849,6 +857,8 @@ def _v2_review_fields(report: Any) -> None:
         raise HandoffError("Invalid review verdict.")
     if not isinstance(report["analysis"], str) or not report["analysis"].strip():
         raise HandoffError("Review analysis must be nonempty.")
+    if len(report["analysis"].encode("utf-8")) > MAX_V2_ANALYSIS_BYTES:
+        raise HandoffError("Review analysis exceeds the final-safe pilot budget (one MiB minus 16 KiB).")
     if not isinstance(report["findings"], list) or not isinstance(report["unresolved_conflicts"], list):
         raise HandoffError("Findings and conflicts must be explicit lists.")
     for finding in report["findings"]:
@@ -870,11 +880,11 @@ def _v2_review_fields(report: Any) -> None:
 
 
 def _v2_report(args: argparse.Namespace, assignment: dict[str, Any], fd: int,
-               *, archived: bool = False) -> dict[str, Any]:
+               *, archived: bool = False, replacement_turn: str | None = None) -> dict[str, Any]:
     doc = _v2_load(fd, "report", args.report_id)
     if not archived and _v2_exists(fd, "retraction", args.report_id):
         raise HandoffError("Review is retracted; previous completion/receipt cannot be relied on.")
-    node, identity, seen = doc, args.report_id, set()
+    node, identity, seen, turns = doc, args.report_id, set(), set()
     while True:
         if identity in seen or len(seen) >= 64:
             raise HandoffError("Ambiguous or excessive review supersession history.")
@@ -882,6 +892,9 @@ def _v2_report(args: argparse.Namespace, assignment: dict[str, Any], fd: int,
         if (node.get("assignment_sha256") != assignment["sha256"] or node.get("report_id") != identity
                 or not isinstance(node.get("source_turn_id"), str) or not TASK_ID.fullmatch(node["source_turn_id"])):
             raise HandoffError("Review report assignment/turn mismatch.")
+        if node["source_turn_id"] in turns or node["source_turn_id"] == replacement_turn:
+            raise HandoffError("Corrected review requires a new source turn, distinct from its lineage.")
+        turns.add(node["source_turn_id"])
         _v2_review_fields(node["review"])
         prior = node["review"]["supersedes"]
         if prior is None:
@@ -925,7 +938,8 @@ def write_review(args: argparse.Namespace) -> None:
                 raise HandoffError("Assignment already has another report; explicit retraction required.")
         else:
             invalidation = _v2_load(fd, "retraction", prior)
-            parent = _v2_report(argparse.Namespace(**{**vars(args), "report_id": prior}), assignment, fd, archived=True)
+            parent = _v2_report(argparse.Namespace(**{**vars(args), "report_id": prior}), assignment, fd,
+                                archived=True, replacement_turn=args.source_turn_id)
             if (invalidation.get("assignment_sha256") != assignment["sha256"]
                     or invalidation.get("report_sha256") != parent["sha256"]
                     or invalidation.get("replacement_report_id") != args.report_id):
@@ -951,9 +965,11 @@ def render_review(args: argparse.Namespace) -> None:
         receipt = _v2_terminal_receipt(args, assignment, report, repo_fd)
     # The analysis prefix is optional in v2, but permits an unchanged v1
     # report body in the same completed final during the dual-path pilot.
-    if args.include_analysis:
-        print(report["review"]["analysis"].rstrip("\n"))
-    print(V2_MARKER + json.dumps(receipt, sort_keys=True))
+    rendered = ((report["review"]["analysis"].rstrip("\n") + "\n") if args.include_analysis else "")
+    rendered += V2_MARKER + json.dumps(receipt, sort_keys=True) + "\n"
+    if len(rendered.encode("utf-8")) > MAX_REPORT_BYTES:
+        raise HandoffError("Generated review final exceeds the terminal-reader budget.")
+    sys.stdout.write(rendered)
 
 
 def _v2_terminal_receipt(args: argparse.Namespace, assignment: dict[str, Any],
@@ -991,7 +1007,7 @@ def complete_review(args: argparse.Namespace) -> None:
         if report["source_turn_id"] != args.source_turn_id:
             raise HandoffError("Completed source turn mismatch.")
         final = _load_final(argparse.Namespace(sessions_root=args.sessions_root,
-                            source_task_id=args.source_task_id, turn_id=args.source_turn_id))
+                            source_task_id=args.source_task_id, turn_id=args.source_turn_id), strict_terminal=True)
         message = final["final_message"].strip()
         # Presentation fences/JSON whitespace may vary; additional authored
         # notes are never discarded. Citation metadata is not duplicated in
@@ -1002,15 +1018,20 @@ def complete_review(args: argparse.Namespace) -> None:
             if lines[0] not in ("```", "```text") or lines[-1] != "```":
                 raise HandoffError("Unsupported completion rendering.")
             message = "\n".join(lines[1:-1])
-        pieces = message.split(V2_MARKER)
-        if len(pieces) != 2:
-            raise HandoffError("Expected exactly one generated terminal review receipt.")
-        prefix = re.sub(r" {2}(?=\n)", "", pieces[0]).strip()
+        # Prose may legitimately quote the marker, even on its own line. The
+        # last line-start marker separates the terminal receipt; everything
+        # preceding it must still be the exact authoritative analysis (or empty).
+        prefix, separator, terminal = message.rpartition("\n" + V2_MARKER)
+        if not separator:
+            if not message.startswith(V2_MARKER):
+                raise HandoffError("Missing generated terminal review receipt.")
+            prefix, terminal = "", message[len(V2_MARKER):]
+        prefix = re.sub(r" {2}(?=\n)", "", prefix).strip()
         analysis = re.sub(r" {2}(?=\n)", "", report["review"]["analysis"]).strip()
         if prefix and prefix != analysis:
             raise HandoffError("Final contains post-report corrections or extra caveats; retract old review.")
         receipt = _v2_terminal_receipt(args, assignment, report, repo_fd)
-        if _strict_json(pieces[1]) != receipt:
+        if _strict_json(terminal) != receipt:
             raise HandoffError("Final terminal receipt does not match the review.")
         completed = datetime.fromisoformat(final["completed_at"].replace("Z", "+00:00"))
         if completed.utcoffset() is None or completed > datetime.now(timezone.utc):

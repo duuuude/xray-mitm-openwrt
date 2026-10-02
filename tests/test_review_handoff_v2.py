@@ -18,6 +18,7 @@ SCRIPT = ROOT / "scripts/work-report-handoff.py"
 SOURCE = "11111111-1111-4111-8111-111111111111"
 LEAD = "22222222-2222-4222-8222-222222222222"
 TURN = "33333333-3333-4333-8333-333333333333"
+NEXT_TURN = "44444444-4444-4444-8444-444444444444"
 spec = importlib.util.spec_from_file_location("handoff_v2", SCRIPT)
 helper = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(helper)
@@ -84,9 +85,9 @@ class ReviewV2Tests(unittest.TestCase):
         self.assertEqual(self.assign().returncode, 0)
         self.assertEqual(self.write().returncode, 0)
 
-    def completed_log(self, text):
+    def completed_log(self, text, turn=TURN):
         record = {"timestamp": "2026-09-01T00:01:00Z", "type": "event_msg",
-                  "payload": {"type": "task_complete", "turn_id": TURN, "last_agent_message": text}}
+                  "payload": {"type": "task_complete", "turn_id": turn, "last_agent_message": text}}
         self.log.write_text(json.dumps(record) + "\n")
 
     def complete(self, *extra):
@@ -230,6 +231,80 @@ class ReviewV2Tests(unittest.TestCase):
         result = self.complete()
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_literal_markers_in_analysis_round_trip_but_extra_receipts_do_not(self):
+        self.review["analysis"] = 'Discuss `XRAY_HANDOFF_V2=` and a quoted example.\nXRAY_HANDOFF_V2={}\n'
+        self.input_review(self.review)
+        self.prepared()
+        rendered = self.run_cli("render-review", "--include-analysis").stdout
+        for bad in (rendered + rendered, rendered + "\nCorrection: BLOCK"):
+            self.completed_log(bad)
+            self.assertNotEqual(self.complete().returncode, 0)
+        self.completed_log(rendered)
+        result = self.complete()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_analysis_budget_round_trips_in_both_modes_or_rejects_before_reservation(self):
+        # Reserve 16 KiB of the unchanged one-MiB reader budget for both receipts.
+        limit = helper.MAX_REPORT_BYTES - 16 * 1024
+        for size, legacy in ((limit - 1, False), (limit, False), (limit + 1, False),
+                             (limit - 1, True), (limit, True), (limit + 1, True)):
+            with self.subTest(size=size, legacy=legacy):
+                self.review["analysis"] = "x" * size
+                self.input_review(self.review)
+                identity = f"budget-{size}-{legacy}"
+                assignment = self.run_cli("assign-review", "--repository", "duuuude/xray-mitm-openwrt",
+                    "--pr", "92", "--base-sha", self.base, "--candidate-sha", self.head,
+                    "--diff-sha256", self.diff, assignment=identity)
+                self.assertEqual(assignment.returncode, 0, assignment.stderr)
+                self.assignment_sha = json.loads(assignment.stdout)["sha256"]
+                written = self.run_cli("write-review", "--source-turn-id", TURN,
+                    "--report-file", str(self.report), assignment=identity, report_id=identity)
+                if size > limit:
+                    self.assertNotEqual(written.returncode, 0)
+                    self.assertFalse((self.store / helper._v2_name("initial", identity)).exists())
+                    self.assertFalse((self.store / helper._v2_name("report", identity)).exists())
+                    continue
+                self.assertEqual(written.returncode, 0, written.stderr)
+                legacy_args = []
+                if legacy:
+                    body = self.root / "budget-legacy.md"
+                    body.write_text(self.review["analysis"])
+                    body.chmod(0o600)
+                    result = subprocess.run(["python3", str(SCRIPT), "write", "--repo", str(self.repo),
+                        "--source-task-id", SOURCE, "--destination-task-id", LEAD,
+                        "--report-id", identity, "--candidate-sha", self.head,
+                        "--title", "Boundary fixture", "--report-file", str(body)],
+                        capture_output=True, text=True, timeout=10)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    legacy_args = ["--legacy-v1"]
+                rendered = self.run_cli("render-review", "--include-analysis", *legacy_args,
+                    assignment=identity, report_id=identity)
+                self.assertEqual(rendered.returncode, 0, rendered.stderr)
+                self.assertLessEqual(len(rendered.stdout.encode()), helper.MAX_REPORT_BYTES)
+                self.completed_log(rendered.stdout)
+                result = self.run_cli("complete-review", "--source-turn-id", TURN,
+                    "--sessions-root", str(self.sessions), "--confirm-final-reconciled", *legacy_args,
+                    assignment=identity, report_id=identity)
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_conflicting_exact_turn_terminal_events_never_create_completion(self):
+        self.prepared()
+        rendered = self.run_cli("render-review").stdout
+        for event_type in ("turn_aborted", "task_failed", "turn_failed"):
+            for before in (True, False):
+                self.completed_log(rendered)
+                complete = self.log.read_text()
+                conflict = json.dumps({"type": "event_msg", "payload": {
+                    "type": event_type, "turn_id": TURN}}) + "\n"
+                self.log.write_text(conflict + complete if before else complete + conflict)
+                self.assertNotEqual(self.complete().returncode, 0, (event_type, before))
+                self.assertFalse((self.store / helper._v2_name("completion", "review-one")).exists())
+                self.assertNotEqual(self.run_cli("receipt-review").returncode, 0)
+        self.completed_log(rendered)
+        self.log.write_text(self.log.read_text() + json.dumps({"type": "event_msg", "payload": {
+            "type": "turn_aborted", "turn_id": NEXT_TURN}}) + "\n")
+        self.assertEqual(self.complete().returncode, 0)
+
     def test_retraction_invalidates_old_completion_even_if_replacement_missing(self):
         self.delivered()
         result = self.run_cli("retract-review", "--replacement-report-id", "review-two", "--reason", "Corrected base interpretation")
@@ -239,9 +314,22 @@ class ReviewV2Tests(unittest.TestCase):
         self.assertNotEqual(self.write("another").returncode, 0)
         self.review["supersedes"] = "review-one"
         self.input_review(self.review)
-        self.assertEqual(self.write("review-two").returncode, 0)
+        self.assertNotEqual(self.write("review-two").returncode, 0)
+        self.assertEqual(self.write("review-two", turn=NEXT_TURN).returncode, 0)
         self.assertEqual(self.run_cli("verify-review", report_id="review-two").returncode, 0)
         self.assertNotEqual(self.run_cli("receipt-review", report_id="review-two").returncode, 0)
+        rendered = self.run_cli("render-review", report_id="review-two").stdout
+        self.completed_log(rendered, turn=NEXT_TURN)
+        result = self.run_cli("complete-review", "--sessions-root", str(self.sessions),
+            "--source-turn-id", NEXT_TURN, "--confirm-final-reconciled", report_id="review-two")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.run_cli("receipt-review", report_id="review-two").returncode, 0)
+        path = self.store / helper._v2_name("report", "review-two")
+        replacement = json.loads(path.read_text())
+        replacement["source_turn_id"] = TURN
+        replacement.pop("sha256")
+        path.write_text(json.dumps(helper._seal(replacement)))
+        self.assertNotEqual(self.run_cli("verify-review", report_id="review-two").returncode, 0)
 
     def test_competing_initial_reports_and_duplicate_writes_rejected(self):
         self.prepared()
