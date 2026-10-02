@@ -50,6 +50,46 @@ class CoordinationStateTests(unittest.TestCase):
         self.snapshot["pr"]["state"] = "closed"
         self.assertEqual(self.classify(), "STOP_CLOSED")
 
+    def test_malformed_naive_and_future_merge_times_pause(self):
+        self.snapshot["pr"].update(state="closed", merged=True)
+        for value in ({"bad": True}, 1, "not-a-date", "2026-10-01T00:00:00",
+                      "2099-01-01T00:00:00Z"):
+            with self.subTest(value=value):
+                self.snapshot["pr"]["merged_at"] = value
+                self.assertEqual(self.classify(), "HOLD_INVALID")
+        self.snapshot["pr"]["merged_at"] = (self.now - timedelta(days=1)).isoformat()
+        self.assertEqual(self.classify(), "STOP_MERGED")
+
+    def test_float_and_boolean_association_numbers_pause(self):
+        for run in self.snapshot["runs"]:
+            run.update(status="completed", conclusion="success")
+        for value in (91.0, True, "91", None):
+            self.snapshot["runs"][0]["pull_requests"][0]["number"] = value
+            self.assertEqual(self.classify(), "HOLD_INVALID")
+        # True must not match PR 1 either.
+        self.snapshot["pr"]["number"] = 1
+        for run in self.snapshot["runs"]:
+            run["pull_requests"][0]["number"] = True
+        result = module.decision(self.snapshot, self.repo, 1, self.head, self.base, (1, 2), self.now)
+        self.assertEqual(result["state"], "HOLD_INVALID")
+
+    def test_cli_merge_timestamp_validation(self):
+        now = datetime.now(timezone.utc)
+        self.snapshot["observed_at"] = now.isoformat()
+        self.snapshot["pr"].update(state="closed", merged=True)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "snapshot.json"
+            for value in ({"bad": True}, 1, "not-a-date", now.replace(tzinfo=None).isoformat(),
+                          (now + timedelta(days=1)).isoformat(), (now - timedelta(days=1)).isoformat()):
+                self.snapshot["pr"]["merged_at"] = value
+                path.write_text(json.dumps(self.snapshot))
+                result = subprocess.run(["python3", str(SCRIPT), "--snapshot", str(path),
+                    "--repository", self.repo, "--pr", "91", "--head", self.head,
+                    "--base", self.base, "--run-id", "1", "--run-id", "2"], capture_output=True, text=True)
+                valid = isinstance(value, str) and value == (now - timedelta(days=1)).isoformat()
+                self.assertEqual(result.returncode, 0 if valid else 1)
+                self.assertEqual(json.loads(result.stdout)["state"], "STOP_MERGED" if valid else "HOLD_INVALID")
+
     def test_head_or_base_change_supersedes(self):
         for field in ("head", "base"):
             with self.subTest(field=field):

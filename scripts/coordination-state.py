@@ -55,6 +55,11 @@ def decision(snapshot: dict, repository: str, pr_number: int, head: str,
             if (pr["state"] != "closed" or not pr.get("merged_at")
                     or not SHA.fullmatch(pr.get("merge_commit_sha", ""))):
                 return invalid
+            if not isinstance(pr["merged_at"], str):
+                return invalid
+            merged_at = datetime.fromisoformat(pr["merged_at"].replace("Z", "+00:00"))
+            if merged_at.utcoffset() is None or merged_at > observed:
+                return invalid
             return result("STOP_MERGED", "STOP_AND_RECORD_MERGED_PR")
         if pr.get("merged_at"):
             return invalid
@@ -69,6 +74,10 @@ def decision(snapshot: dict, repository: str, pr_number: int, head: str,
             return invalid
         terminal = []
         for run in runs:
+            if (not isinstance(run["pull_requests"], list)
+                    or any(not isinstance(p, dict) or type(p.get("number")) is not int
+                           or p["number"] <= 0 for p in run["pull_requests"])):
+                return invalid
             associations = [p for p in run["pull_requests"] if p["number"] == pr_number]
             if (run["repository"]["full_name"] != repository
                     or run["event"] != "pull_request" or run["head_sha"] != head
