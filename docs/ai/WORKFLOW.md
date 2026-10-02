@@ -220,6 +220,11 @@ acting when rollback is unclear or material evidence is missing
 
 ## Live task status and report verification
 
+See [HANDOFF.md](HANDOFF.md) for the normative structured review-handoff v2
+pilot, stable storage and deterministic receipt commands. It is additive:
+perform the v1 gates below during the dual-path pilot. Merge permission does
+not adopt the new completion contract; adoption needs separate owner approval.
+
 Task/thread status is a live snapshot, not durable evidence. Before telling the
 owner that a Work is active, idle, or complete—or deciding whether to wait,
 continue, or hand off—refresh that exact task with `wait_threads` using

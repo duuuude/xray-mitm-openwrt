@@ -46,6 +46,16 @@ def read_thread_status(snapshot: dict, task_id: str) -> str | None:
 
 
 class WorkHandoffContractTests(unittest.TestCase):
+    def test_v2_pilot_is_normative_additive_and_owner_gated(self) -> None:
+        spec = (ROOT / "docs/ai/HANDOFF.md").read_text(encoding="utf-8")
+        for document in (AGENTS, WORKFLOW, PROMPTS):
+            self.assertIn("HANDOFF.md", document)
+            self.assertIn("v1", document)
+        for word in ("pilot", "not adopted", "verify-review-receipt", "retract-review",
+                     "not authorship", "separate explicit owner", "stable canonical",
+                     "protected_authority=NONE", "Missing/ambiguous/interrupted"):
+            self.assertIn(word, spec)
+
     def test_handoff_request_and_delivery_use_an_exact_thread_id(self) -> None:
         for document in (WORKFLOW, PROMPTS):
             with self.subTest(document="workflow" if document is WORKFLOW else "prompts"):

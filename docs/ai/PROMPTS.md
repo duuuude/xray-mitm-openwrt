@@ -4,6 +4,13 @@ Use these prompts with the repository root and `AGENTS.md`.
 
 Replace text inside `<...>` before use.
 
+For an explicitly assigned structured review-handoff v2 pilot, follow the
+single normative [HANDOFF.md](HANDOFF.md) specification in addition to the
+active v1 report/final/ACK gates below. Include the frozen assignment ID and
+SHA-256, stable canonical storage root, repo/PR/base/head/full-diff identity,
+source/Lead UUIDs and unique report ID. Use generated pilot finals and local
+deterministic receipt verification; do not infer owner adoption approval.
+
 The three normal persistent Works are Development Lead — Owner Console, PR
 Reviewer, and Router & Release Validation. All other prompts in this file are
 reusable specialist role templates, not permanent Works. Every non-Lead Work
