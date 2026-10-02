@@ -170,6 +170,7 @@ jobs:
           chmod 0600 "$RUNNER_TEMP/xray-mitm-feed-private.pem"
           docker run --rm \
             --network none \
+            --user 0:0 \
             --entrypoint /bin/sh \
             -v "$GITHUB_WORKSPACE/promotion:/promotion" \
             -v "$GITHUB_WORKSPACE/keys:/keys:ro" \
