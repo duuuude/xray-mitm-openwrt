@@ -4,12 +4,18 @@ Use these prompts with the repository root and `AGENTS.md`.
 
 Replace text inside `<...>` before use.
 
-For an explicitly assigned structured review-handoff v2 pilot, follow the
-single normative [HANDOFF.md](HANDOFF.md) specification in addition to the
-active v1 report/final/ACK gates below. Include the frozen assignment ID and
+NEW exact Git PR reviews use `Handoff protocol: review-v2` under the adopted
+[HANDOFF.md](HANDOFF.md) contract. Include the frozen assignment ID and original
 SHA-256, stable canonical storage root, repo/PR/base/head/full-diff identity,
-source/Lead UUIDs and unique report ID. Use generated pilot finals and local
-deterministic receipt verification; do not infer owner adoption approval.
+source/Lead UUIDs and unique report ID. Use structured reports, generated finals
+and local deterministic receipt verification; no Reviewer ACK-verification
+reasoning turn is required. Generic/non-Git reports use `Handoff protocol:
+generic-v1` and retain the v1 report/final/ACK gates below. Existing v1 or
+dual-path pilot assignments finish their original contract. Missing or
+ambiguous routing evidence is HOLD; never silently fall back or switch gates.
+Shared status, reconciliation, privacy, rejection and owner-gate rules apply
+to both protocols; v1-specific delivery/ACK commands apply only to generic-v1
+or existing v1 assignments.
 
 The three normal persistent Works are Development Lead — Owner Console, PR
 Reviewer, and Router & Release Validation. All other prompts in this file are
@@ -301,12 +307,21 @@ and deliver a new report under a unique report ID before finalizing.
 Before stopping, write and verify this complete review with
 `scripts/work-report-handoff.py` using the exact `Handoff repository root`,
 `Source task thread ID`, `Lead task thread ID`, and `Report ID` supplied in the
-review request. Include the artifact receipt plus the full report in your final
-response. You may send the receipt once with `send_message_to_thread` as a
+review request. Require an explicit `Handoff protocol` and, for review-v2,
+the original frozen assignment ID/SHA-256 and exact repo/PR/base/head/diff.
+For review-v2, use `write-review`, `verify-review`, then `render-review
+--include-analysis` as specified in HANDOFF.md. Include the artifact receipt
+plus the full report through that generated final; do not author a second
+verdict or create completion for your running turn. Lead reconciles the exact
+completed final and runs `complete-review`, `receipt-review` and
+`verify-review-receipt`; no source follow-up reasoning turn is required.
+For existing v1/dual-path assignments, include the original report/receipt and
+retain their ACK checks. You may send the receipt once with `send_message_to_thread` as a
 best-effort notification, but do not put the sole copy of the report in task
 transport and do not retry a failed/rejected notification. If artifact write
-or verification fails, state exactly `HANDOFF DELIVERY FAILED`. The artifact
-receipt is provisional until Lead verifies your completed final reply and
+or verification fails, state exactly `HANDOFF DELIVERY FAILED`. In both
+protocols the artifact is provisional until Lead reconciles terminal completion
+and verifies its receiving receipt. For existing v1 assignments only, Lead
 writes an ACK. In a follow-up turn, run `scripts/work-report-handoff.py
 verify-ack` for the exact report and source turn before claiming Lead received
 it. If ACK is absent or mismatched, report `HANDOFF PENDING` and keep following
@@ -671,6 +686,10 @@ Read AGENTS.md first.
 Role:
 <AGENT ROLE>
 
+Handoff protocol:
+<review-v2 for a NEW exact Git PR review; generic-v1 for non-Git reports;
+retain the original protocol for an existing assignment>
+
 Handoff repository root:
 <absolute canonical repository root supplied by Development Lead>
 
@@ -682,6 +701,9 @@ Lead task thread ID:
 
 Report ID:
 <unique stable report ID supplied by Development Lead>
+
+Review-v2 assignment (required for review-v2; not invented for generic-v1):
+<original assignment ID and SHA-256; repository/PR/base/head/full diff SHA-256>
 
 Task:
 <ONE CONCRETE GOAL>
@@ -715,7 +737,11 @@ Stop condition:
 
 Write and verify this report with `scripts/work-report-handoff.py` using the
 exact handoff repository root, source task thread ID, Lead task thread ID, and
-report ID above. Include the receipt and full report in your final response.
+report ID above and the explicitly assigned protocol. For review-v2 follow
+HANDOFF.md and render the final with `render-review --include-analysis`;
+for generic-v1 retain the original write/verify/read/final/ACK contract.
+Missing protocol or frozen review assignment evidence is HOLD.
+Include the receipt and full report in your final response.
 Optionally notify the exact Lead task once with `send_message_to_thread` using
 only the artifact receipt. Do not retry a failed or rejected notification.
 Return this report to: Development Lead — Owner Console

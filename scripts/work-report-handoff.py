@@ -1082,7 +1082,8 @@ def receipt_review(args: argparse.Namespace) -> None:
             if {k: v for k, v in doc.items() if k not in ("schema", "kind", "sha256")} != payload:
                 raise HandoffError("Receipt does not match the exact completed review.")
     print(json.dumps({"receipt": doc, "review_verdict": report["review"]["verdict"],
-                      "pilot_only": True, "protected_authority": "NONE"}, sort_keys=True))
+                      "pilot_only": False, "receipt_only": True,
+                      "protected_authority": "NONE"}, sort_keys=True))
 
 
 def parser() -> argparse.ArgumentParser:

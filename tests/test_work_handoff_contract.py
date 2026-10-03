@@ -46,15 +46,29 @@ def read_thread_status(snapshot: dict, task_id: str) -> str | None:
 
 
 class WorkHandoffContractTests(unittest.TestCase):
-    def test_v2_pilot_is_normative_additive_and_owner_gated(self) -> None:
+    def test_v2_adoption_is_explicit_scoped_and_owner_gated(self) -> None:
         spec = (ROOT / "docs/ai/HANDOFF.md").read_text(encoding="utf-8")
         for document in (AGENTS, WORKFLOW, PROMPTS):
             self.assertIn("HANDOFF.md", document)
             self.assertIn("v1", document)
-        for word in ("pilot", "not adopted", "verify-review-receipt", "retract-review",
+            self.assertIn("Handoff protocol", document)
+            self.assertIn("review-v2", document)
+            self.assertIn("generic-v1", document)
+            self.assertIn("HOLD", document)
+        for word in ("adopted", "existing", "verify-review-receipt", "retract-review",
                      "not authorship", "separate explicit owner", "stable canonical",
                      "protected_authority=NONE", "Missing/ambiguous/interrupted"):
-            self.assertIn(word, spec)
+            self.assertIn(word.lower(), spec.lower())
+
+    def test_adoption_does_not_self_clear_transition_or_migrate_old_assignments(self) -> None:
+        spec = (ROOT / "docs/ai/HANDOFF.md").read_text(encoding="utf-8")
+        for phrase in ("pre-adoption", "dual-path", "No automatic fallback",
+                       "not moved, deleted", "not cryptographic owner approval"):
+            self.assertIn(phrase, spec)
+        reviewer = PROMPTS.split("## 3. Reviewer Agent", 1)[1].split("## 4.", 1)[0]
+        self.assertIn("no source follow-up reasoning turn is required", reviewer)
+        self.assertIn("For existing v1 assignments only", reviewer)
+        self.assertIn("generic-v1 or existing v1 report", WORKFLOW)
 
     def test_handoff_request_and_delivery_use_an_exact_thread_id(self) -> None:
         for document in (WORKFLOW, PROMPTS):
@@ -141,7 +155,7 @@ class WorkHandoffContractTests(unittest.TestCase):
         self.assertIn("`Source task thread ID`", reviewer)
         self.assertIn("`Lead task thread ID`", reviewer)
         self.assertIn("`Report ID`", reviewer)
-        self.assertIn("artifact receipt plus the full report", reviewer)
+        self.assertIn("artifact receipt plus the full report", " ".join(reviewer.split()))
         self.assertIn("HANDOFF DELIVERY FAILED", reviewer)
 
     def test_review_gate_waits_for_terminal_turn_and_reconciles_context(self) -> None:

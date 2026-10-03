@@ -106,13 +106,18 @@ class ReviewV2Tests(unittest.TestCase):
 
     def test_complete_receipt_is_mechanical_and_survives_missing_sessions(self):
         self.delivered()
+        original_records = {path: path.read_bytes() for path in self.store.glob("*.json")}
         self.log.unlink()
         result = self.run_cli("verify-review-receipt")
         self.assertEqual(result.returncode, 0, result.stderr)
         receipt = json.loads(result.stdout)
-        self.assertTrue(receipt["pilot_only"])
+        self.assertFalse(receipt["pilot_only"])
+        self.assertTrue(receipt["receipt_only"])
+        self.assertTrue(receipt["receipt"]["receipt_only"])
+        self.assertEqual(receipt["receipt"]["protected_authority"], "NONE")
         self.assertEqual(receipt["protected_authority"], "NONE")
         self.assertEqual(receipt["review_verdict"], "APPROVE")
+        self.assertEqual({path: path.read_bytes() for path in self.store.glob("*.json")}, original_records)
 
     def test_dual_v1_v2_pilot_uses_one_review_and_preserves_old_ack(self):
         self.prepared()
