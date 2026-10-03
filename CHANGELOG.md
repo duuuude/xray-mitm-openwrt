@@ -9,6 +9,18 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.4.5] - 2026-09-26
 
+### Added
+
+- Add an OpenWrt 24.10 IPK build lane for `xray-mitm` and
+  `luci-app-xray-mitm`, using the official 24.10.8 SDK for
+  `aarch64_cortex-a53` with package and dependency checks.
+- Add a dual-backend installer that detects matching OpenWrt 25.12/APK and
+  24.10/opkg release/package-manager pairs and rejects mismatched pairs.
+- Add a fail-closed opkg installation path requiring an explicit HTTPS feed,
+  a SHA-256-pinned `usign` public key, and enabled signature checking. Limit
+  installation and upgrades to the two project packages, preserve unrelated
+  feed entries, and restore the previous key/feed/keep-file state on failure.
+
 ### Changed
 
 - Improve PassWall2 capability detection and make inspection of incomplete,
@@ -17,6 +29,17 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and routing prerequisites.
 - Improve installer package-manager and OpenWrt release checks while keeping
   the documented public feed target at OpenWrt 25.12/APK.
+
+### Compatibility limitations
+
+- The public v0.4.5 release remains OpenWrt 25.12/APK-only. It does not include
+  IPK release assets or a default public signed OpenWrt 24.10 feed.
+- The 24.10 IPK build and opkg installer work is compatibility groundwork,
+  not a public support declaration. Native 24.10 runtime, hardware, and
+  package rollback qualification remain unproven; installer feed-state
+  restoration is not proof of installed-package rollback. See the
+  [compatibility contract](https://github.com/duuuude/xray-mitm-openwrt/blob/v0.4.5/docs/OPENWRT_COMPATIBILITY.md) for the evidence
+  boundaries.
 
 ## [0.4.4] - 2026-09-13
 
