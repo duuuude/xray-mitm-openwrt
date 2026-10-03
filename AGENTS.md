@@ -380,11 +380,19 @@ Do not assume source-level testing proves a later rebuilt package behaves identi
 
 ## 23. AI-specific behavior
 
-The normative additive review-handoff v2 pilot is `docs/ai/HANDOFF.md`.
-Its structured assignment/completion/receipt commands are supplemental only;
-the v1 protocol below remains the active gate until independent protocol
-review and separate explicit owner adoption approval. Do not silently switch
-gates when testing the pilot. Generic non-Git reports stay v1.
+The normative adopted review-handoff v2 contract is `docs/ai/HANDOFF.md`.
+NEW exact Git PR reviews use `Handoff protocol: review-v2`: frozen assignment,
+structured report, generated final, Lead-observed terminal completion and one
+deterministic receipt. No Reviewer ACK-verification reasoning turn is required.
+Generic/non-Git reports use `Handoff protocol: generic-v1` and the v1
+report/final/ACK procedure below. Existing v1 or dual-path pilot assignments
+finish their originally assigned contract; never migrate, delete or rewrite
+their records. Missing or ambiguous protocol/assignment evidence is HOLD,
+not permission to silently fall back or infer a new assignment.
+The generic v1 delivery/ACK instructions below apply only to generic-v1 and
+existing v1 assignments. Fresh status, independent final reconciliation,
+privacy, transport rejection and protected owner-gate rules apply to BOTH.
+This adoption does not authorize merge, signing, release or router operations.
 
 Do not optimize for amount of code generated.
 

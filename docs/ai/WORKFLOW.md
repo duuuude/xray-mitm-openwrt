@@ -220,10 +220,24 @@ acting when rollback is unclear or material evidence is missing
 
 ## Live task status and report verification
 
-See [HANDOFF.md](HANDOFF.md) for the normative structured review-handoff v2
-pilot, stable storage and deterministic receipt commands. It is additive:
-perform the v1 gates below during the dual-path pilot. Merge permission does
-not adopt the new completion contract; adoption needs separate owner approval.
+See [HANDOFF.md](HANDOFF.md) for the adopted review-v2 contract. NEW exact Git
+PR reviews explicitly use `Handoff protocol: review-v2`; generic/non-Git
+reports use `Handoff protocol: generic-v1`. Existing v1 and dual-path pilot
+assignments finish their original contract. Missing or ambiguous protocol or
+original frozen assignment evidence is HOLD; never silently fall back.
+
+For review-v2, Lead freezes exact identities with `assign-review`; source uses
+`write-review`, `verify-review` and `render-review --include-analysis`. Lead
+reads the complete structured report, observes the exact completed source turn,
+reconciles its full generated final, then runs `complete-review`,
+`receipt-review` and `verify-review-receipt`. This replaces only the v1 ACK
+round trip for new Git reviews; no Reviewer ACK-verification reasoning turn
+is required. It does not replace independent review, live identity/CI checks,
+final contradiction detection, privacy or protected owner approvals.
+
+The generic v1 report/final/ACK instructions and examples below apply only to
+generic-v1 and existing v1 assignments. Shared live-status, reconciliation,
+transport-rejection and protected owner-gate rules apply to BOTH protocols.
 
 Task/thread status is a live snapshot, not durable evidence. Before telling the
 owner that a Work is active, idle, or complete—or deciding whether to wait,
@@ -278,8 +292,9 @@ to the source task. In a follow-up turn the source runs `verify-ack`; until
 that succeeds it reports `HANDOFF PENDING`, never "Lead received it." If the
 native notification fails, Lead's quiet monitor checks the deterministic ACK
 artifact and follows up with the source directly, not through the owner.
-Every PR monitor must cover both CI and the source task's terminal report/ACK
-state; do not close it when only the build checks finish.
+Every PR monitor must cover both CI and the source task's terminal delivery
+state: completion/receipt for review-v2, report/ACK for v1. Do not close it when
+only the build checks finish.
 
 Task-state responses may omit conversation text: `latestAssistantMessage: null`
 or `items: []` can coexist with a reply visible in the task UI. These metadata
@@ -421,9 +436,16 @@ Handoff repository root: <absolute canonical repository root>
 Source task thread ID: <exact source task/thread ID>
 Lead task thread ID: <exact Development Lead task/thread ID>
 Report ID: <unique stable ID, for example pr-72-review-<candidate prefix>>
+Handoff protocol: <review-v2 for new Git PR review; generic-v1 otherwise>
+Review-v2 assignment: <original ID/SHA-256; repo/PR/base/head/full diff SHA-256>
 ```
 
-Before finalizing, each non-Lead Work must:
+For review-v2 use HANDOFF.md's structured write/verify/generated-final steps
+and Lead completion/receipt; do not also run the v1 steps below. Preserve
+existing v1 and dual-path assignments unchanged. Missing protocol or original
+assignment evidence is HOLD.
+
+Before finalizing a generic-v1 or existing v1 report, each non-Lead Work must:
 
 1. Reconfirm the latest assignment, PR, and exact candidate in its own task.
    Put any task collision, later correction, or separate note into the report;
