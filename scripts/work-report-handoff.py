@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import fcntl
 import hashlib
 import json
 import os
@@ -27,6 +28,9 @@ TASK_ID = re.compile(
 REPORT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 MAX_REPORT_BYTES = 1024 * 1024
+# Keep v1's one-MiB final-reader limit. Reserve ample space for v2 and legacy
+# receipts (bounded IDs/digests), instead of sealing an undeliverable report.
+MAX_V2_ANALYSIS_BYTES = MAX_REPORT_BYTES - 16 * 1024
 MAX_ARTIFACT_BYTES = 2 * 1024 * 1024
 DIRECTORY_FLAGS = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
 NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
@@ -237,7 +241,7 @@ def _receipt(document: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _read_artifact(destination_fd: int, filename: str) -> dict[str, Any]:
+def _read_artifact(destination_fd: int, filename: str, *, strict: bool = False) -> dict[str, Any]:
     try:
         descriptor = os.open(
             filename,
@@ -269,7 +273,8 @@ def _read_artifact(destination_fd: int, filename: str) -> dict[str, Any]:
     finally:
         os.close(descriptor)
     try:
-        document = json.loads(b"".join(chunks).decode("utf-8"))
+        raw = b"".join(chunks).decode("utf-8")
+        document = _strict_json(raw) if strict else json.loads(raw)
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise HandoffError("The handoff artifact could not be decoded.") from exc
     if not isinstance(document, dict):
@@ -501,7 +506,7 @@ def _assert_session_child(parent_fd: int, name: str, child_fd: int) -> None:
         raise HandoffError("The local task-session path changed during the read.")
 
 
-def _load_final(args: argparse.Namespace) -> dict[str, str]:
+def _load_final(args: argparse.Namespace, *, strict_terminal: bool = False) -> dict[str, str]:
     """Read only the exact completed turn's final message from a local task log."""
     if not TASK_ID.fullmatch(args.source_task_id) or not TASK_ID.fullmatch(args.turn_id):
         raise HandoffError("Source task and turn IDs must be full lowercase UUIDs.")
@@ -541,6 +546,11 @@ def _load_final(args: argparse.Namespace) -> dict[str, str]:
                                 if not isinstance(event, dict):
                                     raise HandoffError("The local task log contains an invalid event.")
                                 payload = event.get("payload")
+                                if (strict_terminal and event.get("type") == "event_msg"
+                                        and isinstance(payload, dict)
+                                        and payload.get("turn_id") == args.turn_id
+                                        and payload.get("type") in ("turn_aborted", "task_failed", "turn_failed")):
+                                    raise HandoffError("Conflicting interrupted/failed terminal evidence for the exact turn.")
                                 if (
                                     event.get("type") == "event_msg"
                                     and isinstance(payload, dict)
@@ -668,6 +678,413 @@ def verify_ack(args: argparse.Namespace) -> None:
     print(json.dumps(_receipt(acknowledgment), sort_keys=True))
 
 
+# Additive review-specific pilot. Generic v1 commands and records stay intact.
+V2 = "xray-mitm-review/v2"
+DIGEST = re.compile(r"^[0-9a-f]{64}$")
+V2_MARKER = "XRAY_HANDOFF_V2="
+
+
+def _strict_json(raw: str) -> Any:
+    def unique(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in result:
+                raise HandoffError("Duplicate JSON field in review evidence.")
+            result[key] = value
+        return result
+
+    def invalid_constant(value: str) -> None:
+        raise HandoffError("Non-finite JSON value in review evidence.")
+
+    try:
+        return json.loads(raw, object_pairs_hook=unique, parse_constant=invalid_constant)
+    except (ValueError, RecursionError) as exc:
+        raise HandoffError("Review evidence is not valid bounded JSON.") from exc
+
+
+def _v2_name(kind: str, identity: str) -> str:
+    if not REPORT_ID.fullmatch(identity):
+        raise HandoffError("Invalid review record ID.")
+    return f"review-v2-{kind}-{identity}.json"
+
+
+def _seal(document: dict[str, Any]) -> dict[str, Any]:
+    return {**document, "sha256": _canonical_digest(document)}
+
+
+def _v2_load(fd: int, kind: str, identity: str) -> dict[str, Any]:
+    doc = _read_artifact(fd, _v2_name(kind, identity), strict=True)
+    unsigned = {k: v for k, v in doc.items() if k != "sha256"}
+    if doc.get("schema") != V2 or doc.get("kind") != kind or doc.get("sha256") != _canonical_digest(unsigned):
+        raise HandoffError("Review record schema or digest mismatch.")
+    return doc
+
+
+def _v2_save(repo: Path, repo_fd: int, fd: int, kind: str, identity: str,
+             payload: dict[str, Any]) -> dict[str, Any]:
+    doc = _seal({"schema": V2, "kind": kind, **payload})
+    encoded = (json.dumps(doc, ensure_ascii=False, sort_keys=True, indent=2) + "\n").encode("utf-8")
+    if len(encoded) > MAX_ARTIFACT_BYTES:
+        raise HandoffError("Review record exceeds the artifact size limit.")
+    name = _v2_name(kind, identity)
+    temp = f".{name}.{secrets.token_hex(12)}.tmp"
+    _assert_repo_path(repo, repo_fd)
+    descriptor = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | NOFOLLOW, 0o600, dir_fd=fd)
+    linked = False
+    try:
+        os.fchmod(descriptor, 0o600)
+        _write_all(descriptor, encoded)
+        os.fsync(descriptor)
+        os.close(descriptor)
+        descriptor = -1
+        os.link(temp, name, src_dir_fd=fd, dst_dir_fd=fd, follow_symlinks=False)
+        linked = True
+        os.fsync(fd)
+        _assert_repo_path(repo, repo_fd)
+    except FileExistsError as exc:
+        raise HandoffError("Review record already exists; no overwrite permitted.") from exc
+    except HandoffError:
+        if linked:
+            os.unlink(name, dir_fd=fd)
+        raise
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        os.unlink(temp, dir_fd=fd)
+    return doc
+
+
+def _v2_exists(fd: int, kind: str, identity: str) -> bool:
+    try:
+        os.stat(_v2_name(kind, identity), dir_fd=fd, follow_symlinks=False)
+        return True
+    except FileNotFoundError:
+        return False
+
+
+@contextmanager
+def _v2_store(args: argparse.Namespace, *, create: bool = False) -> Iterator[tuple[Path, int, int]]:
+    _validate_identity(args.source_task_id, args.destination_task_id, args.assignment_id)
+    with _verified_repo(args.repo) as (repo, repo_fd):
+        with _destination_directory(repo_fd, args.destination_task_id, create=create) as fd:
+            flags = os.O_RDWR | NOFOLLOW | getattr(os, "O_NONBLOCK", 0)
+            lock_fd = os.open("review-v2.lock", flags | (os.O_CREAT if create else 0), 0o600, dir_fd=fd)
+            try:
+                metadata = os.fstat(lock_fd)
+                if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1 or stat.S_IMODE(metadata.st_mode) & 0o077:
+                    raise HandoffError("Review lock must be a private regular file.")
+                try:
+                    fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError as exc:
+                    raise HandoffError("Review store busy; stop, refresh once after current writer finishes.") from exc
+                current = os.stat("review-v2.lock", dir_fd=fd, follow_symlinks=False)
+                if (current.st_dev, current.st_ino) != (metadata.st_dev, metadata.st_ino):
+                    raise HandoffError("Review lock path changed.")
+                yield repo, repo_fd, fd
+                _assert_repo_path(repo, repo_fd)
+                with _destination_directory(repo_fd, args.destination_task_id, create=False) as current_fd:
+                    pinned, observed = os.fstat(fd), os.fstat(current_fd)
+                    if (pinned.st_dev, pinned.st_ino) != (observed.st_dev, observed.st_ino):
+                        raise HandoffError("Review store path changed during operation.")
+                current = os.stat("review-v2.lock", dir_fd=fd, follow_symlinks=False)
+                if (current.st_dev, current.st_ino) != (metadata.st_dev, metadata.st_ino):
+                    raise HandoffError("Review lock path changed.")
+            finally:
+                os.close(lock_fd)
+
+
+def _v2_diff(repo_fd: int, repository: str, base: str, head: str) -> str:
+    if repository != "duuuude/xray-mitm-openwrt":
+        raise HandoffError("Review repository identity must be the canonical GitHub project.")
+    if not FULL_SHA.fullmatch(base) or not FULL_SHA.fullmatch(head):
+        raise HandoffError("Review base/head must be full commit SHAs.")
+
+    def git(*arguments: str) -> bytes:
+        return subprocess.run(["git", *arguments], check=True, stdout=subprocess.PIPE,
+                              stderr=subprocess.DEVNULL, timeout=15, pass_fds=(repo_fd,),
+                              preexec_fn=lambda: os.fchdir(repo_fd)).stdout
+
+    allowed = {f"https://github.com/{repository}", f"git@github.com:{repository}",
+               f"ssh://git@github.com/{repository}"}
+    allowed |= {url + ".git" for url in list(allowed)}
+    for flags in ((), ("--push",)):
+        urls = git("remote", "get-url", *flags, "--all", "origin").decode("utf-8").splitlines()
+        if not urls or any(url not in allowed for url in urls):
+            raise HandoffError("Effective review fetch/push remote identity mismatch.")
+    for sha in (base, head):
+        if git("cat-file", "-t", sha).strip() != b"commit":
+            raise HandoffError("Review base/head must identify existing commits.")
+    git("merge-base", "--is-ancestor", base, head)
+    diff = git("diff", "--binary", "--full-index", "--no-ext-diff", "--no-textconv", "--no-renames", base, head, "--")
+    if len(diff) > MAX_REPORT_BYTES:
+        raise HandoffError("Review diff exceeds the pilot's one MiB limit.")
+    return hashlib.sha256(diff).hexdigest()
+
+
+def assign_review(args: argparse.Namespace) -> None:
+    with _verified_repo(args.repo) as (repo, repo_fd):
+        digest = _v2_diff(repo_fd, args.repository, args.base_sha, args.candidate_sha)
+        if type(args.pr) is not int or args.pr <= 0 or digest != args.diff_sha256:
+            raise HandoffError("Review PR or expected full diff digest mismatch.")
+        _assert_repo_path(repo, repo_fd)
+    with _v2_store(args, create=True) as (repo, repo_fd, fd):
+        doc = _v2_save(repo, repo_fd, fd, "assignment", args.assignment_id, {
+            "assignment_id": args.assignment_id, "repository": args.repository,
+            "pr": args.pr, "base_sha": args.base_sha, "candidate_sha": args.candidate_sha,
+            "diff_sha256": digest, "source_task_id": args.source_task_id,
+            "destination_task_id": args.destination_task_id,
+        })
+    print(json.dumps(doc, sort_keys=True))
+
+
+def _v2_assignment(args: argparse.Namespace, repo_fd: int, fd: int) -> dict[str, Any]:
+    doc = _v2_load(fd, "assignment", args.assignment_id)
+    if (not DIGEST.fullmatch(args.assignment_sha256) or doc["sha256"] != args.assignment_sha256
+            or doc.get("assignment_id") != args.assignment_id
+            or doc.get("source_task_id") != args.source_task_id
+            or doc.get("destination_task_id") != args.destination_task_id
+            or type(doc.get("pr")) is not int or doc["pr"] <= 0
+            or _v2_diff(repo_fd, doc["repository"], doc["base_sha"], doc["candidate_sha"]) != doc["diff_sha256"]):
+        raise HandoffError("Review assignment identity or diff mismatch.")
+    return doc
+
+
+def _v2_review_fields(report: Any) -> None:
+    required = {"verdict", "findings", "unresolved_conflicts", "supersedes", "analysis"}
+    if not isinstance(report, dict) or set(report) != required:
+        raise HandoffError("Review requires exactly verdict/findings/unresolved_conflicts/supersedes/analysis.")
+    if report["verdict"] not in ("APPROVE", "CHANGES REQUESTED", "BLOCK"):
+        raise HandoffError("Invalid review verdict.")
+    if not isinstance(report["analysis"], str) or not report["analysis"].strip():
+        raise HandoffError("Review analysis must be nonempty.")
+    if len(report["analysis"].encode("utf-8")) > MAX_V2_ANALYSIS_BYTES:
+        raise HandoffError("Review analysis exceeds the final-safe pilot budget (one MiB minus 16 KiB).")
+    if not isinstance(report["findings"], list) or not isinstance(report["unresolved_conflicts"], list):
+        raise HandoffError("Findings and conflicts must be explicit lists.")
+    for finding in report["findings"]:
+        if (not isinstance(finding, dict) or set(finding) != {"id", "severity", "status", "summary"}
+                or finding["severity"] not in ("blocker", "high", "medium", "low")
+                or finding["status"] not in ("OPEN", "RESOLVED")
+                or any(not isinstance(finding[x], str) or not finding[x].strip() for x in ("id", "summary"))):
+            raise HandoffError("Invalid structured review finding.")
+    if len({x["id"] for x in report["findings"]}) != len(report["findings"]):
+        raise HandoffError("Duplicate finding ID.")
+    if any(not isinstance(x, str) or not x.strip() for x in report["unresolved_conflicts"]):
+        raise HandoffError("Invalid unresolved conflict.")
+    if report["supersedes"] is not None and (not isinstance(report["supersedes"], str) or not REPORT_ID.fullmatch(report["supersedes"])):
+        raise HandoffError("Invalid supersession identity.")
+    if report["verdict"] == "APPROVE" and (report["unresolved_conflicts"] or any(x["status"] == "OPEN" for x in report["findings"])):
+        raise HandoffError("APPROVE cannot coexist with unresolved findings or conflicts.")
+    if report["unresolved_conflicts"] and report["verdict"] != "BLOCK":
+        raise HandoffError("Unresolved assignment conflicts require BLOCK.")
+
+
+def _v2_report(args: argparse.Namespace, assignment: dict[str, Any], fd: int,
+               *, archived: bool = False, replacement_turn: str | None = None) -> dict[str, Any]:
+    doc = _v2_load(fd, "report", args.report_id)
+    if not archived and _v2_exists(fd, "retraction", args.report_id):
+        raise HandoffError("Review is retracted; previous completion/receipt cannot be relied on.")
+    node, identity, seen, turns = doc, args.report_id, set(), set()
+    while True:
+        if identity in seen or len(seen) >= 64:
+            raise HandoffError("Ambiguous or excessive review supersession history.")
+        seen.add(identity)
+        if (node.get("assignment_sha256") != assignment["sha256"] or node.get("report_id") != identity
+                or not isinstance(node.get("source_turn_id"), str) or not TASK_ID.fullmatch(node["source_turn_id"])):
+            raise HandoffError("Review report assignment/turn mismatch.")
+        if node["source_turn_id"] in turns or node["source_turn_id"] == replacement_turn:
+            raise HandoffError("Corrected review requires a new source turn, distinct from its lineage.")
+        turns.add(node["source_turn_id"])
+        _v2_review_fields(node["review"])
+        prior = node["review"]["supersedes"]
+        if prior is None:
+            initial = _v2_load(fd, "initial", args.assignment_id)
+            if initial.get("report_id") != identity or initial.get("assignment_sha256") != assignment["sha256"]:
+                raise HandoffError("Review does not descend from the reserved initial report.")
+            break
+        parent = _v2_load(fd, "report", prior)
+        invalidation = _v2_load(fd, "retraction", prior)
+        if (invalidation.get("assignment_sha256") != assignment["sha256"]
+                or invalidation.get("report_id") != prior or invalidation.get("report_sha256") != parent["sha256"]
+                or invalidation.get("replacement_report_id") != identity):
+            raise HandoffError("Review supersession does not bind the original report.")
+        node, identity = parent, prior
+    return doc
+
+
+def _v2_receipt(assignment: dict[str, Any], report: dict[str, Any]) -> dict[str, Any]:
+    return {"assignment_id": assignment["assignment_id"], "assignment_sha256": assignment["sha256"],
+            "report_id": report["report_id"], "report_sha256": report["sha256"],
+            "source_turn_id": report["source_turn_id"], "verdict": report["review"]["verdict"]}
+
+
+def write_review(args: argparse.Namespace) -> None:
+    _validate_identity(args.source_task_id, args.destination_task_id, args.report_id)
+    if not TASK_ID.fullmatch(args.source_turn_id):
+        raise HandoffError("Review source turn must be an exact UUID.")
+    review = _strict_json(_read_report(args.report_file))
+    _v2_review_fields(review)
+    with _v2_store(args) as (repo, repo_fd, fd):
+        assignment = _v2_assignment(args, repo_fd, fd)
+        prior = review["supersedes"]
+        if prior is None:
+            # Reserve one initial report; interruption leaves PENDING, not a
+            # second competing verdict. Retry may fill only that reserved ID.
+            if not _v2_exists(fd, "initial", args.assignment_id):
+                _v2_save(repo, repo_fd, fd, "initial", args.assignment_id,
+                         {"assignment_sha256": assignment["sha256"], "report_id": args.report_id})
+            slot = _v2_load(fd, "initial", args.assignment_id)
+            if slot.get("assignment_sha256") != assignment["sha256"] or slot.get("report_id") != args.report_id:
+                raise HandoffError("Assignment already has another report; explicit retraction required.")
+        else:
+            invalidation = _v2_load(fd, "retraction", prior)
+            parent = _v2_report(argparse.Namespace(**{**vars(args), "report_id": prior}), assignment, fd,
+                                archived=True, replacement_turn=args.source_turn_id)
+            if (invalidation.get("assignment_sha256") != assignment["sha256"]
+                    or invalidation.get("report_sha256") != parent["sha256"]
+                    or invalidation.get("replacement_report_id") != args.report_id):
+                raise HandoffError("Replacement does not match the explicit retraction.")
+        report = _v2_save(repo, repo_fd, fd, "report", args.report_id, {
+            "assignment_sha256": assignment["sha256"], "report_id": args.report_id,
+            "source_turn_id": args.source_turn_id, "review": review})
+    print(json.dumps(_v2_receipt(assignment, report), sort_keys=True))
+
+
+def verify_review(args: argparse.Namespace) -> None:
+    with _v2_store(args) as (_, repo_fd, fd):
+        assignment = _v2_assignment(args, repo_fd, fd)
+        report = _v2_report(args, assignment, fd)
+    print(json.dumps({"receipt": _v2_receipt(assignment, report), "review": report["review"],
+                      "completion": "UNPROVEN", "protected_authority": "NONE"}, sort_keys=True))
+
+
+def render_review(args: argparse.Namespace) -> None:
+    with _v2_store(args) as (_, repo_fd, fd):
+        assignment = _v2_assignment(args, repo_fd, fd)
+        report = _v2_report(args, assignment, fd)
+        receipt = _v2_terminal_receipt(args, assignment, report, repo_fd)
+    # The analysis prefix is optional in v2, but permits an unchanged v1
+    # report body in the same completed final during the dual-path pilot.
+    rendered = ((report["review"]["analysis"].rstrip("\n") + "\n") if args.include_analysis else "")
+    rendered += V2_MARKER + json.dumps(receipt, sort_keys=True) + "\n"
+    if len(rendered.encode("utf-8")) > MAX_REPORT_BYTES:
+        raise HandoffError("Generated review final exceeds the terminal-reader budget.")
+    sys.stdout.write(rendered)
+
+
+def _v2_terminal_receipt(args: argparse.Namespace, assignment: dict[str, Any],
+                         report: dict[str, Any], repo_fd: int) -> dict[str, Any]:
+    receipt = _v2_receipt(assignment, report)
+    if args.legacy_v1:
+        legacy = _load_verified(repo_fd, args.source_task_id, args.destination_task_id,
+                                args.report_id, assignment["candidate_sha"])
+        if legacy["report"] != report["review"]["analysis"]:
+            raise HandoffError("Pilot v1 report differs from structured review analysis.")
+        receipt["legacy_receipt"] = _receipt(legacy)
+    return receipt
+
+
+def retract_review(args: argparse.Namespace) -> None:
+    _validate_identity(args.source_task_id, args.destination_task_id, args.replacement_report_id)
+    if args.report_id == args.replacement_report_id or not args.reason.strip():
+        raise HandoffError("Retraction needs a new report ID and nonempty reason.")
+    with _v2_store(args) as (repo, repo_fd, fd):
+        assignment = _v2_assignment(args, repo_fd, fd)
+        report = _v2_report(args, assignment, fd)
+        doc = _v2_save(repo, repo_fd, fd, "retraction", args.report_id, {
+            "assignment_sha256": assignment["sha256"], "report_id": args.report_id,
+            "report_sha256": report["sha256"], "replacement_report_id": args.replacement_report_id,
+            "reason": args.reason})
+    print(json.dumps(doc, sort_keys=True))
+
+
+def complete_review(args: argparse.Namespace) -> None:
+    if not args.confirm_final_reconciled:
+        raise HandoffError("Lead must reconcile final context before recording pilot completion.")
+    with _v2_store(args) as (repo, repo_fd, fd):
+        assignment = _v2_assignment(args, repo_fd, fd)
+        report = _v2_report(args, assignment, fd)
+        if report["source_turn_id"] != args.source_turn_id:
+            raise HandoffError("Completed source turn mismatch.")
+        final = _load_final(argparse.Namespace(sessions_root=args.sessions_root,
+                            source_task_id=args.source_task_id, turn_id=args.source_turn_id), strict_terminal=True)
+        message = final["final_message"].strip()
+        # Presentation fences/JSON whitespace may vary; additional authored
+        # notes are never discarded. Citation metadata is not duplicated in
+        # the authoritative structured report; no report reissue for it.
+        message = re.sub(r"\n<oai-mem-citation>\s*<citation_entries>[^<>]*</citation_entries>\s*<rollout_ids>[^<>]*</rollout_ids>\s*</oai-mem-citation>\s*$", "", message)
+        # A leading fence can be authoritative analysis content. Only a paired
+        # whole-final fence is a wrapper; generated finals end in receipt JSON.
+        # Exact analysis/receipt reconciliation below still rejects extra text.
+        if message.startswith("```") and message.splitlines()[-1] == "```":
+            lines = message.splitlines()
+            if lines[0] not in ("```", "```text") or lines[-1] != "```":
+                raise HandoffError("Unsupported completion rendering.")
+            message = "\n".join(lines[1:-1])
+        # Prose may legitimately quote the marker, even on its own line. The
+        # last line-start marker separates the terminal receipt; everything
+        # preceding it must still be the exact authoritative analysis (or empty).
+        prefix, separator, terminal = message.rpartition("\n" + V2_MARKER)
+        if not separator:
+            if not message.startswith(V2_MARKER):
+                raise HandoffError("Missing generated terminal review receipt.")
+            prefix, terminal = "", message[len(V2_MARKER):]
+        prefix = re.sub(r" {2}(?=\n)", "", prefix).strip()
+        analysis = re.sub(r" {2}(?=\n)", "", report["review"]["analysis"]).strip()
+        if prefix and prefix != analysis:
+            raise HandoffError("Final contains post-report corrections or extra caveats; retract old review.")
+        receipt = _v2_terminal_receipt(args, assignment, report, repo_fd)
+        if _strict_json(terminal) != receipt:
+            raise HandoffError("Final terminal receipt does not match the review.")
+        completed = datetime.fromisoformat(final["completed_at"].replace("Z", "+00:00"))
+        if completed.utcoffset() is None or completed > datetime.now(timezone.utc):
+            raise HandoffError("Invalid terminal completion timestamp.")
+        doc = _v2_save(repo, repo_fd, fd, "completion", args.report_id, {
+            "assignment_sha256": assignment["sha256"], "report_sha256": report["sha256"],
+            "source_turn_id": report["source_turn_id"], "source_task_id": args.source_task_id,
+            "completed_at": final["completed_at"], "observer_task_id": args.destination_task_id,
+            "legacy_handoff_sha256": receipt.get("legacy_receipt", {}).get("handoff_sha256"),
+            "final_reconciled": True})
+    print(json.dumps(doc, sort_keys=True))
+
+
+def _v2_completion(args: argparse.Namespace, assignment: dict[str, Any],
+                   report: dict[str, Any], fd: int, repo_fd: int) -> dict[str, Any]:
+    doc = _v2_load(fd, "completion", args.report_id)
+    if (doc.get("assignment_sha256") != assignment["sha256"] or doc.get("report_sha256") != report["sha256"]
+            or doc.get("source_turn_id") != report["source_turn_id"] or doc.get("final_reconciled") is not True
+            or doc.get("source_task_id") != args.source_task_id or doc.get("observer_task_id") != args.destination_task_id):
+        raise HandoffError("Completion does not bind the exact report/turn/observer.")
+    completed = datetime.fromisoformat(doc["completed_at"].replace("Z", "+00:00"))
+    if completed.utcoffset() is None or completed > datetime.now(timezone.utc):
+        raise HandoffError("Invalid recorded completion timestamp.")
+    legacy_digest = doc["legacy_handoff_sha256"]
+    if legacy_digest is not None:
+        legacy = _load_verified(repo_fd, args.source_task_id, args.destination_task_id,
+                                args.report_id, assignment["candidate_sha"])
+        if legacy["handoff_sha256"] != legacy_digest or legacy["report"] != report["review"]["analysis"]:
+            raise HandoffError("Pilot v1 evidence no longer matches completion.")
+    return doc
+
+
+def receipt_review(args: argparse.Namespace) -> None:
+    with _v2_store(args) as (repo, repo_fd, fd):
+        assignment = _v2_assignment(args, repo_fd, fd)
+        report = _v2_report(args, assignment, fd)
+        completion = _v2_completion(args, assignment, report, fd, repo_fd)
+        payload = {"assignment_sha256": assignment["sha256"], "report_sha256": report["sha256"],
+                   "completion_sha256": completion["sha256"], "received_by_task_id": args.destination_task_id,
+                   "receipt_only": True, "protected_authority": "NONE"}
+        if args.command == "receipt-review":
+            doc = _v2_save(repo, repo_fd, fd, "receipt", args.report_id, payload)
+        else:
+            doc = _v2_load(fd, "receipt", args.report_id)
+            if {k: v for k, v in doc.items() if k not in ("schema", "kind", "sha256")} != payload:
+                raise HandoffError("Receipt does not match the exact completed review.")
+    print(json.dumps({"receipt": doc, "review_verdict": report["review"]["verdict"],
+                      "pilot_only": True, "protected_authority": "NONE"}, sort_keys=True))
+
+
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(description=__doc__)
     commands = result.add_subparsers(dest="command", required=True)
@@ -707,6 +1124,39 @@ def parser() -> argparse.ArgumentParser:
         if name == "ack":
             ack_parser.add_argument("--confirm-final-reconciled", action="store_true")
         ack_parser.set_defaults(handler=handler)
+    for name, handler in (("assign-review", assign_review), ("write-review", write_review),
+                          ("verify-review", verify_review), ("render-review", render_review),
+                          ("retract-review", retract_review), ("complete-review", complete_review),
+                          ("receipt-review", receipt_review), ("verify-review-receipt", receipt_review)):
+        command = commands.add_parser(name)
+        command.add_argument("--repo", required=True, type=Path)
+        command.add_argument("--source-task-id", required=True)
+        command.add_argument("--destination-task-id", required=True)
+        command.add_argument("--assignment-id", required=True)
+        if name == "assign-review":
+            command.add_argument("--repository", required=True)
+            command.add_argument("--pr", required=True, type=int)
+            command.add_argument("--base-sha", required=True)
+            command.add_argument("--candidate-sha", required=True)
+            command.add_argument("--diff-sha256", required=True)
+        else:
+            command.add_argument("--assignment-sha256", required=True)
+            command.add_argument("--report-id", required=True)
+        if name == "write-review":
+            command.add_argument("--source-turn-id", required=True)
+            command.add_argument("--report-file", required=True)
+        elif name == "render-review":
+            command.add_argument("--include-analysis", action="store_true")
+            command.add_argument("--legacy-v1", action="store_true")
+        elif name == "complete-review":
+            command.add_argument("--legacy-v1", action="store_true")
+            command.add_argument("--source-turn-id", required=True)
+            command.add_argument("--sessions-root", required=True, type=Path)
+            command.add_argument("--confirm-final-reconciled", action="store_true")
+        elif name == "retract-review":
+            command.add_argument("--replacement-report-id", required=True)
+            command.add_argument("--reason", required=True)
+        command.set_defaults(handler=handler)
     return result
 
 
@@ -716,6 +1166,11 @@ def main() -> int:
         args.handler(args)
     except HandoffError as exc:
         print(f"work-report-handoff: {exc}", file=sys.stderr)
+        return 1
+    except (OSError, KeyError, TypeError, ValueError, subprocess.SubprocessError) as exc:
+        # Bounded fail-closed diagnostics; do not print arbitrary input or
+        # captured Git/session output on malformed v2 evidence.
+        print(f"work-report-handoff: evidence operation failed ({type(exc).__name__}).", file=sys.stderr)
         return 1
     return 0
 

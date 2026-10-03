@@ -380,6 +380,12 @@ Do not assume source-level testing proves a later rebuilt package behaves identi
 
 ## 23. AI-specific behavior
 
+The normative additive review-handoff v2 pilot is `docs/ai/HANDOFF.md`.
+Its structured assignment/completion/receipt commands are supplemental only;
+the v1 protocol below remains the active gate until independent protocol
+review and separate explicit owner adoption approval. Do not silently switch
+gates when testing the pilot. Generic non-Git reports stay v1.
+
 Do not optimize for amount of code generated.
 
 Optimize for:
