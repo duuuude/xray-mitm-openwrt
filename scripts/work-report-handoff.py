@@ -1013,7 +1013,10 @@ def complete_review(args: argparse.Namespace) -> None:
         # notes are never discarded. Citation metadata is not duplicated in
         # the authoritative structured report; no report reissue for it.
         message = re.sub(r"\n<oai-mem-citation>\s*<citation_entries>[^<>]*</citation_entries>\s*<rollout_ids>[^<>]*</rollout_ids>\s*</oai-mem-citation>\s*$", "", message)
-        if message.startswith("```"):
+        # A leading fence can be authoritative analysis content. Only a paired
+        # whole-final fence is a wrapper; generated finals end in receipt JSON.
+        # Exact analysis/receipt reconciliation below still rejects extra text.
+        if message.startswith("```") and message.splitlines()[-1] == "```":
             lines = message.splitlines()
             if lines[0] not in ("```", "```text") or lines[-1] != "```":
                 raise HandoffError("Unsupported completion rendering.")

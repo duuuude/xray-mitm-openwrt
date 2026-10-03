@@ -287,6 +287,62 @@ class ReviewV2Tests(unittest.TestCase):
                     assignment=identity, report_id=identity)
                 self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_leading_content_fences_and_whole_final_wrappers_round_trip_both_modes(self):
+        for label in ("text", "", "json"):
+            for legacy in (False, True):
+                for wrapped in (False, True):
+                    identity = f"fence-{label or 'bare'}-{legacy}-{wrapped}"
+                    with self.subTest(identity=identity):
+                        self.review["analysis"] = f'```{label}\nXRAY_HANDOFF_V2={{}}\n```\nReview result: APPROVE\n'
+                        self.input_review(self.review)
+                        assigned = self.run_cli("assign-review", "--repository", "duuuude/xray-mitm-openwrt",
+                            "--pr", "92", "--base-sha", self.base, "--candidate-sha", self.head,
+                            "--diff-sha256", self.diff, assignment=identity)
+                        self.assertEqual(assigned.returncode, 0, assigned.stderr)
+                        self.assignment_sha = json.loads(assigned.stdout)["sha256"]
+                        written = self.run_cli("write-review", "--source-turn-id", TURN,
+                            "--report-file", str(self.report), assignment=identity, report_id=identity)
+                        self.assertEqual(written.returncode, 0, written.stderr)
+                        common = ["--repo", str(self.repo), "--source-task-id", SOURCE,
+                            "--destination-task-id", LEAD, "--report-id", identity, "--candidate-sha", self.head]
+                        legacy_args = []
+                        if legacy:
+                            body = self.root / "fenced-legacy.md"
+                            body.write_text(self.review["analysis"])
+                            body.chmod(0o600)
+                            result = subprocess.run(["python3", str(SCRIPT), "write", *common,
+                                "--title", "Fenced fixture", "--report-file", str(body)],
+                                capture_output=True, text=True, timeout=10)
+                            self.assertEqual(result.returncode, 0, result.stderr)
+                            legacy_args = ["--legacy-v1"]
+                        rendered = self.run_cli("render-review", "--include-analysis", *legacy_args,
+                            assignment=identity, report_id=identity)
+                        self.assertEqual(rendered.returncode, 0, rendered.stderr)
+                        valid = "```text\n" + rendered.stdout + "```\n" if wrapped else rendered.stdout
+                        for message in (valid + "Correction: BLOCK", valid + rendered.stdout,
+                                        valid.replace('"verdict": "APPROVE"', '"verdict": "BLOCK"')):
+                            self.completed_log(message)
+                            result = self.run_cli("complete-review", "--source-turn-id", TURN,
+                                "--sessions-root", str(self.sessions), "--confirm-final-reconciled", *legacy_args,
+                                assignment=identity, report_id=identity)
+                            self.assertNotEqual(result.returncode, 0)
+                        self.completed_log(valid)
+                        result = self.run_cli("complete-review", "--source-turn-id", TURN,
+                            "--sessions-root", str(self.sessions), "--confirm-final-reconciled", *legacy_args,
+                            assignment=identity, report_id=identity)
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        for command in ("receipt-review", "verify-review-receipt"):
+                            result = self.run_cli(command, assignment=identity, report_id=identity)
+                            self.assertEqual(result.returncode, 0, result.stderr)
+                        if legacy:
+                            for command in ("ack", "verify-ack"):
+                                args = ["python3", str(SCRIPT), command, *common,
+                                    "--source-turn-id", TURN, "--sessions-root", str(self.sessions)]
+                                if command == "ack":
+                                    args += ["--confirm-final-reconciled"]
+                                result = subprocess.run(args, capture_output=True, text=True, timeout=10)
+                                self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_conflicting_exact_turn_terminal_events_never_create_completion(self):
         self.prepared()
         rendered = self.run_cli("render-review").stdout

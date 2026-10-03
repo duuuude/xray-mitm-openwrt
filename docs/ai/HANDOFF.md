@@ -131,6 +131,10 @@ V2-only synthetic fixtures may omit `--legacy-v1` and the optional analysis
 prefix. Markdown code fences, JSON indentation, Markdown hard breaks in the
 identical analysis prefix and trailing well-formed memory-citation metadata
 are presentation only. They do not require re-review or rewriting the report.
+An analysis code block, including one at the start, remains authoritative
+content. Only a paired supported whole-final fence is unwrapped, and the
+result must still match the exact analysis/terminal receipt. A leading content
+fence alone is never treated as an outer wrapper.
 The marker may occur in the authoritative analysis, including quoted or
 standalone examples. The last line-start marker introduces the terminal
 receipt; the preceding text must be the identical analysis prefix or empty.
