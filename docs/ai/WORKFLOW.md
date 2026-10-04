@@ -149,7 +149,8 @@ confirm no unique work would be lost
 remove worktree only when clean and unambiguous
     ↓
 
-Development Lead updates MASTER_PLAN.md
+Development Lead checks milestone freshness;
+updates MASTER_PLAN.md only for a meaningful milestone change
 ```
 
 If any check fails, stop and do not remove a dirty or ambiguous worktree
@@ -159,13 +160,13 @@ automatically. See `AGENTS.md`.
 
 ## Staged autonomous PR initiative
 
-`docs/ai/AUTONOMOUS_PR.md` records the owner's current workflow priority:
+`docs/ai/AUTONOMOUS_PR.md` records the historical staged workflow initiative:
 reduce manual message transport for one approved, low-risk PR while preserving
 the three independent Works and all owner gates. Each stage is a separate PR;
-Stage 0 changes documentation only. Stage 3 must prove a qualifying
-zero-additional-spend, subscription-authenticated scriptable runtime before
-any unattended controller is built. A semi-autonomous three-Work process
-remains the fallback if that pilot fails.
+Stage 0 changed documentation only. The local Stage 3 qualification and later
+bounded stages are complete as recorded in MASTER_PLAN.md; they do not qualify
+an unattended controller. The independent three-Work process remains the
+operating model, with review-v2 governing new Git review handoffs.
 
 Normal PR creation and CI are routine, reversible steps; the owner decision
 is whether to merge after current-candidate independent review, required CI,
@@ -682,11 +683,14 @@ oldest supported 25.12.x
 latest supported 25.12.x
 ```
 
-and later a separate 24.10/OPKG lane only if legacy support is intentionally added.
+The 24.10/OPKG SDK build lane is already implemented. It is not native-router
+integration CI, public IPK distribution or a public 24.10 support claim;
+qualification of those boundaries remains separately scoped manual work.
 
 ### Phase 5
 
-Move toward:
+The build-once promotion path is implemented and was exercised by the
+published v0.4.5 protected release. Preserve this model for future releases:
 
 ```text
 build candidate once
@@ -695,7 +699,8 @@ build candidate once
 → promote exact artifact
 ```
 
-rather than rebuilding after testing.
+rather than rebuilding after testing. Later documentation/coordination merges
+do not require rebuilding or republishing an already verified release.
 
 ---
 

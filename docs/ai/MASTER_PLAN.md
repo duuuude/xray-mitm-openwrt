@@ -1,6 +1,6 @@
 # Xray MITM OpenWrt — Master Plan
 
-Status: current roadmap; last audited 2026-10-01
+Status: milestone roadmap; last audited 2026-10-04
 
 This plan is based on the actual canonical repository, not on an earlier plan
 or historical checkout.
@@ -11,10 +11,11 @@ The authoritative source is:
 
 - Repository: `https://github.com/duuuude/xray-mitm-openwrt.git`
 - Public branch: `main`
-- Review/audit baseline: `f1f8e380ebf56dee01546da15206796077a36d97`, current
-  `main` at this audit after PR #86.
-- Observed package baseline: `0.4.5-r1` in development metadata; the latest
-  published release remains `v0.4.4` for the 25.12/APK feed (as of 2026-10-01)
+- Review/audit baseline: `287a95c94e2f02664140a5a23431644e80a5122b`, observed
+  `main` at the 2026-10-04 audit after PR #95. This is a milestone baseline,
+  not a requirement to rewrite the plan after every merge.
+- Published package baseline: `v0.4.5`, `0.4.5-r1`, for the 25.12/APK feed;
+  published 2026-10-02. Later development commits do not retarget that release.
 - Canonical clone root: `<repo-root>`
 - Temporary task worktrees: `<workspace-root>/worktrees/`
 
@@ -27,7 +28,41 @@ Use one canonical clone for repository work and create isolated task worktrees
 only under `<workspace-root>/worktrees/`. Any destructive cleanup must follow
 the safety rules in `AGENTS.md`; ambiguous work is not removed automatically.
 
-Recent merged evidence:
+## Milestone reconciliation — 2026-10-04
+
+**Public v0.4.5 is complete, not awaiting another release-preparation cycle.**
+The [stable release](https://github.com/duuuude/xray-mitm-openwrt/releases/tag/v0.4.5)
+was published at `2026-10-02T13:25:05Z`. Its signed tag resolves to
+`abfefb879e8c1cab85a9aae0cc0703dc7358cfdb`, not the later audit baseline.
+Publisher [37012087233](https://github.com/duuuude/xray-mitm-openwrt/actions/runs/37012087233)
+succeeded after the signing-path and key-file-permission fixes in PRs #89/#90.
+The dated release verification recorded strict index verification, matching
+Release/Pages provenance and unchanged APK bytes from source run
+`36974071377`; this documentation audit does not repeat signing or installation.
+Live release metadata and the verified tag were refreshed on 2026-10-04.
+The public release has APK assets and a signed 25.12 feed, **no IPK assets or
+default public signed 24.10 feed**. Native 24.10/IPK runtime and hardware
+qualification remain unproven; installer feed restoration is not package rollback.
+
+| Completed milestone | Evidence / effect |
+| --- | --- |
+| [PR #91](https://github.com/duuuude/xray-mitm-openwrt/pull/91) | Merge `712dc494ed6d8c07c85f76d80753988a27fe55dc`: milestone-based roadmap freshness, a single Current state checkpoint, explicit bounded-monitor stop outcomes; no ceremonial plan update after every merge. |
+| [PR #92](https://github.com/duuuude/xray-mitm-openwrt/pull/92) and [PR #93](https://github.com/duuuude/xray-mitm-openwrt/pull/93) | Structured handoff pilot, then normative review-v2 for new Git reviews; frozen assignment, structured report, exact source completion and receiving receipt. Existing v1 assignments are preserved, not replayed. |
+| [PR #94](https://github.com/duuuude/xray-mitm-openwrt/pull/94) | Merge `6d106d18a510f7afacfb7eff8997e9cba6aec7cd`: changelog and existing release description explicitly record IPK/OPKG groundwork and its limitations; assets/tag unchanged. |
+| [PR #95](https://github.com/duuuude/xray-mitm-openwrt/pull/95) | Merge `287a95c94e2f02664140a5a23431644e80a5122b`: stable exact-source **PR validation** for every PR to main; docs-only PRs skip SDK builds, while applicable package lanes and manual gates remain separate. |
+| Main protection (Task B) | [Ruleset 24459086](https://github.com/duuuude/xray-mitm-openwrt/rules/24459086), read back active on 2026-10-04: main-only, PR required, strict/up-to-date **PR validation** from GitHub Actions app `15368`, deletion/non-fast-forward protection, no bypass actors. GitHub approval count is zero; independent review-v2 remains a separate procedural gate. Configuration is verified, not a claimed negative-operation test. |
+
+Task C's current slice reconciles these documentation milestones and prepares
+a factual, unposted [issue #27](https://github.com/duuuude/xray-mitm-openwrt/issues/27)
+update. It does not close the issue, implement signing regressions, qualify
+24.10 runtime, or authorize another release. The separately scoped next
+recommendation is recorded at the end of this plan.
+
+## Historical merged and lab evidence through 2026-10-01
+
+The following records retain their original candidate identities and evidence
+limits. Their then-pending public-release statements are superseded by the
+completed publication milestone above, not instructions to repeat publication.
 
 - PR #62 exact candidate `047d08a1bb78b1d3492efacaf6d8f3535e22441e` was
   protected-signed as artifact `10697846012`, installed on the AX4200, tested
@@ -236,8 +271,9 @@ Recent merged evidence:
   package feed remains pending. No tag, release, or public feed publication
   occurred.
 
-The merged PRs and private lab checks above do not complete a protected
-release or establish native 24.10/IPK runtime support.
+Those historical merged PRs and private lab checks alone did not complete a
+protected release. The later public v0.4.5 publication is recorded separately
+above; neither establishes native 24.10/IPK runtime support.
 
 The current public product contract targets official OpenWrt 25.12.x with APK
 packages. The public feed and CI use the 25.12.5 `aarch64_generic` SDK baseline,
@@ -413,12 +449,12 @@ that tooling completion as additional product or compatibility evidence.
 
 At the 2026-09-30 audit, the configured-Node full validator passed on the
 exact PR #81 candidate `742e8adec95da64b5018c0919dcdd3c8bfaedb48`; its exact-head
-APK workflow also succeeded. Current `main` is
+APK workflow also succeeded. Then-current `main` was
 `8e8c6c550f0436fc4cfb51a0ce2659b7646e2ad9`, after the docs/media-only PR #82.
 The latest successful `push` APK run is `36631809160` for parent commit
 `f7fb4d5f4396562d096490e2190b8e8f90ec4352`; there is no APK workflow run
-for the exact current `main` SHA. Do not treat that parent artifact as an
-exact-current-main artifact or as eligible for the pinned signer/publisher.
+for that audit's exact `main` SHA. That parent artifact was not
+exact-main evidence for the audited SHA or eligible for its pinned publisher.
 An earlier full validator attempt was reported to fail
 `test_second_hung_restart_is_not_retried_by_exit_recovery` after observing one
 restart attempt instead of two; a targeted rerun later passed (1/1). The exact
@@ -439,10 +475,10 @@ Later exact release candidates still require fresh validation and preflight.
 
 ## Workflow and tooling work
 
-### Approved scheduling focus — staged autonomous PR workflow
+### Completed scheduling history — staged autonomous PR workflow
 
-The owner has chosen the zero-additional-spend autonomous PR initiative as
-the current workflow priority. Stage 0 was completed in PR #35 and is present
+The owner chose the zero-additional-spend autonomous PR initiative for the
+historical staged qualification below. Stage 0 was completed in PR #35 and is present
 on `main` at `c69239bb3b1dac04d2edbd2d73d126f2478b778c`. It reconciled the
 durable process documentation, PR/CI sequence, independent review boundary,
 owner gates, and zero-additional-spend constraint. Stage 1 was then completed
@@ -480,8 +516,9 @@ PR #62 then corrected the guarded router DNS fallback and passed exact-head
 package CI, protected signing, AX4200 25.12 package/runtime validation,
 trusted rollback, and post-merge 24.10/IPK plus 25.12/APK verification. Its
 remaining helper lifecycle and native 24.10/IPK limits stay explicit.
-PR #61's promotion implementation is also complete; only a real protected
-tag/publication run remains an owner-gated operational release step.
+PR #61's promotion implementation is complete. Its real v0.4.5 protected
+tag/publication execution is now complete in the milestone above; future
+releases still require separate owner approval and exact-artifact gates.
 PR #65 then implemented the standard evidence artifact: `scripts/check-pr.sh`
 emits deterministic schema-version-1 JSON alongside its human report, the PR
 Evidence workflow uploads exact-candidate evidence, and both package workflows
@@ -505,7 +542,9 @@ owner-approved merge before selecting another PR.
 
 - `scripts/validate-release.sh` runs the offline validator and layered shell,
   Python, and frontend checks.
-- CI validates and builds noarch APKs with the pinned official SDK action.
+- Every PR to main receives exact-source **PR validation**. APK and IPK SDK
+  lanes run only for their applicable paths; docs-only reconciliation does
+  not require a new package artifact or a new release.
 - `scripts/release-preflight.sh` is intentionally non-destructive and checks
   main, cleanliness, remote identity, synchronization, version/changelog/tag
   state, and full validation.
@@ -516,20 +555,25 @@ owner-approved merge before selecting another PR.
   and candidate commits, runs relevant offline checks, reports manual gates,
   and fails closed on missing evidence or post-validation state changes.
 - `scripts/pr-evidence.py` emits deterministic, secret-free schema-version-1
-  evidence; PR Evidence uploads it for documentation candidates, and package
+  evidence; PR Evidence uploads it for every PR to main, and package
   workflows attach checksummed build evidence to the same exact candidate.
 - `scripts/router-local-test.sh` provides controlled manual staging and
   restoration. The physical-router and desktop-browser gates remain manual by
   design.
 
-### Remaining owner-gated release evidence
+### Completed publication and future owner gates
 
-**Protected release execution evidence.** The build-once promotion path is
-   implemented and fails closed on source, metadata, package-byte, and checksum
-   mismatches. A real owner-approved tag-triggered publication still needs to
-   exercise that path and record the resulting release, Pages, and signed-feed
-   evidence; no release should be inferred from offline tests alone. This is an
-   operational owner gate, not missing implementation work.
+**v0.4.5 publication is complete.** The dated protected-publisher and public
+Release/Pages verification are recorded above. Retain its immutable signed tag
+and package bytes; later documentation/coordination merges are not reasons to
+repin, rebuild or republish v0.4.5. Any future release still requires its own
+owner-approved exact-source, artifact, signing and publication gates; green
+source validation alone never supplies that authority.
+
+For a future protected release, the next state change toward tag approval is
+permitted only when its exact-candidate full validator is green and its
+required artifact, review and manual evidence gates are satisfied. This is a
+condition for a new release, not an outstanding v0.4.5 task.
 
 ## OpenWrt compatibility work
 
@@ -556,7 +600,7 @@ evidence; 24.10/IPK native runtime and hardware evidence are explicitly
 unproven because no compatible target was available. The 25.12 APK path remains
 public and protected; 24.10 OPKG requires enabled signature checking plus
 explicit authenticated feed inputs and has no default public feed. Production
-publication and final 24.10 support claims remain future gates.
+24.10/IPK publication and final 24.10 support claims remain future gates.
 
 The guarded router DNS fallback correction is complete in PR #62. Its protected
 candidate passed the 25.12/APK live gate and exact recovery; this does not
@@ -569,31 +613,24 @@ matrix or clearly label manual inputs as unsupported experiments.
 
 ## Priority order and PR discipline
 
-No implementation PR is open as of this audit. Current `main` is
-`f1f8e380ebf56dee01546da15206796077a36d97`; its exact post-merge APK run and
-artifact are recorded above. PR #86 completed the local signer's provenance
-update to the `c5fb835…` artifact, but that helper is intentionally pinned to
-that immutable input and has not signed it. The new `f1f8e38…` artifact is
-also unsigned. Router health-check status and temporary-feed cleanup remain
-outstanding. GitHub's latest published release is `v0.4.4`; the `v0.4.5`
-tag is absent. Lab signing and successful CI builds are not public release
-publication.
+The audited main is `287a95c94e2f02664140a5a23431644e80a5122b`. Published
+v0.4.5 remains pinned to its separately verified release commit. No product
+implementation or new release is authorized by this reconciliation. The local
+lab helper's immutable `c5fb835…` pin is separate from the production publisher;
+do not silently update it to follow main. This audit did not inspect the live
+router or temporary feed and makes no new health or cleanup claim.
 
-The protected release's next state change is a fresh exact-main preflight
-after this roadmap reconciliation merges. The full validator is green on
-current `main` `f1f8e380ebf56dee01546da15206796077a36d97`, but this docs-only
-PR will create a newer commit that needs its own validation and artifact.
-Every release candidate must also use its exact successful main-build
-artifact and package checksums, satisfy required router/browser evidence, and
-verify protected `signed-feed` and GitHub Pages configuration before the
-owner decides whether to create the tag. No tag, protected signing run, or
-publication is authorized by these roadmap or lab-sign changes.
+Use one coherent candidate, applicable offline/CI gates and independent
+review-v2. Request explicit owner squash-merge approval only after those gates
+pass. Review hashes prove consistency, not authorship or reviewer judgment.
+Do not create duplicate monitors or a new SDK/release cycle for this docs-only
+change; do not reopen completed reviews merely because CI finishes later.
 
 | Priority | Next action / initiative | Type | Reason |
 | --- | --- | --- | --- |
-| 1 | After this roadmap-only PR merges, run release preflight on the clean, synchronized exact `main`; record the resulting SHA, `0.4.5-r1` metadata, changelog, absent tag, full validator, and matching post-merge APK run/artifact. | Local release validation | The successful `f1f8e38…` build is exact-main evidence, but this documentation reconciliation will create a newer commit and therefore needs its own exact-main build and preflight. |
-| 2 | Complete the exact-candidate router/health evidence and inspect `signed-feed` environment protection and Pages configuration; retain the approved preservation/cleanup plan for the temporary lab feed. | Owner-controlled validation/configuration | Current router health, exact release-candidate installation/runtime, and protected publication configuration are not established by CI or the older lab test. |
-| 3 | Only after all gates are evidenced, ask the owner for explicit approval to push the exact `v0.4.5` tag and run the protected build-once publisher. | Explicit owner release gate | A version value, local signer, independent source review, or green CI does not authorize public signing or publication. |
+| 1 | Finish Task C documentation reconciliation and save an unposted factual issue #27 draft; stop at the separate documentation-PR owner merge gate. | Documentation milestone | Active release/protection/CI/handoff status must match completed evidence without another publication cycle. |
+| 2 | Separately authorize a disposable-key, pinned-SDK signing-component regression slice. | Proposed engineering work | Cover real signing mechanics and cleanup without touching production keys, published assets or the router. This documentation slice does not start it. |
+| 3 | Select one unresolved product/manual-qualification item only with a scoped assignment; native 24.10/IPK and public distribution require their own evidence. | Proposed later work | Package builds and installer trust groundwork do not establish native runtime, hardware behavior or installed-package rollback. |
 
 ## Completed Stage 3 qualification record — merged PR #41
 
@@ -764,8 +801,8 @@ complete in PRs #59 and #62, with the bounded evidence and remaining
 browser/24.10 limitations recorded in
 `docs/OPENWRT_24_25_STAGE4_EVIDENCE.md`. PR #61 closes the provenance gap
 between the artifact tested during main-build validation and the artifact later
-signed or published; a real protected tag/publication run remains a separate
-owner-gated release operation.
+signed or published. The v0.4.5 execution is now complete as recorded above;
+future protected tag/publication runs remain separate owner-gated operations.
 
 Scope:
 
@@ -818,13 +855,13 @@ Acceptance criteria:
   feed publication is part of this completed lab task.
 
 PR #86 updated the local-only signer to pin the verified `c5fb835…` main APK
-artifact and exact package checksums. After that PR merged, main advanced to
+artifact and exact package checksums. At the 2026-10-01 audit, main had advanced to
 `f1f8e380ebf56dee01546da15206796077a36d97` and a new exact-main APK artifact
 was built; the lab signer deliberately remains pinned to the immutable
 `c5fb835…` artifact and does not silently follow `main`. This tooling pin is
-not the protected public-release signing path. The router health check and
-temporary-feed cleanup remain separate work; feed cleanup requires a separate
-owner-approved target and state-preservation plan.
+not the protected public-release signing path. These historical local records
+do not describe today's router state. Any feed cleanup requires a separately
+owner-approved, inspected target and state-preservation plan.
 
 ## Validation and release gates for future work
 
@@ -840,6 +877,11 @@ inspect the browser console, and obtain explicit visual approval. For release
 work, verify the authoritative remote, signed source tag, merged commit,
 required CI, artifact checksums, and protected signing-feed approval in the
 owner-controlled release sequence.
+
+For future protected tag/publication evidence, the next planned state change
+to signing or publication requires that the exact-source full validator is
+green, provenance is verified and the owner explicitly approves that action.
+A documentation milestone does not itself initiate this release sequence.
 
 ## Non-goals
 
@@ -857,47 +899,23 @@ owner-controlled release sequence.
 
 ## Recommended next state change
 
-### Prepare the exact v0.4.5 release candidate; stop before the tag
+### Proposed next slice: disposable-key signing-component regression
 
-PR #86 completed the separate local lab-signer provenance update. Its helper
-now pins the successful `c5fb835…` main artifact documented above; it does
-not follow `main` automatically and was not used to produce a signature for
-that artifact. The exact post-merge main APK artifact for `f1f8e380…` is also
-verified above, but it is a different unsigned artifact. Do not silently
-retarget the lab helper: the public release workflow instead promotes the
-successful package artifact for the exact tagged release commit and signs
-only its package index.
+After this documentation candidate is qualified and separately merged by the
+owner, recommend a bounded regression slice for the existing protected signing
+component. Freeze its exact source and pinned SDK; use disposable keys and
+temporary index copies to exercise strict verification, unchanged APK hashes,
+checksum working-directory handling, restrictive key-file permissions and
+cleanup on both success and failure. No production key, router, release asset,
+tag replacement or new publication belongs to that test slice. Its scope and
+implementation require a separate assignment; it is not started by this plan.
 
-After this roadmap-only reconciliation merges, the next local step is to run
-`sh scripts/release-preflight.sh` on the clean, synchronized exact `main` and
-record the final commit, `0.4.5-r1` metadata, changelog section, tag absence,
-full validator result, and the matching post-merge APK run/artifact and
-package checksums. The reconciliation itself changes the commit, so the
-`f1f8e38…` artifact is not a substitute for the later exact-main artifact.
+Keep issue #27 open while native 24.10/IPK qualification and a supported public
+distribution path are missing. A draft update may explain completed IPK builds
+and OPKG installer trust groundwork without promising support, an ETA or
+installed-package rollback. Posting that draft needs separate owner approval.
 
-Before any owner decision to tag, complete the required exact-candidate
-router/health validation and verify the protected `signed-feed` environment,
-required reviewers, and GitHub Pages configuration. Router health remains
-unverified, and temporary lab-feed cleanup remains pending. Preserve the
-rollback snapshot and generated `.apk-new` file; do not remove the temporary
-feed without separate approval for an inspected target and a state-preserving
-rollback plan. Native 24.10/IPK runtime remains unproven. Do not begin
-optional automatic routing or claim public 24.10 support from package builds
-alone.
-
-The next planned state change for protected tag/publication evidence is a
-fresh exact-candidate preflight after this reconciliation is merged. The full
-validator is green on current `main`
-`f1f8e380ebf56dee01546da15206796077a36d97`, but this does not replace fresh
-validation of the resulting release candidate or grant signing/publication
-authority.
-
-Only after every release gate is evidenced should the exact tag be presented
-for explicit owner approval. A local lab signature, version metadata,
-independent source review, or green CI is not authorization to sign a public
-release, push a tag, approve a protected environment, or publish. Do not
-repeat the completed evidence-artifact initiative, build-once implementation,
-or compatibility Stage 4 capability/fallback work.
-Revalidate this plan after the qualification and after every later
-owner-approved stage merge. Do not repeat the completed autonomous-PR Stage 4
-work or select a later compatibility stage without current-main verification.
+Before selecting later work, refresh live main, applicable evidence and this
+milestone baseline using the roadmap-state guard. Reconcile only meaningful
+milestone drift, not each merge SHA. Completed v0.4.5 publication, coordination
+v2 adoption and universal PR validation are not pending work to replay.
