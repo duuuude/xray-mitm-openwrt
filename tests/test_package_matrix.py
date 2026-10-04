@@ -83,6 +83,22 @@ class PackageMatrixTests(unittest.TestCase):
         ):
             self.assertIn(f'      - "{path}"', workflow)
         self.assertNotIn('      - "docs/**"', workflow)
+        self.assertNotIn('      - "docs/ai/MASTER_PLAN.md"', workflow)
+
+    def test_release_preparation_still_gets_exact_main_build_without_docs_pr_builds(self) -> None:
+        workflow = APK_WORKFLOW.read_text(encoding="utf-8")
+        push = workflow.split("  push:\n", 1)[1].split("  pull_request:\n", 1)[0]
+        pr = workflow.split("  pull_request:\n", 1)[1].split("  workflow_dispatch:\n", 1)[0]
+        self.assertIn('      - "CHANGELOG.md"', push)
+        self.assertNotIn('      - "CHANGELOG.md"', pr)
+        for trigger in (push, pr):
+            self.assertIn('      - "xray-mitm/**"', trigger)
+            self.assertIn('      - "luci-app-xray-mitm/**"', trigger)
+        publisher = (ROOT / ".github/workflows/publish-feed.yml").read_text()
+        self.assertIn('select(.head_sha == $sha)', publisher)
+        self.assertIn('select(.head_branch == "main")', publisher)
+        self.assertIn('select(.event == "push")', publisher)
+        self.assertIn('select(.conclusion == "success")', publisher)
 
     def test_24_10_lane_is_bounded_unsigned_ipk_build(self) -> None:
         workflow = IPK_WORKFLOW.read_text(encoding="utf-8")
@@ -155,16 +171,24 @@ class PackageMatrixTests(unittest.TestCase):
                 for path in required_paths:
                     self.assertIn(f'      - "{path}"', paths_section)
 
-    def test_docs_evidence_workflow_is_lightweight_and_candidate_bound(self) -> None:
+    def test_universal_evidence_workflow_is_lightweight_and_candidate_bound(self) -> None:
         workflow = PR_EVIDENCE_WORKFLOW.read_text(encoding="utf-8")
 
         self.assertIn("pull_request:", workflow)
-        self.assertIn('      - "*.md"', workflow)
-        self.assertIn('      - "**/*.md"', workflow)
+        self.assertIn('    branches: [main]', workflow)
+        self.assertIn('    types: [opened, synchronize, reopened, ready_for_review, edited]', workflow)
+        self.assertIn('    name: PR validation', workflow)
+        self.assertNotIn('paths:', workflow)
+        self.assertNotIn('paths-ignore:', workflow)
         self.assertIn("github.event.pull_request.base.sha", workflow)
         self.assertIn("github.event.pull_request.head.sha", workflow)
         self.assertIn("PR_EVIDENCE_PATH:", workflow)
         self.assertIn("sh scripts/check-pr.sh", workflow)
+        self.assertIn("scripts/pr-evidence.py verify-source", workflow)
+        self.assertIn('rm -f "$PR_EVIDENCE_PATH"', workflow)
+        self.assertIn("persist-credentials: false", workflow)
+        self.assertNotIn("pull_request_target:", workflow)
+        self.assertNotIn("${{ secrets.", workflow)
         self.assertIn("retention-days: 30", workflow)
         self.assertNotIn("openwrt/gh-action-sdk", workflow)
         self.assertNotIn("actions/download-artifact", workflow)

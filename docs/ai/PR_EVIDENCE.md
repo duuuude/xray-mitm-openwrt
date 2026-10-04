@@ -19,6 +19,9 @@ The file uses schema version `1` and contains:
 - manual gates with `required`, `not_required`, or `owner_gated` status, named
   owner, and `performed: false` until a separate authorized validation records
   evidence;
+- additive `package_gates` describing applicable APK/IPK workflows from the
+  candidate's actual event path filters, with `performed: false`; these are
+  requirements, never proof that GitHub scheduled or completed a build;
 - package files with SHA-256 and byte size, when a package workflow enriches
   the record after building and verifying the candidate; and
 - the checker result and a small allowlist of non-secret GitHub run metadata.
@@ -36,9 +39,44 @@ required manual gate. It is not reviewer approval or merge authorization.
 offline checks while retaining `BLOCKED` in the evidence; it never converts a
 failed check, unknown path, or missing evidence into success.
 
-Documentation-focused candidates use `.github/workflows/pr-evidence.yml` to
-run the checker and upload only the bounded JSON artifact. Its path filters do
-not invoke either OpenWrt SDK. Package workflows transfer the exact-checker
+Every pull request to `main` uses `.github/workflows/pr-evidence.yml`, whose
+stable check name is **PR validation**. It has no path filter or job-level skip,
+checks out the exact head, runs the checker, then verifies fresh source evidence
+against the expected base/head and clean Git diff. Missing/malformed/stale
+evidence, failed universal checks and blocking offline skips fail this check.
+`CHECK_PR_ALLOW_MANUAL_GATES=1` can preserve outstanding *manual* gates as
+`BLOCKED`; it cannot clear a missing offline check in this universal workflow.
+Evidence is generated outside the checkout in a fresh run, not accepted from a
+committed PR file. Integrity validation is not authentication of untrusted PR
+code; independent review remains mandatory for workflow/helper changes.
+
+The universal workflow uses read-only contents permission, no secrets, no
+persisted checkout credentials and no `pull_request_target`. No SDK or protected
+operation is part of this check. Draft, synchronized, reopened, ready-for-review
+and edited PRs are covered; conflicting PRs and commit-message skip directives
+can still prevent GitHub from running a workflow. Do not interpret absence as
+success. There is no merge-queue support in this change.
+
+A green **PR validation** check means offline validation only, not overall merge
+readiness. The Lead must separately verify applicable exact-head SDK workflows,
+independent review and required manual evidence before requesting owner merge
+approval. No controller or GitHub protection setting is introduced here.
+
+Roadmap-only changes no longer schedule APK SDK compilation on PR or main push.
+Main `CHANGELOG.md` changes still schedule APK builds, as do package/version
+inputs. A future release-preparation main commit must have a successful
+**push/main build at that exact SHA** before it is tagged. The publisher still
+rejects older-head, PR and dispatch artifacts. If main advances for documentation
+after a build, do not tag that unbuilt SHA or weaken provenance; prepare a
+coherent owner-approved release commit that triggers the main build. This change
+does not create, sign or replace an existing release/tag.
+
+The package-gate filter reader deliberately supports only the current quoted
+exact paths and directory `/**` patterns. Unsupported scheduling syntax fails
+closed and needs an explicit parser/test update; it is not a general YAML or
+GitHub glob engine. Unknown changed paths still fail the existing checker.
+
+Package workflows transfer the exact-checker
 record between their validate and build jobs, verify its candidate SHA against
 the built package provenance, add package/index checksums, and upload the
 enriched record separately from the installable package bundle. Temporary

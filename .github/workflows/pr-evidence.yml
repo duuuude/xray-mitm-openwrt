@@ -2,21 +2,15 @@ name: PR Evidence
 
 on:
   pull_request:
-    paths:
-      - "*.md"
-      - "**/*.md"
-      - "*.markdown"
-      - "**/*.markdown"
-      - "*.txt"
-      - "**/*.txt"
-      - "docs/**"
-      - ".github/workflows/pr-evidence.yml"
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review, edited]
 
 permissions:
   contents: read
 
 jobs:
   evidence:
+    name: PR validation
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -33,7 +27,14 @@ jobs:
           CANDIDATE_SHA: ${{ github.event.pull_request.head.sha }}
           CHECK_PR_ALLOW_MANUAL_GATES: "1"
           PR_EVIDENCE_PATH: ${{ runner.temp }}/pr-evidence.json
-        run: sh scripts/check-pr.sh "$BASE_SHA" "$CANDIDATE_SHA"
+        run: |
+          set -eu
+          # Never consume a committed or earlier-run evidence file.
+          rm -f "$PR_EVIDENCE_PATH"
+          sh scripts/check-pr.sh "$BASE_SHA" "$CANDIDATE_SHA"
+          python3 scripts/pr-evidence.py verify-source \
+            --repo "$GITHUB_WORKSPACE" --evidence "$PR_EVIDENCE_PATH" \
+            --base-sha "$BASE_SHA" --candidate-sha "$CANDIDATE_SHA"
 
       - name: Upload exact-candidate PR evidence
         if: always()

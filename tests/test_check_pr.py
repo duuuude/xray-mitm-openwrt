@@ -24,6 +24,10 @@ class CheckPrTests(unittest.TestCase):
         self.root = Path(self.temp.name).resolve()
         self.project = self.root / "project"
         (self.project / "scripts").mkdir(parents=True)
+        (self.project / ".github/workflows").mkdir(parents=True)
+        for workflow in ("build.yml", "build-24-10.yml"):
+            shutil.copy2(ROOT / ".github/workflows" / workflow,
+                         self.project / ".github/workflows" / workflow)
         shutil.copy2(CHECK_PR, self.project / "scripts/check-pr.sh")
         shutil.copy2(PR_EVIDENCE, self.project / "scripts/pr-evidence.py")
         (self.project / "scripts/validate-release.sh").write_text(
@@ -62,7 +66,7 @@ class CheckPrTests(unittest.TestCase):
         head: str | None = None,
         extra_env: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
-        env = os.environ.copy()
+        env = {key: value for key, value in os.environ.items() if not key.startswith("GITHUB_")}
         if extra_env:
             env.update(extra_env)
         candidate = head or self.git("rev-parse", "HEAD")
@@ -329,6 +333,25 @@ class CheckPrTests(unittest.TestCase):
         self.assertIn("Categories: unknown", result.stdout)
         self.assertIn("no validation mapping", result.stdout)
         self.assertIn("CHECK_PR_RESULT=BLOCKED", result.stdout)
+
+    def test_unknown_path_cannot_pass_ci_with_manual_gate_override(self) -> None:
+        head = self.commit_file("mystery.bin", "unknown\n")
+        evidence = self.root / "unknown.json"
+        result = self.run_check(head, {"CHECK_PR_ALLOW_MANUAL_GATES": "1",
+                                       "PR_EVIDENCE_PATH": str(evidence)})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(json.loads(evidence.read_text())["result"], "BLOCKED")
+
+    def test_stable_gate_verification_rejects_blocking_offline_skip(self) -> None:
+        head = self.commit_file("luci-app-xray-mitm/htdocs/example.js", "const x = 1;\n")
+        evidence = self.root / "skipped.json"
+        result = self.run_check(head, {"NODE_BIN": "/missing/node", "PR_EVIDENCE_PATH": str(evidence),
+                                       "CHECK_PR_ALLOW_MANUAL_GATES": "1"})
+        self.assertEqual(result.returncode, 0, result.stdout)
+        verified = subprocess.run(["python3", str(PR_EVIDENCE), "verify-source",
+                                   "--repo", str(self.project), "--evidence", str(evidence),
+                                   "--base-sha", self.base, "--candidate-sha", head], capture_output=True, text=True)
+        self.assertNotEqual(verified.returncode, 0)
 
 
 if __name__ == "__main__":

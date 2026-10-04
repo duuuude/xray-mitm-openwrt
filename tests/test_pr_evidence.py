@@ -11,6 +11,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -24,8 +25,14 @@ class PrEvidenceTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
+        self.env = {key: value for key, value in os.environ.items() if not key.startswith("GITHUB_")}
+        self.env["GITHUB_TOKEN"] = "PR_EVIDENCE_SECRET_SENTINEL"
         self.repo = self.root / "repo"
         self.repo.mkdir()
+        (self.repo / ".github/workflows").mkdir(parents=True)
+        for workflow in ("build.yml", "build-24-10.yml"):
+            shutil.copy2(ROOT / ".github/workflows" / workflow,
+                         self.repo / ".github/workflows" / workflow)
         (self.repo / "README.md").write_text("base\n", encoding="utf-8")
         self.git("init", "-b", "main")
         self.git("config", "user.email", "evidence@example.invalid")
@@ -41,6 +48,8 @@ class PrEvidenceTests(unittest.TestCase):
         self.events = self.root / "events.jsonl"
         self.evidence = self.root / "pr-evidence.json"
         self.record("Full repository validation", "sh scripts/validate-release.sh")
+        for name in ("Exact base/candidate whitespace check", "Post-validation working-tree check", "Post-validation HEAD check"):
+            self.record(name, "fixture check")
 
     def git(self, *args: str) -> str:
         result = subprocess.run(
@@ -59,7 +68,7 @@ class PrEvidenceTests(unittest.TestCase):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=False,
-            env={**os.environ, "GITHUB_TOKEN": "PR_EVIDENCE_SECRET_SENTINEL"},
+            env=self.env,
         )
 
     def record(self, name: str, command: str, result: str = "PASS", exit_code: int = 0) -> None:
@@ -159,6 +168,123 @@ class PrEvidenceTests(unittest.TestCase):
         self.assertNotIn("PR_EVIDENCE_SECRET_SENTINEL", initial.decode("utf-8"))
         self.assertEqual(self.create().returncode, 0)
         self.assertEqual(self.evidence.read_bytes(), initial)
+
+    def verify_source(self, *, base: str | None = None) -> subprocess.CompletedProcess[str]:
+        return self.run_writer("verify-source", "--repo", str(self.repo),
+                               "--evidence", str(self.evidence),
+                               "--base-sha", base or self.base_sha,
+                               "--candidate-sha", self.candidate_sha)
+
+    def test_verify_source_accepts_offline_success_without_claiming_sdk_completion(self) -> None:
+        self.assertEqual(self.create().returncode, 0)
+        self.assertEqual(self.verify_source().returncode, 0)
+        document = json.loads(self.evidence.read_text())
+        self.assertTrue(all(item["status"] == "not_required" and not item["performed"]
+                            for item in document["package_gates"]))
+        self.assertEqual(self.create(result="BLOCKED", openwrt="required").returncode, 0)
+        self.assertEqual(self.verify_source().returncode, 0)
+        self.assertEqual(json.loads(self.evidence.read_text())["result"], "BLOCKED")
+
+    def test_verify_source_rejects_stale_identity_missing_evidence_and_bad_json(self) -> None:
+        self.assertNotEqual(self.verify_source().returncode, 0)
+        self.assertEqual(self.create().returncode, 0)
+        self.assertNotEqual(self.verify_source(base=self.candidate_sha).returncode, 0)
+        document = json.loads(self.evidence.read_text())
+        document["candidate"]["candidate_sha"] = self.base_sha
+        self.evidence.write_text(json.dumps(document))
+        self.assertNotEqual(self.verify_source().returncode, 0)
+        for bad in ("{", "[]", "null"):
+            self.evidence.write_text(bad)
+            result = self.verify_source()
+            self.assertNotEqual(result.returncode, 0)
+            self.assertNotIn("Traceback", result.stderr)
+
+    def test_verify_source_rejects_incomplete_checks_and_false_gate_claims(self) -> None:
+        self.assertEqual(self.create().returncode, 0)
+        initial = self.evidence.read_text()
+        mutations = (
+            lambda d: d.update(checks=[]),
+            lambda d: d["checks"][0].update(result="SKIPPED", blocking=False),
+            lambda d: d["checks"][0].update(result="FAIL", exit_code=1),
+            lambda d: d["checks"][0].update(exit_code=True),
+            lambda d: d["checks"][1].update(result="SKIPPED", blocking=True),
+            lambda d: d["checks"].append({"name": "Full-validator LuCI JavaScript syntax",
+                                          "command": "node --check", "result": "SKIPPED", "blocking": False}),
+            lambda d: d.update(manual_gates=[]),
+            lambda d: d["manual_gates"][0].update(performed=True),
+            lambda d: d["manual_gates"][0].update(status="required"),
+            lambda d: d.update(package_gates=[]),
+            lambda d: d["package_gates"][0].update(performed=0),
+            lambda d: d["candidate"].update(changed_files=["wrong-path"]),
+        )
+        for index, mutate in enumerate(mutations):
+            with self.subTest(case=index):
+                document = json.loads(initial)
+                mutate(document)
+                self.evidence.write_text(json.dumps(document))
+                result = self.verify_source()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn("Traceback", result.stderr)
+
+    def test_source_evidence_is_bound_to_ci_run_and_release_preparation_event(self) -> None:
+        (self.repo / "CHANGELOG.md").write_text("release fixture\n")
+        self.git("add", ".")
+        self.git("commit", "-m", "release preparation fixture")
+        self.candidate_sha = self.git("rev-parse", "HEAD")
+        for event, expected in (("push", "required"), ("pull_request", "not_required")):
+            with self.subTest(event=event), patch.dict(self.env, {"GITHUB_EVENT_NAME": event,
+                                                                  "GITHUB_RUN_ID": "123", "GITHUB_RUN_ATTEMPT": "1"}):
+                result = self.create()
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.verify_source().returncode, 0)
+                document = json.loads(self.evidence.read_text())
+                self.assertEqual(document["package_gates"][0]["status"], expected)
+                document["ci"]["run_id"] = "older-run"
+                self.evidence.write_text(json.dumps(document))
+                self.assertNotEqual(self.verify_source().returncode, 0)
+
+    def test_exact_diff_paths_are_not_reinterpreted_as_quoted_git_output(self) -> None:
+        (self.repo / "docs/راهنما.md").write_text("fixture\n")
+        self.git("add", ".")
+        self.git("commit", "-m", "non-ASCII documentation fixture")
+        self.candidate_sha = self.git("rev-parse", "HEAD")
+        self.assertEqual(self.create().returncode, 0)
+        self.assertEqual(self.verify_source().returncode, 0)
+
+    def test_package_gates_follow_actual_workflow_filters_and_reject_unknown_syntax(self) -> None:
+        for path, expected in (("scripts/example.sh", ["required", "not_required"]),
+                               ("tests/example.py", ["required", "not_required"]),
+                               ("xray-mitm/Makefile", ["required", "required"]),
+                               (".github/workflows/build.yml", ["required", "not_required"]),
+                               ("docs/ai/MASTER_PLAN.md", ["not_required", "not_required"])):
+            with self.subTest(path=path):
+                self.git("reset", "--hard", self.candidate_sha)
+                file = self.repo / path
+                file.parent.mkdir(parents=True, exist_ok=True)
+                file.write_text("fixture\n")
+                self.git("add", ".")
+                self.git("commit", "-m", "change path fixture")
+                old_candidate = self.candidate_sha
+                self.candidate_sha = self.git("rev-parse", "HEAD")
+                if path.endswith("build.yml"):
+                    # Keep valid scheduling syntax while changing the workflow.
+                    self.git("reset", "--hard", old_candidate)
+                    file.write_text((ROOT / path).read_text() + "\n# fixture\n")
+                    self.git("add", ".")
+                    self.git("commit", "-m", "change workflow fixture")
+                    self.candidate_sha = self.git("rev-parse", "HEAD")
+                self.assertEqual(self.create().returncode, 0)
+                gates = json.loads(self.evidence.read_text())["package_gates"]
+                self.assertEqual([gate["status"] for gate in gates], expected)
+                self.assertTrue(all(gate["performed"] is False for gate in gates))
+                self.git("reset", "--hard", old_candidate)
+                self.candidate_sha = old_candidate
+        workflow = self.repo / ".github/workflows/build.yml"
+        workflow.write_text(workflow.read_text().replace('"ci/**"', '"ci/*.py"'))
+        self.git("add", ".")
+        self.git("commit", "-m", "unsupported filter")
+        self.candidate_sha = self.git("rev-parse", "HEAD")
+        self.assertNotEqual(self.create().returncode, 0)
 
     def test_required_router_gate_cannot_claim_review_ready(self) -> None:
         blocked = self.create(result="BLOCKED", openwrt="required")

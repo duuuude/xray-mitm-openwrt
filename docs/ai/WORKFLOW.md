@@ -667,8 +667,11 @@ optionally writes versioned, secret-free JSON when PR_EVIDENCE_PATH is set
 
 See [PR_EVIDENCE.md](PR_EVIDENCE.md) for the schema, `BLOCKED` semantics,
 artifact retention, and how package workflows bind built checksums to the same
-candidate. Documentation-only pull requests use the evidence-only workflow and
-do not invoke an OpenWrt SDK build.
+candidate. Every PR to main receives the stable **PR validation** check;
+documentation-only pull requests do not invoke an OpenWrt SDK build. Main
+release-preparation changes to `CHANGELOG.md` still trigger an exact-source APK
+build. The universal check does not replace applicable SDK, independent-review
+or manual gates; see PR_EVIDENCE.md for these separate readiness requirements.
 
 ### Phase 4
 
