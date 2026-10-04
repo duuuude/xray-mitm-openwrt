@@ -179,6 +179,9 @@ class SDKTests(unittest.TestCase):
                          env=dict(os.environ, OPENSSL_CONF="/dev/null"))
             self.key.chmod(0o600)
             self.command(["openssl", "pkey", "-in", str(self.key), "-pubout", "-out", str(self.workspace / "keys/disposable.pem")])
+            # Only fixture creation uses the host owner. UID0 without DAC
+            # capabilities cannot write a non-root runner's mode0755 bind dir.
+            # The publisher transaction below retains its actual --user 0:0.
             result = self.container(f"""
                 cd /promotion
                 for package in sdk-signing-core-fixture sdk-signing-luci-fixture; do
@@ -188,13 +191,18 @@ class SDKTests(unittest.TestCase):
                 done
                 {APK} mkndx --allow-untrusted --output packages.adb *.apk
                 chmod 0644 *.apk packages.adb
-            """)
+            """, user=f"{os.getuid()}:{os.getgid()}")
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             promotion = self.workspace / "promotion"
             self.package = promotion / "sdk-signing-core-fixture-1.0-r0.apk"
             self.package_bytes = self.package.read_bytes()
             self.luci_package = promotion / "sdk-signing-luci-fixture-1.0-r0.apk"
             self.luci_bytes = self.luci_package.read_bytes()
+            for path in (self.package, self.luci_package, promotion / "packages.adb"):
+                self.assertEqual(path.stat().st_uid, os.getuid(), "Fixture must remain host-owned.")
+                self.assertEqual(path.stat().st_gid, os.getgid(), "Fixture must preserve the host group.")
+                self.assertTrue(os.access(path, os.R_OK | os.W_OK), "Host must read/write fault fixtures.")
+            print(f"Fixture owner UID/GID {os.getuid()}/{os.getgid()}; host read/write checks passed.", flush=True)
             self.unsigned_index = (promotion / "packages.adb").read_bytes()
             self.manifest = "".join(hashlib.sha256(path.read_bytes()).hexdigest() + "  " + path.name + "\n"
                                     for path in (self.package, self.luci_package))
