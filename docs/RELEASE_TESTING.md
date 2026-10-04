@@ -21,6 +21,37 @@ wsl.exe sh -lc 'cd /path/to/xray-mitm-openwrt && sh scripts/validate-release.sh'
 
 These checks are offline and do not connect to a router.
 
+### Disposable SDK signing component
+
+`python3 tests/test_sdk_signing.py --sdk` executes the publisher's actual
+signing and always-cleanup shell blocks with freshly generated disposable keys
+and two tiny unsigned noarch APK fixtures. It checks strict index verification,
+unchanged package bytes, readable outputs, mode-0600 key ownership/access, and
+cleanup after success, checksum failure, wrong working directory/executable,
+non-owner access and a mismatched public key. It does not sign a product feed,
+read production keys, publish, install, or connect to a router.
+
+Use a running local Unix-socket Docker daemon, Bash and OpenSSL, with the exact
+publisher SDK digest already cached. The test never pulls an image or changes
+Docker configuration; a missing runtime/image fails, not skips. Containers have
+no network; disposable files and specifically named test containers are removed
+on success/failure. The standalone component has a seven-minute execution budget
+plus bounded cleanup. Without `--sdk`, only offline contract tests run and SDK
+execution is explicitly reported **NOT RUN**.
+
+Desktop bind-mount permission mapping can differ from a native Linux host.
+The component measures the mounted key's owner/mode and attempts a real discarded
+read as a different UID; if the host permits it, the permissions case fails closed.
+Do not relax the assertion or call this local result green. Native Linux CI is
+the authoritative host/container permission gate for the Linux publisher.
+
+The `Disposable SDK signing regression` workflow runs on relevant signing,
+publisher and component-test changes only, using the exact PR head or main SHA.
+It pulls the pinned image on the existing Linux CI runner before executing the
+secret-free component. Ordinary documentation-only changes do not schedule it.
+Green component evidence is not production signing, publication, native-router
+qualification or permission to bypass separate release/owner gates.
+
 ## 2. Reusable local AX4200 loop
 
 The repository includes `scripts/router-local-test.sh` for the lab-router loop.
