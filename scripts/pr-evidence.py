@@ -39,6 +39,14 @@ def _git(repo: Path, *args: str) -> str:
     return result.stdout.decode("utf-8", errors="surrogateescape").strip()
 
 
+def _changed_files(repo: Path, base: str, candidate: str) -> list[str]:
+    changed = subprocess.run(
+        ["git", "-C", str(repo), "diff", "--name-only", "-z", "--no-renames", base, candidate],
+        check=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+    ).stdout
+    return sorted(os.fsdecode(item) for item in changed.split(b"\0") if item)
+
+
 def _atomic_json(path: Path, document: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     encoded = json.dumps(
@@ -156,6 +164,48 @@ def _manual_gates(args: argparse.Namespace) -> list[dict[str, Any]]:
     return gates
 
 
+def _package_gates(repo: Path, changed_files: list[str]) -> list[dict[str, Any]]:
+    """Read the existing bounded exact-path/tree filters, not a second mapping.
+
+    This is not a general YAML/glob parser. Unsupported scheduling syntax is
+    rejected so a workflow change cannot silently omit an applicable build.
+    Applicability is not proof that GitHub scheduled or completed the build.
+    """
+    event = os.environ.get("GITHUB_EVENT_NAME", "pull_request")
+    if event not in {"pull_request", "push"}:
+        raise EvidenceError("Unsupported source-evidence scheduling event.")
+    gates = []
+    for workflow in ("build.yml", "build-24-10.yml"):
+        text = (repo / ".github/workflows" / workflow).read_text(encoding="utf-8")
+        block = re.search(
+            rf"(?ms)^  {event}:\n(.*?)(?=^  [A-Za-z_]+:|^\S|\Z)", text
+        )
+        if not block or "    paths:\n" not in block[1]:
+            raise EvidenceError("Package workflow path filters are unavailable.")
+        lines = block[1].split("    paths:\n", 1)[1].splitlines()
+        patterns = []
+        for line in lines:
+            if not line.strip() or line.lstrip().startswith("#"):
+                continue
+            match = re.fullmatch(r'      - "([^"\n]+)"', line)
+            if not match:
+                raise EvidenceError("Unsupported package path-filter syntax.")
+            pattern = match[1]
+            plain = pattern[:-3] if pattern.endswith("/**") else pattern
+            if not plain or any(char in plain for char in "*?![]{}\\"):
+                raise EvidenceError("Unsupported package path-filter pattern.")
+            patterns.append(pattern)
+        if not patterns:
+            raise EvidenceError("Package workflow path filters are empty.")
+        required = any(
+            path.startswith(pattern[:-2]) if pattern.endswith("/**") else path == pattern
+            for path in changed_files for pattern in patterns
+        )
+        gates.append({"workflow": workflow, "status": "required" if required else "not_required",
+                      "performed": False})
+    return gates
+
+
 def create(args: argparse.Namespace) -> None:
     if not FULL_SHA.fullmatch(args.base_sha) or not FULL_SHA.fullmatch(args.candidate_sha):
         raise EvidenceError("Base and candidate must be full lowercase commit SHAs.")
@@ -178,17 +228,7 @@ def create(args: argparse.Namespace) -> None:
     )
     if ancestor.returncode != 0:
         raise EvidenceError("Base is not an ancestor of the exact candidate.")
-    changed = subprocess.run(
-        ["git", "-C", str(repo), "diff", "--name-only", "-z", "--no-renames", args.base_sha, args.candidate_sha],
-        check=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-    ).stdout
-    changed_files = sorted(
-        os.fsdecode(item)
-        for item in changed.split(b"\0")
-        if item
-    )
+    changed_files = _changed_files(repo, args.base_sha, args.candidate_sha)
     if not changed_files:
         raise EvidenceError("The exact base/candidate diff is empty.")
     categories = sorted({value for value in args.categories.split(",") if value})
@@ -219,6 +259,7 @@ def create(args: argparse.Namespace) -> None:
         },
         "checks": checks,
         "manual_gates": gates,
+        "package_gates": _package_gates(repo, changed_files),
         "producer": {
             "command": [
                 "sh",
@@ -244,6 +285,73 @@ def create(args: argparse.Namespace) -> None:
     if safe_ci:
         document["ci"] = safe_ci
     _atomic_json(args.output, document)
+
+
+def verify_source(args: argparse.Namespace) -> None:
+    """Validate freshly generated offline evidence; never clear manual/SDK gates."""
+    if not FULL_SHA.fullmatch(args.base_sha) or not FULL_SHA.fullmatch(args.candidate_sha):
+        raise EvidenceError("Expected identities must be full commit SHAs.")
+    repo = args.repo.resolve()
+    if (_git(repo, "rev-parse", "--show-toplevel") != str(repo)
+            or _git(repo, "rev-parse", "HEAD") != args.candidate_sha
+            or _git(repo, "status", "--porcelain", "--untracked-files=all")):
+        raise EvidenceError("Source evidence requires the exact clean checkout.")
+    _git(repo, "merge-base", "--is-ancestor", args.base_sha, args.candidate_sha)
+    document = json.loads(args.evidence.read_text(encoding="utf-8"))
+    if not isinstance(document, dict) or type(document.get("schema_version")) is not int or document["schema_version"] != SCHEMA_VERSION:
+        raise EvidenceError("Unsupported source evidence schema.")
+    candidate = document.get("candidate")
+    changed = _changed_files(repo, args.base_sha, args.candidate_sha)
+    if (not isinstance(candidate, dict) or candidate.get("base_sha") != args.base_sha
+            or candidate.get("candidate_sha") != args.candidate_sha or not changed
+            or candidate.get("changed_files") != changed):
+        raise EvidenceError("Source evidence does not match the exact base/head diff.")
+    categories = candidate.get("categories")
+    if (not isinstance(categories, list) or not categories
+            or any(not isinstance(value, str) or not value for value in categories)
+            or "unknown" in categories):
+        raise EvidenceError("Unmapped or malformed source categories.")
+    checks = document.get("checks")
+    if not isinstance(checks, list) or not checks:
+        raise EvidenceError("Source evidence lacks checks.")
+    names = []
+    for check in checks:
+        if (not isinstance(check, dict) or not isinstance(check.get("name"), str)
+                or not check["name"] or not isinstance(check.get("command"), str)
+                or not check["command"] or type(check.get("blocking")) is not bool
+                or check.get("result") not in ("PASS", "SKIPPED")
+                or (check["result"] == "PASS" and (type(check.get("exit_code")) is not int or check["exit_code"] != 0))
+                or (check["result"] == "SKIPPED" and
+                    (check["blocking"] or check["name"] == "Full-validator LuCI JavaScript syntax"))):
+            raise EvidenceError("Failed, incomplete or malformed offline checks.")
+        names.append(check["name"])
+    for required in ("Full repository validation", "Exact base/candidate whitespace check",
+                     "Post-validation working-tree check", "Post-validation HEAD check"):
+        if names.count(required) != 1 or next(check for check in checks if check["name"] == required)["result"] != "PASS":
+            raise EvidenceError("A universal source check is missing or skipped.")
+    gates = document.get("manual_gates")
+    expected = {"openwrt_integration", "ax4200_browser", "release_execution", "signing_security"}
+    if (not isinstance(gates, list) or len(gates) != len(expected)
+            or any(not isinstance(gate, dict) or not isinstance(gate.get("type"), str)
+                   or gate.get("status") not in ("required", "not_required", "owner_gated")
+                   or gate.get("performed") is not False for gate in gates)
+            or {gate["type"] for gate in gates} != expected):
+        raise EvidenceError("Malformed or falsely completed manual gates.")
+    required_manual = any(gate["status"] == "required" for gate in gates)
+    if document.get("result") != ("BLOCKED" if required_manual else "READY_FOR_REVIEW"):
+        raise EvidenceError("Source result contradicts outstanding manual gates.")
+    package_gates = document.get("package_gates")
+    if (not isinstance(package_gates, list)
+            or any(not isinstance(gate, dict) or gate.get("performed") is not False
+                   for gate in package_gates)
+            or package_gates != _package_gates(repo, changed)):
+        raise EvidenceError("Missing or inconsistent package-build requirements.")
+    for env_name, field in (("GITHUB_RUN_ID", "run_id"), ("GITHUB_RUN_ATTEMPT", "run_attempt"),
+                            ("GITHUB_WORKFLOW", "workflow"), ("GITHUB_EVENT_NAME", "event")):
+        expected_ci = os.environ.get(env_name)
+        if expected_ci and (not isinstance(document.get("ci"), dict)
+                            or document["ci"].get(field) != expected_ci):
+            raise EvidenceError("Source evidence belongs to a different CI run/event.")
 
 
 def _checksum_manifest(path: Path, expected_files: set[str]) -> None:
@@ -471,6 +579,13 @@ def parser() -> argparse.ArgumentParser:
     create_parser.add_argument("--signing", choices=("owner_gated", "not_required"), default="not_required")
     create_parser.set_defaults(function=create)
 
+    verify_parser = commands.add_parser("verify-source")
+    verify_parser.add_argument("--repo", type=Path, required=True)
+    verify_parser.add_argument("--evidence", type=Path, required=True)
+    verify_parser.add_argument("--base-sha", required=True)
+    verify_parser.add_argument("--candidate-sha", required=True)
+    verify_parser.set_defaults(function=verify_source)
+
     build_parser = commands.add_parser("attach-build")
     build_parser.add_argument("--repo", type=Path, required=True)
     build_parser.add_argument("--evidence", type=Path, required=True)
@@ -494,7 +609,7 @@ def main() -> int:
     except EvidenceError as exc:
         print(f"PR_EVIDENCE_RESULT=FAILED\nERROR: {exc}", file=sys.stderr)
         return 1
-    except (OSError, subprocess.CalledProcessError) as exc:
+    except (OSError, subprocess.CalledProcessError, ValueError) as exc:
         print("PR_EVIDENCE_RESULT=FAILED\nERROR: Evidence operation failed safely.", file=sys.stderr)
         return 1
     print("PR_EVIDENCE_RESULT=PASS")

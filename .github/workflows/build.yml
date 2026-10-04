@@ -7,7 +7,8 @@ on:
     paths:
       - ".github/workflows/build.yml"
       - "ci/**"
-      - "docs/ai/MASTER_PLAN.md"
+      # Release-preparation metadata must produce a qualifying push/main build.
+      - "CHANGELOG.md"
       - "install.sh"
       - "luci-app-xray-mitm/**"
       - "scripts/**"
@@ -17,7 +18,6 @@ on:
     paths:
       - ".github/workflows/build.yml"
       - "ci/**"
-      - "docs/ai/MASTER_PLAN.md"
       - "install.sh"
       - "luci-app-xray-mitm/**"
       - "scripts/**"

@@ -423,6 +423,11 @@ def check_workflow(root: Path, errors: list[str]) -> None:
     for path in APK_BUILD_TRIGGER_PATHS:
         if f'      - "{path}"' not in text:
             errors.append(f"{relative} is missing package-build path filter {path}")
+    if '      - "docs/ai/MASTER_PLAN.md"' in text:
+        errors.append(f"{relative} must not build packages for roadmap-only changes")
+    push_trigger = text.split("  push:\n", 1)[-1].split("  pull_request:\n", 1)[0]
+    if '      - "CHANGELOG.md"' not in push_trigger:
+        errors.append(f"{relative} must build exact main release-preparation commits")
     for required in (
         "install.sh",
         "PACKAGES",
@@ -453,16 +458,16 @@ def check_workflow(root: Path, errors: list[str]) -> None:
 
     relative = ".github/workflows/pr-evidence.yml"
     text = (root / relative).read_text(encoding="utf-8", errors="replace")
-    if not re.search(r"(?ms)^  pull_request:\n    paths:\n", text):
-        errors.append(f"{relative} must path-filter its pull_request trigger")
+    if not re.search(r"(?m)^  pull_request:\n    branches: \[main\]$", text):
+        errors.append(f"{relative} must validate every PR to main")
     for required in (
-        '      - "*.md"',
-        '      - "**/*.md"',
-        '      - "docs/**"',
+        "name: PR validation",
+        "types: [opened, synchronize, reopened, ready_for_review, edited]",
         "ref: ${{ github.event.pull_request.head.sha }}",
         "BASE_SHA: ${{ github.event.pull_request.base.sha }}",
         "PR_EVIDENCE_PATH:",
         "sh scripts/check-pr.sh",
+        "scripts/pr-evidence.py verify-source",
         "retention-days: 30",
     ):
         if required not in text:
@@ -471,6 +476,8 @@ def check_workflow(root: Path, errors: list[str]) -> None:
         "openwrt/gh-action-sdk",
         "pull_request_target:",
         "${{ secrets.",
+        "paths:",
+        "paths-ignore:",
     ):
         if forbidden in text:
             errors.append(f"{relative} must not contain {forbidden}")
