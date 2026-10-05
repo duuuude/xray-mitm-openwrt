@@ -1,0 +1,40 @@
+name: Disposable SDK signing regression
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/publish-feed.yml"
+      - ".github/workflows/signing-regression.yml"
+      - "scripts/sign-apk-index.sh"
+      - "tests/test_sdk_signing.py"
+      - "tests/test_signed_feed.py"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/publish-feed.yml"
+      - ".github/workflows/signing-regression.yml"
+      - "scripts/sign-apk-index.sh"
+      - "tests/test_sdk_signing.py"
+      - "tests/test_signed_feed.py"
+
+permissions:
+  contents: read
+
+jobs:
+  signing-component:
+    name: Disposable SDK signing component
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out exact candidate without credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Cache the exact publisher SDK digest
+        run: docker pull ghcr.io/openwrt/sdk@sha256:d7759c08b2c0b0ffe57719bd8a293543708cbc27b18941478ebeae04c42986ed
+
+      - name: Exercise actual publisher transaction with disposable keys only
+        run: python3 tests/test_sdk_signing.py --sdk
