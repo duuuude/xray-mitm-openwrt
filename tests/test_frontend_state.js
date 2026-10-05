@@ -337,6 +337,7 @@ function testOverviewLoadsAndRendersWithLuCIStateDependency() {
 	};
 	const fakeDom = { content: function() {} };
 	const fakeState = {
+		serviceState: function(source) { return state.serviceState(source); },
 		routingFieldNames: function() { return []; },
 		passwallCapability: function(source) { return state.passwallCapability(source); },
 		routeStatus: function(source, active) { return state.routeStatus(source, active); },
@@ -445,6 +446,7 @@ function testBlockedRoutingRender() {
 	};
 	const fakeDocument = { createTextNode: function(value) { return value; } };
 	const fakeState = {
+		serviceState: function(source) { return state.serviceState(source); },
 		passwallCapability: function(source) { return state.passwallCapability(source); },
 		passwallSelection: function(source) { return state.passwallSelection(source); },
 		routeStatus: function(source, active) { return state.routeStatus(source, active); },
@@ -513,6 +515,135 @@ function testBlockedRoutingRender() {
 	const reviewButton = findByText(blocked, 'Review setup');
 	assert.ok(reviewButton, 'blocked routing still renders the review control');
 	assert.strictEqual(reviewButton.attributes.disabled, '');
+}
+
+async function testServiceStatePresentationAndSafety() {
+	const element = function(tag, attributes, children) {
+		return { tag: tag, attributes: attributes || {},
+			children: children === undefined ? [] : (Array.isArray(children) ? children : [children]),
+			addEventListener: function() {}, appendChild: function(child) { this.children.push(child); } };
+	};
+	const text = function(node) {
+		if (node === null || node === undefined) return '';
+		if (typeof node === 'string') return node;
+		return (Array.isArray(node) ? node : node.children || []).map(text).join(' ');
+	};
+	const find = function(node, predicate) {
+		if (!node || typeof node === 'string') return null;
+		if (predicate(node)) return node;
+		for (const child of node.children || []) {
+			const match = find(child, predicate);
+			if (match) return match;
+		}
+		return null;
+	};
+	const nodes = {
+		'xray-mitm-routing-apply': {},
+		'xray-mitm-routing-preview': {},
+		'xray-mitm-simple-routing-preview': {}
+	};
+	const document = { createTextNode: value => value, getElementById: id => nodes[id] || null };
+	const notifications = [];
+	let requiresMitm = true;
+	const ui = { addNotification: function(_, message) { notifications.push(message); },
+		createHandlerFn: function() { return function() {}; } };
+	const overviewSource = fs.readFileSync(overviewPath, 'utf8');
+	const overview = loadLuciModule(overviewSource, {
+		view: { extend: methods => methods },
+		rpc: { declare: function(spec) {
+			return function() {
+				assert.strictEqual(spec.method, 'planPassWall2', 'only read-only routing preview RPC is used');
+				return Promise.resolve({ ok: true, token: 'synthetic-preview',
+					requires_mitm_running: requiresMitm, writable: true, operations: [] });
+			};
+		} },
+		ui: ui, dom: { content: function(node, children) { node.children = children; } },
+		'xray-mitm.state': state,
+		'xray-mitm.ui': loadUiModule(state, ui, { E: element, _: value => value, document: document })
+	}, { E: element, _: value => value, document: document,
+		L: { bind: (fn, context) => fn.bind(context), url: value => '/' + value } });
+	const inspect = {
+		passwall2_present: 'present', passwall2_schema: 'verified',
+		passwall2_inspect: 'available', passwall2_plan_apply: 'enabled',
+		compatible: true, writable: true,
+		shunt_nodes: [ { id: 'shunt' } ], vpn_nodes: [ { id: 'vpn' } ],
+		routing_state: {}, capabilities: { plan: true, apply: true }
+	};
+	const fixtures = [
+		[ { running: true }, 'running', 'Running' ],
+		[ { running: false }, 'stopped', 'Stopped' ],
+		[ {}, 'unknown', 'Unknown' ], [ { running: null }, 'unknown', 'Unknown' ],
+		[ { running: 'true' }, 'unknown', 'Unknown' ], [ { running: 'false' }, 'unknown', 'Unknown' ],
+		[ { running: 1 }, 'unknown', 'Unknown' ], [ { running: 0 }, 'unknown', 'Unknown' ],
+		[ { running: {} }, 'unknown', 'Unknown' ]
+	];
+	assert.strictEqual(state.serviceState(null), 'unknown');
+	assert.strictEqual(state.serviceState(undefined), 'unknown');
+	for (const [status, kind, label] of fixtures) {
+		assert.strictEqual(state.serviceState(status), kind);
+		assert.strictEqual(state.deriveSimpleState({}, status, {}, {}).mitmRunning, kind === 'running');
+		assert.strictEqual(state.setupProgress(status, {}, {}).mitmRunning, kind === 'running');
+		overview.status = status;
+		overview.setup = {};
+		overview.passwall = inspect;
+		const strip = overview.overviewStatusStrip(status, {}, inspect);
+		const basic = overview.renderSimple({}, status, {}, inspect, 'status');
+		const service = overview.renderService(status);
+		const routing = overview.renderRouting(inspect);
+		for (const view of [strip, basic, service, routing]) {
+			assert.ok(text(view).includes(label), kind + ' service label renders');
+			if (kind === 'unknown') {
+				assert.doesNotMatch(text(view), /\bStopped\b|\bis stopped\b/);
+				assert.ok(find(view, node => text(node).trim() === 'Unknown'), 'unknown is explicitly visible');
+			}
+		}
+		for (const view of [basic, routing]) {
+			const pill = find(view, node => node.tag === 'span' && text(node) === label &&
+				(node.attributes.style || '').includes('border-radius:999px'));
+			assert.ok(pill, 'service status pill renders in Basic and routing');
+			assert.ok(pill.attributes.style.includes(kind === 'running' ? '#e7f5e7' : '#fff3cd'),
+				'unknown and stopped service status cannot look healthy');
+		}
+		const health = find(basic, node => node.tag === 'button' && text(node) === 'Run check');
+		assert.strictEqual(health.attributes.disabled, kind === 'running' ? null : '');
+		assert.ok(find(service, node => node.tag === 'button' &&
+			text(node) === (kind === 'running' ? 'Restart service' : 'Start service')),
+			'existing explicit service-action controls remain unchanged');
+		const guide = text(overview.renderSetupGuide(status, {}, inspect));
+		if (kind === 'unknown') {
+			assert.match(guide, /Check MITM status/);
+			assert.match(guide, /Service status is unknown/);
+			assert.doesNotMatch(guide, /Start the service before/);
+			assert.match(text(routing), /MITM Domain Fronting status is unknown/);
+		} else if (kind === 'stopped') {
+			assert.match(text(routing), /MITM Domain Fronting is stopped/);
+		} else {
+			assert.doesNotMatch(text(routing), /MITM Domain Fronting (status is unknown|is stopped)/);
+		}
+		overview.planRouting({ currentTarget: {} });
+		overview.reviewRecommendedRouting({ currentTarget: {} });
+		// These handlers settle their promises internally rather than returning them.
+		await new Promise(resolve => setImmediate(resolve));
+		assert.strictEqual(notifications.length, 0, 'render and preview have no caught errors');
+		assert.strictEqual(nodes['xray-mitm-routing-apply'].disabled, kind !== 'running');
+		const basicPreview = text(nodes['xray-mitm-simple-routing-preview']);
+		const advancedPreview = text(nodes['xray-mitm-routing-preview']);
+		assert.strictEqual(basicPreview.includes('Apply selected routing'), kind === 'running');
+		for (const preview of [basicPreview, advancedPreview]) {
+			if (kind === 'unknown') assert.match(preview, /status is unknown/);
+			if (kind === 'stopped') assert.match(preview, /is stopped/);
+		}
+	}
+	// VPN/direct-only plans do not acquire a new MITM requirement from display state.
+	requiresMitm = false;
+	overview.status = {};
+	overview.planRouting({ currentTarget: {} });
+	overview.reviewRecommendedRouting({ currentTarget: {} });
+	await new Promise(resolve => setImmediate(resolve));
+	assert.strictEqual(notifications.length, 0);
+	assert.strictEqual(nodes['xray-mitm-routing-apply'].disabled, false);
+	assert.match(text(nodes['xray-mitm-simple-routing-preview']), /Apply selected routing/);
+	assert.doesNotMatch(text(nodes['xray-mitm-routing-preview']), /status is unknown|is stopped/);
 }
 
 function testSingleViewMenu() {
@@ -731,4 +862,9 @@ testBlockedRoutingRender();
 testSingleViewMenu();
 testClientSideDashboardTabs();
 testRoutingBusyOverlayLifecycle();
-console.log('Frontend state tests passed.');
+testServiceStatePresentationAndSafety().then(function() {
+	console.log('Frontend state tests passed (including 9 service-state rendering/safety fixtures).');
+}).catch(function(error) {
+	console.error(error);
+	process.exitCode = 1;
+});

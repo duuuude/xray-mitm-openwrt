@@ -88,6 +88,14 @@ function slotPresent(slot) {
 	return !!(slot && (slot.present === true || slot.fingerprint));
 }
 
+function serviceState(status) {
+	if (status && status.running === true)
+		return 'running';
+	if (status && status.running === false)
+		return 'stopped';
+	return 'unknown';
+}
+
 function deriveSimpleState(setup, status, certificates, passwall) {
 	setup = setup || {};
 	status = status || {};
@@ -263,6 +271,7 @@ function setupProgress(status, certificates, passwall) {
 }
 
 return baseclass.extend({
+	serviceState: serviceState,
 	certificateSlot: certificateSlot,
 	deriveSimpleState: deriveSimpleState,
 	nodeItems: nodeItems,

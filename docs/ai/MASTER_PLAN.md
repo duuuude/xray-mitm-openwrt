@@ -1,6 +1,6 @@
 # Xray MITM OpenWrt — Master Plan
 
-Status: milestone roadmap; last audited 2026-10-04
+Status: milestone roadmap; last audited 2026-10-05
 
 This plan is based on the actual canonical repository, not on an earlier plan
 or historical checkout.
@@ -11,8 +11,8 @@ The authoritative source is:
 
 - Repository: `https://github.com/duuuude/xray-mitm-openwrt.git`
 - Public branch: `main`
-- Review/audit baseline: `287a95c94e2f02664140a5a23431644e80a5122b`, observed
-  `main` at the 2026-10-04 audit after PR #95. This is a milestone baseline,
+- Review/audit baseline: `2995312e51539630993baafb4310f98c036333e2`, observed
+  `main` at the 2026-10-05 audit after PR #97. This is a milestone baseline,
   not a requirement to rewrite the plan after every merge.
 - Published package baseline: `v0.4.5`, `0.4.5-r1`, for the 25.12/APK feed;
   published 2026-10-02. Later development commits do not retarget that release.
@@ -52,11 +52,24 @@ qualification remain unproven; installer feed restoration is not package rollbac
 | [PR #95](https://github.com/duuuude/xray-mitm-openwrt/pull/95) | Merge `287a95c94e2f02664140a5a23431644e80a5122b`: stable exact-source **PR validation** for every PR to main; docs-only PRs skip SDK builds, while applicable package lanes and manual gates remain separate. |
 | Main protection (Task B) | [Ruleset 24459086](https://github.com/duuuude/xray-mitm-openwrt/rules/24459086), read back active on 2026-10-04: main-only, PR required, strict/up-to-date **PR validation** from GitHub Actions app `15368`, deletion/non-fast-forward protection, no bypass actors. GitHub approval count is zero; independent review-v2 remains a separate procedural gate. Configuration is verified, not a claimed negative-operation test. |
 
-Task C's current slice reconciles these documentation milestones and prepares
-a factual, unposted [issue #27](https://github.com/duuuude/xray-mitm-openwrt/issues/27)
-update. It does not close the issue, implement signing regressions, qualify
-24.10 runtime, or authorize another release. The separately scoped next
-recommendation is recorded at the end of this plan.
+Task C documentation reconciliation completed in
+[PR #96](https://github.com/duuuude/xray-mitm-openwrt/pull/96); its factual
+[issue #27](https://github.com/duuuude/xray-mitm-openwrt/issues/27) draft remains
+unposted. The separately authorized disposable-key signing regression completed
+in [PR #97](https://github.com/duuuude/xray-mitm-openwrt/pull/97), merged at
+`2995312e51539630993baafb4310f98c036333e2`. The pinned-SDK native component
+passed all nine tests for its candidate, and the exact-main component, APK and
+IPK workflows succeeded. This is synthetic signing and build evidence, not
+production signing, a new release or native 24.10 runtime qualification. The
+local Docker Desktop non-owner key-read-denial test remains failed/not waived;
+native Linux qualification does not repair that host isolation limitation.
+
+The owner selected a narrow Task D source fix: distinguish unknown MITM service
+state from explicitly stopped in LuCI summaries and warnings. Existing
+fail-closed routing/service-action guards remain unchanged. This source work
+does not authorize router staging, browser qualification, merge or publication;
+its exact-candidate AX4200/browser gate remains required and unproven until
+separately performed. No broader PassWall2 redesign or controller is selected.
 
 ## Historical merged and lab evidence through 2026-10-01
 
@@ -613,7 +626,7 @@ matrix or clearly label manual inputs as unsupported experiments.
 
 ## Priority order and PR discipline
 
-The audited main is `287a95c94e2f02664140a5a23431644e80a5122b`. Published
+The audited main is `2995312e51539630993baafb4310f98c036333e2`. Published
 v0.4.5 remains pinned to its separately verified release commit. No product
 implementation or new release is authorized by this reconciliation. The local
 lab helper's immutable `c5fb835…` pin is separate from the production publisher;
@@ -622,15 +635,16 @@ router or temporary feed and makes no new health or cleanup claim.
 
 Use one coherent candidate, applicable offline/CI gates and independent
 review-v2. Request explicit owner squash-merge approval only after those gates
-pass. Review hashes prove consistency, not authorship or reviewer judgment.
-Do not create duplicate monitors or a new SDK/release cycle for this docs-only
-change; do not reopen completed reviews merely because CI finishes later.
+and required manual gates pass. Review hashes prove consistency, not authorship
+or reviewer judgment.
+Do not create duplicate monitors or a release cycle for this UI-only fix;
+applicable package CI and the browser gate remain required. Do not reopen
+completed reviews merely because CI finishes later.
 
 | Priority | Next action / initiative | Type | Reason |
 | --- | --- | --- | --- |
-| 1 | Finish Task C documentation reconciliation and save an unposted factual issue #27 draft; stop at the separate documentation-PR owner merge gate. | Documentation milestone | Active release/protection/CI/handoff status must match completed evidence without another publication cycle. |
-| 2 | Separately authorize a disposable-key, pinned-SDK signing-component regression slice. | Proposed engineering work | Cover real signing mechanics and cleanup without touching production keys, published assets or the router. This documentation slice does not start it. |
-| 3 | Select one unresolved product/manual-qualification item only with a scoped assignment; native 24.10/IPK and public distribution require their own evidence. | Proposed later work | Package builds and installer trust groundwork do not establish native runtime, hardware behavior or installed-package rollback. |
+| 1 | Complete the owner-selected truthful LuCI service-state presentation fix; stop before owner-gated router staging and merge. | Scoped Task D source work | Unknown must not be labeled Stopped; safety guards and independent source/CI/browser gates remain intact. |
+| 2 | Select any later unresolved product/manual-qualification item only with a scoped assignment; native 24.10/IPK and public distribution require their own evidence. | Proposed later work | Package builds and installer trust groundwork do not establish native runtime, hardware behavior or installed-package rollback. |
 
 ## Completed Stage 3 qualification record — merged PR #41
 

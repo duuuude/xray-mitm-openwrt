@@ -7,6 +7,12 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Show unknown MITM service status as Unknown rather than Stopped in LuCI
+  summaries and routing guidance, while still requiring a confirmed running
+  service for MITM-dependent routing previews.
+
 ## [0.4.5] - 2026-09-26
 
 ### Added
