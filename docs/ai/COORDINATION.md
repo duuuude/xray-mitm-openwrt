@@ -29,6 +29,47 @@ old plan became ready or waive product/release gates.
 
 ## One current checkpoint, separate historical events
 
+### Bind the existing three chats before acting
+
+Record the exact established chat IDs for `lead`, `reviewer` and
+`router_validation` in one private role registry, with its original SHA-256 in
+Current state. The registry has `schema_version: 1` and a `roles` object with
+exactly those three keys and three distinct canonical UUID strings. Do not
+commit personal chat IDs. Verify each binding against the actual chat before
+recording it; a title, template, memory or agent name is not an identity.
+
+Before a specialist assignment, preflight the destination with the existing
+read-only helper:
+
+```sh
+python3 scripts/coordination-state.py --role-registry /absolute/roles.json \
+  --registry-sha256 ORIGINAL_REGISTRY_SHA256 \
+  --role router_validation --task-id EXACT_REGISTERED_CHAT_ID
+```
+
+`ROUTE_MATCH` proves only local registry consistency, not live identity, status,
+message authorization or permission for an operation. Refresh the exact chat's
+latest turn under AGENTS.md and inspect a completed previous turn before sending.
+Never interrupt/duplicate an active assignment. Malformed, altered, missing,
+duplicate or mismatched bindings return `HOLD_ROUTING`/exit 1. Do not replace
+the digest merely to make a failed preflight pass.
+
+Lead implements and coordinates; PR Reviewer independently reviews exact source;
+Router & Release Validation owns authorized live-router/browser and release
+qualification. Lead must not absorb specialist execution because its tools are
+available. Messaging and protected operations still require their separate
+human authorization. If a registered chat is unavailable or an alternate chat
+is proposed, stop and obtain owner agreement before changing the binding; never
+silently substitute another agent or create a permanent fourth chat.
+
+Existing valid reports keep their original identities and protocol. A historical
+routing mistake alone is not a reason to repeat review, rewrite report IDs or
+invalidate evidence. Record the exception and use the registered roles for new
+assignments. Monitor the active specialist through completion and the applicable
+verified receipt, not just CI. Use one bounded follow-up, pause on completion or
+blocker, and keep restoration unproven until its evidence is read. Do not leave
+staged router files awaiting owner visual acceptance: restore before stopping.
+
 Keep a secret-free task-scoped checkpoint outside tracked files. Its first
 section is **Current state**, with these required fields:
 

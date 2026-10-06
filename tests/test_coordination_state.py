@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Secret-free API fixtures for exact-assignment monitor lifecycle decisions."""
 import copy
+import hashlib
 import importlib.util
 import json
 import subprocess
@@ -165,6 +166,80 @@ class CoordinationStateTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 1)
                 self.assertEqual(json.loads(result.stdout)["state"], "HOLD_INVALID")
                 self.assertNotIn("do-not-echo", result.stdout + result.stderr)
+
+
+class RoutingTests(unittest.TestCase):
+    def setUp(self):
+        self.registry = {"schema_version": 1, "roles": {
+            "lead": "00000000-0000-4000-8000-000000000001",
+            "reviewer": "00000000-0000-4000-8000-000000000002",
+            "router_validation": "00000000-0000-4000-8000-000000000003"}}
+
+    def classify(self, role="router_validation", task=None):
+        result = module.routing_decision(self.registry, role,
+            task or self.registry["roles"]["router_validation"])
+        self.assertEqual(result["protected_authority"], "NONE")
+        self.assertEqual(result["dispatch_authority"], "NONE")
+        return result["state"]
+
+    def test_exact_roles_match_without_granting_authority(self):
+        for role, task in self.registry["roles"].items():
+            self.assertEqual(self.classify(role, task), "ROUTE_MATCH")
+
+    def test_lead_cannot_substitute_for_validator_or_reviewer(self):
+        for role in ("reviewer", "router_validation"):
+            self.assertEqual(self.classify(role, self.registry["roles"]["lead"]), "HOLD_ROUTING")
+
+    def test_unregistered_substitute_holds(self):
+        self.assertEqual(self.classify("reviewer", "00000000-0000-4000-8000-000000000004"),
+                         "HOLD_ROUTING")
+
+    def test_duplicate_missing_extra_or_invalid_roles_hold(self):
+        original = copy.deepcopy(self.registry)
+        bad = [None, [], {}, {"schema_version": True, "roles": original["roles"]}]
+        for roles in ({}, {**original["roles"], "extra": "x"},
+                      {**original["roles"], "reviewer": original["roles"]["lead"]},
+                      {**original["roles"], "reviewer": "not-a-uuid"},
+                      {**original["roles"], "reviewer": []}):
+            bad.append({"schema_version": 1, "roles": roles})
+        for registry in bad:
+            with self.subTest(registry=registry):
+                self.assertEqual(module.routing_decision(registry, "reviewer", "x")["state"],
+                                 "HOLD_ROUTING")
+
+    def test_unknown_role_and_noncanonical_uuid_hold(self):
+        self.assertEqual(self.classify("alternate"), "HOLD_ROUTING")
+        self.registry["roles"]["reviewer"] = "00000000000040008000000000000002"
+        self.assertEqual(self.classify(), "HOLD_ROUTING")
+
+    def test_pure_idempotent_nonmutating(self):
+        before = copy.deepcopy(self.registry)
+        self.assertEqual(self.classify(), self.classify())
+        self.assertEqual(before, self.registry)
+
+    def test_cli_digest_duplicate_and_size_guards(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "roles.json"
+            valid = json.dumps(self.registry)
+            for raw, digest, expected in (
+                (valid, hashlib.sha256(valid.encode()).hexdigest(), "ROUTE_MATCH"),
+                (valid, "0" * 64, "HOLD_ROUTING"),
+                ('{"roles":{},"roles":{},"secret":"do-not-echo"}', None, "HOLD_ROUTING"),
+                ("x" * (module.MAX_BYTES + 1), None, "HOLD_ROUTING")):
+                path.write_text(raw)
+                digest = digest or hashlib.sha256(raw.encode()).hexdigest()
+                out = subprocess.run(["python3", str(SCRIPT), "--role-registry", str(path),
+                    "--registry-sha256", digest, "--role", "router_validation", "--task-id",
+                    self.registry["roles"]["router_validation"]], capture_output=True, text=True)
+                self.assertEqual(out.returncode, 0 if expected == "ROUTE_MATCH" else 1)
+                self.assertEqual(json.loads(out.stdout)["state"], expected)
+                self.assertNotIn("do-not-echo", out.stdout + out.stderr)
+
+    def test_cli_modes_cannot_mix_or_omit_expected_identity(self):
+        for args in (["--role-registry", "x"], ["--snapshot", "x"],
+                     ["--role-registry", "x", "--snapshot", "y"]):
+            out = subprocess.run(["python3", str(SCRIPT), *args], capture_output=True, text=True)
+            self.assertEqual(out.returncode, 2)
 
 
 if __name__ == "__main__":

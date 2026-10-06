@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
-"""Read-only stop/wait decisions for one exact-identity PR CI monitor.
+"""Read-only exact-identity CI decisions and registered-chat routing preflight.
 
 No network, scheduler, review, Git, signing or approval operations are performed.
-The caller supplies freshly collected GitHub REST PR/run records, not summaries.
+CI callers supply fresh GitHub REST records. Routing callers supply a private
+registry pinned by its original digest; a match never grants dispatch authority.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from uuid import UUID
 
 MAX_BYTES = 1024 * 1024
 MAX_AGE_SECONDS = 300
@@ -20,6 +23,28 @@ SHA = re.compile(r"[0-9a-f]{40}\Z")
 ACTIVE = {"queued", "in_progress", "waiting", "requested", "pending"}
 CONCLUSIONS = {"success", "failure", "cancelled", "timed_out", "skipped",
                "action_required", "neutral", "stale", "startup_failure"}
+ROLES = {"lead", "reviewer", "router_validation"}
+
+
+def routing_decision(registry: dict, role: str, task_id: str) -> dict:
+    """Validate destination against a pinned local registry, not permission."""
+    invalid = {"state": "HOLD_ROUTING", "protected_authority": "NONE",
+               "dispatch_authority": "NONE"}
+    try:
+        if (set(registry) != {"schema_version", "roles"}
+                or type(registry["schema_version"]) is not int
+                or registry["schema_version"] != 1
+                or set(registry["roles"]) != ROLES or role not in ROLES):
+            return invalid
+        ids = list(registry["roles"].values())
+        if (len(set(ids)) != len(ROLES)
+                or any(not isinstance(i, str) or str(UUID(i)) != i for i in ids)
+                or task_id != registry["roles"][role]):
+            return invalid
+        return {"state": "ROUTE_MATCH", "role": role, "task_id": task_id,
+                "protected_authority": "NONE", "dispatch_authority": "NONE"}
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return invalid
 
 
 def decision(snapshot: dict, repository: str, pr_number: int, head: str,
@@ -103,18 +128,33 @@ def decision(snapshot: dict, repository: str, pr_number: int, head: str,
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--snapshot", required=True, type=Path)
-    parser.add_argument("--repository", required=True)
-    parser.add_argument("--pr", required=True, type=int)
-    parser.add_argument("--head", required=True)
-    parser.add_argument("--base", required=True)
-    parser.add_argument("--run-id", required=True, type=int, action="append")
+    inputs = parser.add_mutually_exclusive_group(required=True)
+    inputs.add_argument("--snapshot", type=Path)
+    inputs.add_argument("--role-registry", type=Path)
+    parser.add_argument("--registry-sha256")
+    parser.add_argument("--role", choices=sorted(ROLES))
+    parser.add_argument("--task-id")
+    parser.add_argument("--repository")
+    parser.add_argument("--pr", type=int)
+    parser.add_argument("--head")
+    parser.add_argument("--base")
+    parser.add_argument("--run-id", type=int, action="append")
     args = parser.parse_args()
+    ci_args = (args.repository, args.pr, args.head, args.base, args.run_id)
+    routing_args = (args.registry_sha256, args.role, args.task_id)
+    if args.role_registry:
+        if not all(routing_args) or any(x is not None for x in ci_args):
+            parser.error("routing mode requires digest, role and task ID only")
+    elif not all(x is not None for x in ci_args) or any(x is not None for x in routing_args):
+        parser.error("CI mode requires repository, PR, head, base and run IDs only")
     try:
-        with args.snapshot.open("rb") as stream:
+        with (args.role_registry or args.snapshot).open("rb") as stream:
             raw = stream.read(MAX_BYTES + 1)
         if len(raw) > MAX_BYTES:
             raise ValueError("oversize")
+        if args.role_registry and (not re.fullmatch(r"[0-9a-f]{64}", args.registry_sha256)
+                                  or hashlib.sha256(raw).hexdigest() != args.registry_sha256):
+            raise ValueError("registry changed")
         # Duplicate JSON fields would make identities ambiguous.
         def unique(pairs):
             obj = {}
@@ -124,13 +164,20 @@ def main() -> int:
                 obj[key] = value
             return obj
         snapshot = json.loads(raw, object_pairs_hook=unique)
-        outcome = decision(snapshot, args.repository, args.pr, args.head, args.base,
-                           tuple(args.run_id), datetime.now(timezone.utc))
+        if args.role_registry:
+            outcome = routing_decision(snapshot, args.role, args.task_id)
+        else:
+            outcome = decision(snapshot, args.repository, args.pr, args.head, args.base,
+                               tuple(args.run_id), datetime.now(timezone.utc))
     except (OSError, ValueError, RecursionError):
-        outcome = {"state": "HOLD_INVALID", "monitor_action": "PAUSE_AND_REFRESH_EVIDENCE",
-                   "protected_authority": "NONE", "review_gate": "UNPROVEN"}
+        if args.role_registry:
+            outcome = {"state": "HOLD_ROUTING", "protected_authority": "NONE",
+                       "dispatch_authority": "NONE"}
+        else:
+            outcome = {"state": "HOLD_INVALID", "monitor_action": "PAUSE_AND_REFRESH_EVIDENCE",
+                       "protected_authority": "NONE", "review_gate": "UNPROVEN"}
     print(json.dumps(outcome, sort_keys=True))
-    return 1 if outcome["state"] == "HOLD_INVALID" else 0
+    return 1 if outcome["state"] in {"HOLD_INVALID", "HOLD_ROUTING"} else 0
 
 
 if __name__ == "__main__":
