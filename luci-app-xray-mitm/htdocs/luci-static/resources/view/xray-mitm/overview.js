@@ -9,6 +9,23 @@
 /* Keep this fallback synchronized with xray-mitm/Makefile PKG_VERSION. */
 var PROJECT_VERSION = '0.4.5';
 
+function servicePresentation(status) {
+	var kind = state.serviceState(status);
+	return {
+		kind: kind,
+		label: kind === 'running' ? _('Running') : (kind === 'stopped' ? _('Stopped') : _('Unknown')),
+		tone: kind === 'running' ? 'good' : 'warn'
+	};
+}
+
+function mitmRoutingWarning(status) {
+	return state.serviceState(status) === 'stopped' ? _(
+		'MITM Domain Fronting is stopped. You can review choices, but a preview containing MITM-Compatible Services cannot be applied until the service is running.'
+	) : _(
+		'MITM Domain Fronting status is unknown. Check the service status before applying a preview containing MITM-Compatible Services; a confirmed running service is required.'
+	);
+}
+
 var callGetStatus = rpc.declare({
 	object: 'luci.xray-mitm',
 	method: 'getStatus',
@@ -494,7 +511,7 @@ return view.extend({
 				E('p', { style: 'opacity:.82' }, _('Applying this routing may briefly interrupt traffic. Keep this page open while PassWall2 restarts and confirms the changes.'))
 			];
 			if (blocked)
-				children.push(E('div', { class: 'alert-message warning' }, _('Start MITM before applying this routing setup.')));
+				children.push(E('div', { class: 'alert-message warning' }, mitmRoutingWarning(this.status)));
 			if (this.planToken && !blocked)
 				children.push(E('button', {
 					class: 'btn cbi-button-positive',
@@ -623,9 +640,7 @@ return view.extend({
 			dom.content(output, [
 				E('h4', {}, _('Preview')),
 				operationList(plan),
-				mitmRequiredButStopped ? E('div', { class: 'alert-message danger' }, _(
-					'Start MITM Domain Fronting before applying this preview. MITM-Compatible Services would otherwise point to an unavailable local SOCKS listener.'
-				)) : '',
+				mitmRequiredButStopped ? E('div', { class: 'alert-message danger' }, mitmRoutingWarning(this.status)) : '',
 					plan.warning ? E('div', { class: 'alert-message warning' }, textNode(plan.warning)) : ''
 				]);
 
@@ -825,6 +840,7 @@ return view.extend({
 	},
 
 	overviewStatusStrip: function(status, certificates, passwall) {
+		var service = servicePresentation(status);
 		var passwallState = (this.setup && this.setup.passwall2) || {};
 		var capability = state.passwallCapability(passwallState);
 		var routingState = (passwall && passwall.routing_state) || {};
@@ -832,8 +848,8 @@ return view.extend({
 		var cards = [
 			{
 				icon: '◆', label: _('MITM service'),
-				value: status.running === true ? _('Running') : _('Stopped'),
-				tone: status.running === true ? 'good' : 'warn', detail: '127.0.0.1:10808'
+				value: service.label,
+				tone: service.tone, detail: '127.0.0.1:10808'
 			},
 			{
 				icon: '◉', label: _('PassWall2'),
@@ -954,6 +970,7 @@ return view.extend({
 	},
 
 	renderSimple: function(setup, status, certificates, passwall, page) {
+		var service = servicePresentation(status);
 		var current = slotData(certificates, 'current');
 		var certificateReady = setup.certificate && setup.certificate.ready === true;
 		var candidateAttention = setup.certificate && setup.certificate.candidate_requires_attention === true;
@@ -994,8 +1011,7 @@ return view.extend({
 					setup.config && setup.config.present === true ? 'good' : 'warn'),
 				this.simpleStateRow(_('Certificate'), certificateReady ? _('Ready') : (setupBlocked ? _('Needs attention') : _('Needed')),
 					certificateReady ? 'good' : 'warn'),
-				this.simpleStateRow(_('MITM service'), status.running === true ? _('Running') : _('Stopped'),
-					status.running === true ? 'good' : 'warn'),
+				this.simpleStateRow(_('MITM service'), service.label, service.tone),
 				setupBlocked ? E('div', { class: 'alert-message warning' }, candidateAttention ? _(
 					'A certificate candidate already exists. Open Advanced settings to review it before continuing.'
 				) : _('Existing certificate files need attention. Open Advanced settings to review them.')) : '',
@@ -1079,7 +1095,7 @@ return view.extend({
 			E('div', { id: 'xray-mitm-simple-status', class: 'cbi-section cbi-tabcontainer',
 				'data-dashboard-panel-mode': 'basic', 'data-dashboard-panel-page': 'status', style: pageStyle('status') }, [
 				E('h3', {}, _('Status')),
-				this.simpleStateRow(_('MITM'), status.running === true ? _('Running') : _('Stopped'), status.running === true ? 'good' : 'warn'),
+				this.simpleStateRow(_('MITM'), service.label, service.tone),
 				this.simpleStateRow(_('Routing'), basicRoutingStatus.kind === 'recommended' ? _('Recommended') :
 					(basicRoutingStatus.kind === 'custom' ? _('Custom') : _('Not configured')),
 					basicRoutingStatus.tone),
@@ -1098,6 +1114,7 @@ return view.extend({
 	},
 
 	renderSetupGuide: function(status, certificates, passwall) {
+		var service = servicePresentation(status);
 		var current = slotData(certificates, 'current');
 		var routing = (passwall && passwall.routing_state) || {};
 		var progress = state.setupProgress(status, certificates, { routing_state: routing });
@@ -1118,9 +1135,11 @@ return view.extend({
 			},
 			{
 				number: '3',
-				title: _('Start MITM'),
+				title: service.kind === 'unknown' ? _('Check MITM status') : _('Start MITM'),
 				done: status.running === true,
-				description: status.running === true ? _('The local service is running.') : _('Start the service before enabling MITM-Compatible Services.')
+				description: service.kind === 'running' ? _('The local service is running.') :
+					(service.kind === 'stopped' ? _('Start the service before enabling MITM-Compatible Services.') :
+						_('Service status is unknown. Check its status before enabling MITM-Compatible Services.'))
 			},
 			{
 				number: '4',
@@ -1160,8 +1179,8 @@ return view.extend({
 	},
 
 	renderService: function(status) {
-		var running = status.running === true ? _('Running') :
-			(status.running === false ? _('Stopped') : _('Unknown'));
+		var service = servicePresentation(status);
+		var running = service.label;
 		var enabled = status.enabled === true ? _('Enabled') :
 			(status.enabled === false ? _('Disabled') : _('Unknown'));
 		var configured = status.configured === true ? _('Ready') :
@@ -1311,6 +1330,7 @@ return view.extend({
 			return ruleSources[name] === 'existing';
 		});
 		var mitmRunning = this.status && this.status.running === true;
+		var service = servicePresentation(this.status);
 		var readinessTone = canPlan ? 'good' : 'warn';
 		var selectionChanged = L.bind(this.routingSelectionChanged, this);
 
@@ -1337,7 +1357,7 @@ return view.extend({
 				]),
 				E('div', { style: 'padding:.85rem 1rem;border:1px solid var(--border-color-medium,#ccc);border-radius:.45rem' }, [
 					E('small', { style: 'display:block;opacity:.75;margin-bottom:.3rem' }, _('MITM service')), statusPill(
-						mitmRunning ? _('Running') : _('Stopped'), mitmRunning ? 'good' : 'warn')
+						service.label, service.tone)
 				]),
 				E('div', { style: 'padding:.85rem 1rem;border:1px solid var(--border-color-medium,#ccc);border-radius:.45rem' }, [
 					E('small', { style: 'display:block;opacity:.75;margin-bottom:.3rem' }, _('Local SOCKS node')), statusPill(
@@ -1393,9 +1413,7 @@ return view.extend({
 				hasExistingRules ? E('div', { class: 'alert-message notice' }, _(
 					'Recognized older rules were found. Their definitions will be preserved while this assistant replaces their selected-shunt assignments with the three managed rules.'
 				)) : '',
-				!mitmRunning ? E('div', { class: 'alert-message warning' }, _(
-					'MITM Domain Fronting is stopped. You can review choices, but a preview containing MITM-Compatible Services cannot be applied until the service is running.'
-				)) : '',
+				!mitmRunning ? E('div', { class: 'alert-message warning' }, mitmRoutingWarning(this.status)) : '',
 				routingRuleCard('1', _('VPN Overrides'), _('Destination: selected VPN connection'), _(
 					'Put only services that need the normal VPN in this higher-priority rule.'
 				), [
