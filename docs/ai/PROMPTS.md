@@ -23,6 +23,13 @@ reusable specialist role templates, not permanent Works. Every non-Lead Work
 returns its report to Development Lead — Owner Console and must not select,
 authorize, or prompt the next Work.
 
+Bind these roles to the owner's existing exact chat IDs and run the routing
+preflight in `docs/ai/COORDINATION.md` before each specialist assignment. Lead
+coordinates rather than executing specialist router/browser validation. Do not
+substitute another chat silently or repeat a valid historical review just to
+change its routing. Registry consistency never grants messaging or protected
+operation authority.
+
 Report delivery is a hard completion gate, not a status assumption. Every
 request must include the exact `Handoff repository root`, `Source task thread
 ID`, `Lead task thread ID`, and unique `Report ID`. Before stopping, a non-Lead
