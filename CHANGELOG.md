@@ -7,11 +7,19 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.6] - 2026-10-07
+
 ### Fixed
 
 - Show unknown MITM service status as Unknown rather than Stopped in LuCI
   summaries and routing guidance, while still requiring a confirmed running
   service for MITM-dependent routing previews.
+
+### Compatibility limitations
+
+- The release target remains OpenWrt 25.12/APK-only: no IPK release assets or
+  default public signed OpenWrt 24.10 feed. IPK builds and the opkg installer
+  remain groundwork, not native 24.10 runtime or hardware qualification.
 
 ## [0.4.5] - 2026-09-26
 
@@ -224,7 +232,8 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - LuCI service, certificate lifecycle, health-check, and optional PassWall2 controls.
 - English and Persian installation and operating instructions.
 
-[Unreleased]: https://github.com/duuuude/xray-mitm-openwrt/compare/v0.4.5...HEAD
+[Unreleased]: https://github.com/duuuude/xray-mitm-openwrt/compare/v0.4.6...HEAD
+[0.4.6]: https://github.com/duuuude/xray-mitm-openwrt/compare/v0.4.5...v0.4.6
 [0.4.5]: https://github.com/duuuude/xray-mitm-openwrt/compare/v0.4.4...v0.4.5
 [0.4.4]: https://github.com/duuuude/xray-mitm-openwrt/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/duuuude/xray-mitm-openwrt/compare/v0.4.2...v0.4.3

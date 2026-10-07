@@ -1,6 +1,6 @@
 # Xray MITM OpenWrt — Master Plan
 
-Status: milestone roadmap; last audited 2026-10-05
+Status: milestone roadmap; last audited 2026-10-07
 
 This plan is based on the actual canonical repository, not on an earlier plan
 or historical checkout.
@@ -11,8 +11,8 @@ The authoritative source is:
 
 - Repository: `https://github.com/duuuude/xray-mitm-openwrt.git`
 - Public branch: `main`
-- Review/audit baseline: `2995312e51539630993baafb4310f98c036333e2`, observed
-  `main` at the 2026-10-05 audit after PR #97. This is a milestone baseline,
+- Review/audit baseline: `20ca07b44e2afbf49d3c27e0927b543a545a239d`, observed
+  `main` at the 2026-10-07 audit after PR #99. This is a milestone baseline,
   not a requirement to rewrite the plan after every merge.
 - Published package baseline: `v0.4.5`, `0.4.5-r1`, for the 25.12/APK feed;
   published 2026-10-02. Later development commits do not retarget that release.
@@ -64,12 +64,33 @@ production signing, a new release or native 24.10 runtime qualification. The
 local Docker Desktop non-owner key-read-denial test remains failed/not waived;
 native Linux qualification does not repair that host isolation limitation.
 
-The owner selected a narrow Task D source fix: distinguish unknown MITM service
-state from explicitly stopped in LuCI summaries and warnings. Existing
-fail-closed routing/service-action guards remain unchanged. This source work
-does not authorize router staging, browser qualification, merge or publication;
-its exact-candidate AX4200/browser gate remains required and unproven until
-separately performed. No broader PassWall2 redesign or controller is selected.
+## Milestone reconciliation — 2026-10-07
+
+[PR #98](https://github.com/duuuude/xray-mitm-openwrt/pull/98) completed Task D:
+unknown MITM service state is distinguished from explicitly stopped in LuCI
+summaries and warnings; fail-closed routing/service-action guards are unchanged.
+Its exact candidate `9db8434429526f108a58ec9611a4c858561f2e89` passed independent
+whole-source review, applicable CI and receipt verification. Authenticated
+running-state AX4200 UI staging and protected baseline restoration passed;
+the owner accepted the captured layout. Isolated Chrome stopped/unknown fixtures
+passed 9/9 with their separate report/receipts. These simulated states are not
+genuine stopped/unknown AX4200 runtime evidence. Native package installation
+and a new release were not performed. Merge `fd0cc483c42f8d8c0565eed5e72c219055532801`
+and its APK/IPK builds passed. Do not replay those gates or manufacture an
+outage/failure-injection requirement.
+
+[PR #99](https://github.com/duuuude/xray-mitm-openwrt/pull/99) completed the
+registered-chat routing guard at `20ca07b44e2afbf49d3c27e0927b543a545a239d`.
+Its independent designated PR Reviewer review/receipt and exact-candidate checks
+passed; the exact-main APK run `37583480020` succeeded. This is coordination and
+build evidence, not signing, installation or publication evidence.
+
+The owner authorized a small **v0.4.6 release-preparation PR** on 2026-10-07:
+package/display version, dated changelog and this meaningful milestone update.
+v0.4.6 remains unpublished. Merge, exact merged-main preflight and artifact
+qualification, production signing/tagging and publication remain separate gates;
+the existing 0.4.5 artifact and immutable lab-signer pin must not be reused as
+0.4.6 package evidence. Public release scope remains 25.12/APK-only.
 
 ## Historical merged and lab evidence through 2026-10-01
 
@@ -626,9 +647,9 @@ matrix or clearly label manual inputs as unsupported experiments.
 
 ## Priority order and PR discipline
 
-The audited main is `2995312e51539630993baafb4310f98c036333e2`. Published
+The audited main is `20ca07b44e2afbf49d3c27e0927b543a545a239d`. Published
 v0.4.5 remains pinned to its separately verified release commit. No product
-implementation or new release is authorized by this reconciliation. The local
+implementation or release publication is authorized by this reconciliation. The local
 lab helper's immutable `c5fb835…` pin is separate from the production publisher;
 do not silently update it to follow main. This audit did not inspect the live
 router or temporary feed and makes no new health or cleanup claim.
@@ -637,13 +658,13 @@ Use one coherent candidate, applicable offline/CI gates and independent
 review-v2. Request explicit owner squash-merge approval only after those gates
 and required manual gates pass. Review hashes prove consistency, not authorship
 or reviewer judgment.
-Do not create duplicate monitors or a release cycle for this UI-only fix;
-applicable package CI and the browser gate remain required. Do not reopen
-completed reviews merely because CI finishes later.
+Do not create duplicate monitors or reopen completed UI reviews/browser gates
+merely because CI finishes later. The owner-selected release preparation is a
+new metadata candidate requiring its own independent review and applicable CI.
 
 | Priority | Next action / initiative | Type | Reason |
 | --- | --- | --- | --- |
-| 1 | Complete the owner-selected truthful LuCI service-state presentation fix; stop before owner-gated router staging and merge. | Scoped Task D source work | Unknown must not be labeled Stopped; safety guards and independent source/CI/browser gates remain intact. |
+| 1 | Prepare v0.4.6 metadata and qualify this exact preparation candidate; stop before separately owner-approved merge/signing/publication. | Owner-selected release preparation | Task D and registered-role routing are complete; dated release metadata and meaningful milestone reconciliation are the remaining preparation work. |
 | 2 | Select any later unresolved product/manual-qualification item only with a scoped assignment; native 24.10/IPK and public distribution require their own evidence. | Proposed later work | Package builds and installer trust groundwork do not establish native runtime, hardware behavior or installed-package rollback. |
 
 ## Completed Stage 3 qualification record — merged PR #41
@@ -913,16 +934,15 @@ A documentation milestone does not itself initiate this release sequence.
 
 ## Recommended next state change
 
-### Proposed next slice: disposable-key signing-component regression
+### Owner-selected next slice: v0.4.6 release preparation
 
-After this documentation candidate is qualified and separately merged by the
-owner, recommend a bounded regression slice for the existing protected signing
-component. Freeze its exact source and pinned SDK; use disposable keys and
-temporary index copies to exercise strict verification, unchanged APK hashes,
-checksum working-directory handling, restrictive key-file permissions and
-cleanup on both success and failure. No production key, router, release asset,
-tag replacement or new publication belongs to that test slice. Its scope and
-implementation require a separate assignment; it is not started by this plan.
+The disposable-key signing-component regression is complete in PR #97, with
+the host-isolation limitation preserved above; it is not the next task to replay.
+Finish one small v0.4.6 metadata/milestone PR, validate it and obtain independent
+exact-candidate review and applicable CI. Request separate owner squash-merge
+approval after readiness. Then qualify fresh merged main with release preflight
+and its own exact-version APK artifact before requesting any production
+signing/tag/publication authority. Do not republish or retarget public v0.4.5.
 
 Keep issue #27 open while native 24.10/IPK qualification and a supported public
 distribution path are missing. A draft update may explain completed IPK builds
