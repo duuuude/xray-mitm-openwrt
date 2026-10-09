@@ -275,7 +275,9 @@ No automatic default merging or `.apk-new` suppression is permitted.
 On the MAC, classify an already collected secret-free metadata snapshot with:
 
 ```sh
-python3 scripts/apk-config-delta.py --phase upgrade --snapshot /absolute/path/evidence.json
+python3 scripts/apk-config-delta.py --phase upgrade --snapshot /absolute/path/evidence.json \
+  --expected-candidate FULL_VERIFIED_CANDIDATE_SHA \
+  --expected-package VERIFIED_CORE_APK_SHA256
 ```
 
 The snapshot has exactly these fields: `config_path` (the exact active path),
@@ -287,6 +289,11 @@ after complete comparison). Each file metadata object has exactly `kind`
 as `0600`); only the two `.apk-new` objects may be null, meaning confirmed
 absence, never an omitted observation. Include no configuration contents.
 
+Expected identities must come from the independently verified assignment and
+signed package evidence, not be copied from the snapshot being checked. Both
+required inputs must match the snapshot exactly; a different valid digest also
+returns `HOLD`. Positive output includes the matched `candidate_sha` and
+`package_sha256` for attribution. This proves identity consistency, not trust.
 `EXPECTED_APK_NEW` or `UNCHANGED` classifies supplied config evidence only.
 The helper does not collect evidence or verify its authenticity/signatures;
 it does not authorize mutations or prove installation/runtime/browser PASS.

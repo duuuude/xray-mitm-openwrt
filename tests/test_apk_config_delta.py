@@ -24,9 +24,12 @@ class ConfigDeltaTests(unittest.TestCase):
                              apk_new_before=None, apk_new_after=self.new, other_config_deltas=[])
 
     def state(self, phase="upgrade"):
-        out = module.classify(self.snapshot, phase)
+        out = module.classify(self.snapshot, phase, "c" * 40, "d" * 64)
         self.assertEqual(out["live_validation"], "UNPROVEN")
         self.assertEqual(out["mutation_authority"], "NONE")
+        if out["config_delta"] != "HOLD":
+            self.assertEqual(out["candidate_sha"], "c" * 40)
+            self.assertEqual(out["package_sha256"], "d" * 64)
         return out["config_delta"]
 
     def test_exact_new_default_allowed_only_for_upgrade(self):
@@ -72,13 +75,29 @@ class ConfigDeltaTests(unittest.TestCase):
             with self.subTest(key=key):
                 snapshot = copy.deepcopy(self.snapshot)
                 snapshot[key] = value
-                self.assertEqual(module.classify(snapshot, "upgrade")["config_delta"], "HOLD")
+                self.assertEqual(module.classify(snapshot, "upgrade", "c" * 40, "d" * 64)["config_delta"], "HOLD")
+
+    def test_different_valid_snapshot_identities_block_in_both_phases(self):
+        for key, value in (("candidate_sha", "e" * 40), ("package_sha256", "e" * 64)):
+            for phase in ("upgrade", "rollback"):
+                for sidecar in (None, self.new):
+                    with self.subTest(key=key, phase=phase, sidecar=sidecar):
+                        snapshot = {**self.snapshot, key: value, "apk_new_after": sidecar}
+                        out = module.classify(snapshot, phase, "c" * 40, "d" * 64)
+                        self.assertEqual(out["config_delta"], "HOLD")
+                        self.assertNotIn("candidate_sha", out)
+                        self.assertNotIn("package_sha256", out)
+
+    def test_wrong_or_malformed_expected_identities_block(self):
+        for candidate, package in (("e" * 40, "d" * 64), ("c" * 40, "e" * 64),
+                                   (None, "d" * 64), ("c" * 40, "")):
+            self.assertEqual(module.classify(self.snapshot, "upgrade", candidate, package)["config_delta"], "HOLD")
 
     def test_missing_extra_and_malformed_metadata_block(self):
         for snapshot in (None, {}, {**self.snapshot, "extra": True},
                          {**self.snapshot, "active_after": None},
                          {**self.snapshot, "package_default": {"sha256": "b" * 64, "size": True}}):
-            self.assertEqual(module.classify(snapshot, "upgrade")["config_delta"], "HOLD")
+            self.assertEqual(module.classify(snapshot, "upgrade", "c" * 40, "d" * 64)["config_delta"], "HOLD")
 
     def test_boolean_metadata_not_integer(self):
         self.snapshot["apk_new_after"] = {**self.new, "uid": False}
@@ -91,10 +110,25 @@ class ConfigDeltaTests(unittest.TestCase):
                                ('{"x":1,"x":2}', 1), ("x" * 4097, 1)):
                 path.write_text(text)
                 result = subprocess.run(["python3", str(SCRIPT), "--phase", "upgrade",
+                                         "--expected-candidate", "c" * 40,
+                                         "--expected-package", "d" * 64,
                                          "--snapshot", str(path)], capture_output=True, text=True)
                 self.assertEqual(result.returncode, code)
                 self.assertNotIn("DO_NOT_ECHO", result.stdout + result.stderr)
                 self.assertEqual(json.loads(result.stdout)["live_validation"], "UNPROVEN")
+
+    def test_cli_requires_expected_identities_and_rejects_valid_mismatch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "snapshot.json"
+            path.write_text(json.dumps(self.snapshot))
+            base = ["python3", str(SCRIPT), "--phase", "upgrade", "--snapshot", str(path)]
+            missing = subprocess.run(base, capture_output=True, text=True)
+            self.assertEqual(missing.returncode, 2)
+            mismatch = subprocess.run(base + ["--expected-candidate", "e" * 40,
+                                              "--expected-package", "d" * 64],
+                                      capture_output=True, text=True)
+            self.assertEqual(mismatch.returncode, 1)
+            self.assertEqual(json.loads(mismatch.stdout)["config_delta"], "HOLD")
 
 
 if __name__ == "__main__":

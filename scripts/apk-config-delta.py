@@ -32,10 +32,12 @@ def metadata(value):
         raise ValueError("invalid mode")
 
 
-def classify(snapshot, phase):
+def classify(snapshot, phase, expected_candidate, expected_package):
     result = {"config_delta": "HOLD", "phase": phase,
               "live_validation": "UNPROVEN", "mutation_authority": "NONE"}
     try:
+        digest(expected_candidate, 40)
+        digest(expected_package)
         if phase not in ("upgrade", "rollback"):
             raise ValueError("invalid phase")
         exact_keys(snapshot, ("config_path", "candidate_sha", "package_sha256",
@@ -45,6 +47,9 @@ def classify(snapshot, phase):
             raise ValueError("unexpected path")
         digest(snapshot["candidate_sha"], 40)
         digest(snapshot["package_sha256"])
+        if (snapshot["candidate_sha"] != expected_candidate
+                or snapshot["package_sha256"] != expected_package):
+            raise ValueError("snapshot identity mismatch")
         default = snapshot["package_default"]
         exact_keys(default, ("sha256", "size"))
         digest(default["sha256"])
@@ -69,6 +74,7 @@ def classify(snapshot, phase):
             result["config_delta"] = "EXPECTED_APK_NEW"
         else:
             raise ValueError("apk-new baseline differs; exact restoration not proven")
+        result.update(candidate_sha=expected_candidate, package_sha256=expected_package)
     except (ValueError, TypeError, KeyError):
         # Do not echo supplied data: a malformed snapshot may contain secrets.
         result["config_delta"] = "HOLD"
@@ -88,6 +94,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--phase", choices=("upgrade", "rollback"), required=True)
     parser.add_argument("--snapshot", type=Path, required=True)
+    parser.add_argument("--expected-candidate", required=True)
+    parser.add_argument("--expected-package", required=True)
     args = parser.parse_args()
     try:
         with args.snapshot.open("rb") as handle:
@@ -97,7 +105,7 @@ def main():
         snapshot = json.loads(data, object_pairs_hook=unique_object)
     except (OSError, ValueError, UnicodeError):
         snapshot = None
-    result = classify(snapshot, args.phase)
+    result = classify(snapshot, args.phase, args.expected_candidate, args.expected_package)
     print(json.dumps(result, sort_keys=True))
     return 1 if result["config_delta"] == "HOLD" else 0
 
