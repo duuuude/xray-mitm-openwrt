@@ -252,6 +252,60 @@ During installation and rollback:
 - Record the exact package-manager transaction result and stop on any trust,
   dependency, package-identity, or state-preservation failure.
 
+### APK protected configuration: expected delta, not automatic failure
+
+APK can preserve a modified active conffile and place the package's default in
+`/etc/config/xray-mitm.apk-new`. Existence alone is not an installation failure.
+See the [APK configuration preservation documentation](https://docs.alpinelinux.org/user-handbook/0.1a/Working/apk.html).
+Declare this possible delta BEFORE an owner-approved upgrade; do not retroactively
+clear a stopped historical test. Capture its pre-existing presence/absence and,
+if present, type, SHA-256, size, numeric owner/group and mode in the protected
+baseline. Never overwrite, merge, delete or activate a pre-existing file.
+
+The sole newly created config-file exception is this exact path, a non-symlink
+regular file owned by root/root with mode `0600`, whose size and SHA-256 match
+the default extracted from the independently verified exact signed core APK.
+A source-tree default alone is not artifact proof. Bind the default evidence to
+the exact candidate and package digest; independently verify signed index,
+trusted public key, package version and provenance before using it. The active
+config must remain byte-for-byte identical with unchanged type/owner/mode, and
+the complete relevant config inventory must have no other unexplained deltas.
+No automatic default merging or `.apk-new` suppression is permitted.
+
+On the MAC, classify an already collected secret-free metadata snapshot with:
+
+```sh
+python3 scripts/apk-config-delta.py --phase upgrade --snapshot /absolute/path/evidence.json
+```
+
+The snapshot has exactly these fields: `config_path` (the exact active path),
+`candidate_sha` (40 lowercase hex), `package_sha256` (64 lowercase hex),
+`package_default` (`sha256`, positive `size`), `active_before`, `active_after`,
+`apk_new_before`, `apk_new_after`, and `other_config_deltas` (empty list only
+after complete comparison). Each file metadata object has exactly `kind`
+(`regular`), `sha256`, `size`, `uid`, `gid`, and `mode` (four octal digits such
+as `0600`); only the two `.apk-new` objects may be null, meaning confirmed
+absence, never an omitted observation. Include no configuration contents.
+
+`EXPECTED_APK_NEW` or `UNCHANGED` classifies supplied config evidence only.
+The helper does not collect evidence or verify its authenticity/signatures;
+it does not authorize mutations or prove installation/runtime/browser PASS.
+Missing or malformed evidence, changed active config, an altered pre-existing
+file, wrong new-file bytes/metadata, or other unexplained config deltas is
+`HOLD` (exit 1): stop and follow the previously approved recovery procedure.
+Continue separately required service/CA/PassWall2/routing/firewall/DNS/world,
+package-version and browser checks only within existing owner scope. Account
+for intentional package-world changes separately; config classification does
+not approve them.
+
+For rollback, use the same checker with `--phase rollback` and the actual
+pre-transaction baseline. It allows NO new-file exception: presence, absence,
+bytes and metadata must match baseline. A leftover expected upgrade default
+still prevents exact restoration PASS. Preserve evidence and report the
+discrepancy; archive/removal needs an explicitly approved recovery/cleanup
+scope and independent post-action verification. This rule is not cleanup
+authority and does not waive any of the restoration requirements below.
+
 After rollback:
 
 1. Recheck package versions, service state, certificate metadata, PassWall2
